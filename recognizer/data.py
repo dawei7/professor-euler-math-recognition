@@ -123,7 +123,9 @@ class Packed:
 
 class InkSet(Dataset):
     def __init__(self, packs, vocab, train, max_tokens=160, limit=None):
-        self.items = [(p, i) for p in packs for i in range(len(p)) if len(vocab.encode(p.labels[i])) <= max_tokens]
+        # A lone flat stroke (a minus, an overline) scaled to a height of 1 overflows float16: such inks are left out.
+        self.items = [(p, i) for p in packs for i in range(len(p))
+                      if len(vocab.encode(p.labels[i])) <= max_tokens and math.isfinite(p.widths[i]) and math.isfinite(p.symbols[i])]
         if limit:
             self.items = random.Random(0).sample(self.items, min(limit, len(self.items)))
         self.vocab = vocab
