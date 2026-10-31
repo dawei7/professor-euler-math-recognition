@@ -1,55 +1,62 @@
 # Professor Euler math recognition
 
-Reads a handwritten formula on a Professor Euler canvas note and works out its result. This repository holds the model
-work: data preparation, training, evaluation and the export of the finished model. The app side (running the model, the
-calculator, the tool on the canvas) is built in the Professor Euler repository once the model is good enough.
+A small model that reads a handwritten formula and writes it as LaTeX, trained on Google's
+[MathWriting](https://github.com/google-research/google-research/tree/master/mathwriting) dataset and meant to run on a
+phone or tablet. It is being built for [Professor Euler](https://euler.dawei7.com), a free mathematics study app: on a canvas
+note, the learner circles a formula and gets back what was read and its result.
 
-## Owner decisions (31 October 2026)
+Work in progress: the model is in training and no weights are published yet.
 
-- **Canvas notes only.** No recognition on exercise, frame or timestamp sheets: there an answer would appear before Check.
-- **Circle a formula.** The learner circles a formula with the Calculate tool and gets what was read (typeset) and its
-  result. No live recognition while writing.
-- **A switch, off by default.**
-- **On the device**, on Android and Windows. No server: the learner's handwriting never leaves the device for this.
-- **No GPL code** in the app (the app's source is not public): the calculator is written in Kotlin or taken from an
-  MIT/Apache library.
+## What is here
 
-## Licences
+| Path | What it does |
+| --- | --- |
+| `tools/mathwriting_pack.py` | Packs MathWriting's 630,000 InkML files into one compact file per split, read straight from the archive. |
+| `recognizer/` | The recognizer: strokes rendered as an image, a MobileNetV2-style encoder (or a DenseNet-B one, as in WAP/DWAP) and a Transformer decoder that writes LaTeX tokens. About 4.3 M parameters. Training (`train.py`) and evaluation with beam search (`evaluate.py`). |
+| `reference/texteller_read.py` | Reads the same inks with [TexTeller](https://github.com/OleehyO/TexTeller) (about 300 M parameters), for comparison with a large open model. |
+| `tools/sheet_lines.py`, `tools/numbered_sheet.py` | Cut a Professor Euler canvas sheet into lines or numbered formulas. |
+| `test-sheet/formulas.md` | 38 calculator-style formulas to write by hand as a test: arithmetic, fractions, powers, roots, functions and equations. |
 
-| What | Licence | Consequence |
-| --- | --- | --- |
-| [MathWriting](https://github.com/google-research/google-research/tree/master/mathwriting) data (Google, 2024) | CC BY-NC-SA 4.0 | Noncommercial use only, which suits Professor Euler. A model trained on it is published under the same licence, with attribution in the app. |
-| MathWriting example code | Apache 2.0 | |
-| [BTTR](https://github.com/Green-Wood/BTTR) | MIT | May be used as a starting point, keeping its notice. Its published weights are trained on CROHME, whose data is offered for research, so they are a reference only. |
-| [TexTeller](https://github.com/OleehyO/TexTeller) | Apache 2.0 | Too large for the device; a reference for how well open models read. |
-| CoMER, PosFormer, TAMER | none published | Not used: without a licence, all rights are reserved. |
-
-## Data policy
-
-- `data/`, `models/`, `runs/` and `.venv/` are not committed (see `.gitignore`).
-- **The owner's handwriting is learner data and is never committed.** It is read only, from the app's own files, into
-  `data/owner/`.
-- Downloaded archives stay in `data/`; scripts that read them run with `python -I`.
-
-## Plan
-
-1. **Feasibility.** Read the MathWriting test set and the owner's test sheet (`test-sheet/formulas.md`) with the open
-   reference models. This shows how far open recognition gets on this handwriting.
-2. **Train a small model** on MathWriting (train, synthetic, symbols), the strokes rendered as images, with an encoder
-   and a decoder that writes LaTeX.
-3. **Export** to ONNX, quantize, and measure size, speed and accuracy on the tablet, the phone and the oldest supported
-   Android (API 29).
-4. **App integration** in the Professor Euler repository: ONNX Runtime, the calculator, the Calculate tool, the switch,
-   21 languages, tests.
-
-Targets for the model (the owner may change them): at least 90 % of the test sheet's lines read exactly, at most 20 MB,
-and at most 300 ms per formula on the tablet.
-
-## Setup
+## Use it
 
 ```
 python -m venv .venv
 .venv/Scripts/python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-.venv/Scripts/python -m pip install pillow numpy onnx onnxruntime
+.venv/Scripts/python -m pip install pillow numpy
 curl -L -o data/mathwriting-2024.tgz https://storage.googleapis.com/mathwriting_data/mathwriting-2024.tgz
+.venv/Scripts/python -I tools/mathwriting_pack.py data/mathwriting-2024.tgz data/packed
+.venv/Scripts/python -m recognizer.train --data data/packed --out runs/m1
+.venv/Scripts/python -m recognizer.evaluate --run runs/m1 --packed data/packed/test.npz
 ```
+
+(On Linux or macOS the interpreter is `.venv/bin/python`. The TexTeller comparison also needs `transformers`.) Packing
+takes about 16 minutes. On an RTX 4070 Ti SUPER the
+default run of 120,000 steps takes about three hours.
+
+## Results so far
+
+On 38 formulas of the test sheet in one person's handwriting, TexTeller read 31 exactly and 36 with at most one wrong
+token. Its mistakes: a 2 read as z, a 5 as s, a low multiplication dot as a decimal point, `|−7|` as `1-71`, and the lower
+half of a double fraction lost. The small model's figures follow when its training ends.
+
+## Design choices
+
+- **On the device.** The model is small enough for a phone, so handwriting never has to leave it.
+- **Rendered images, not raw strokes.** The ink is drawn at a size set by its own strokes, so a short `a+b` and a tall
+  double fraction show their symbols at the same size, as on paper.
+- **No GPL code**, so the model and its code can go into apps whose source is closed.
+
+## Licences
+
+- **This code:** MIT (see `LICENSE`).
+- **MathWriting data:** © Google LLC, [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Models
+  trained on it will be published under the same licence: noncommercial use, with attribution, shared alike.
+- **TexTeller:** Apache 2.0. It is only downloaded for the comparison, never redistributed here.
+
+The encoder and decoder were written anew after the published designs (WAP/DWAP, BTTR), not copied. CoMER, PosFormer and
+TAMER are not used, because their repositories publish no licence.
+
+## Data
+
+`data/`, `models/` and `runs/` stay out of the repository. Handwriting from real users is never committed. Scripts that
+read downloaded archives run with `python -I`.
