@@ -1,0 +1,178 @@
+"""Inks as the model sees them: strokes rendered as an anti-aliased grayscale image, ink white on black.
+
+The scale comes from the writing, not the box: the median size of a stroke is drawn about SYMBOL_PX high, so a short
+`a+b` and a tall double fraction show their symbols at the same size, as on a real sheet.
+"""
+import math
+import random
+
+import numpy as np
+import torch
+from PIL import Image, ImageDraw
+from torch.utils.data import Dataset
+
+from .vocab import PAD
+
+SYMBOL_PX = 28
+MAX_H, MAX_W = 256, 1280
+MARGIN = 6
+SUPERSAMPLE = 2
+
+
+def symbol_size(strokes):
+    sizes = [float(np.ptp(s, axis=0).max()) for s in strokes if len(s) > 1]
+    return float(np.median(sizes)) if sizes else 1.0
+
+
+def augment(strokes, rng):
+    """A small random slant, rotation and stretch of the whole ink, and a little wobble along each stroke."""
+    angle = math.radians(rng.uniform(-4, 4))
+    shear = rng.uniform(-0.2, 0.2)
+    sx = rng.uniform(0.85, 1.15)
+    m = np.array([[math.cos(angle), -math.sin(angle)], [math.sin(angle), math.cos(angle)]]) @ np.array([[sx, shear], [0, 1]])
+    size = symbol_size(strokes)
+    out = []
+    for s in strokes:
+        s = s @ m.T
+        if len(s) > 3:
+            wobble = np.cumsum(np.random.default_rng(rng.getrandbits(32)).normal(0, 0.004 * size, s.shape), axis=0)
+            s = s + wobble - wobble.mean(axis=0)
+        out.append(s)
+    return out
+
+
+def render(strokes, rng=None):
+    """A float32 image in 0..1, ink 1. `rng` set means training: size and pen width vary too."""
+    strokes = [np.asarray(s, dtype=np.float64) for s in strokes]
+    if rng is not None:
+        strokes = augment(strokes, rng)
+    every = np.concatenate(strokes)
+    low = every.min(axis=0)
+    extent = np.maximum(every.max(axis=0) - low, 1e-6)
+    scale = SYMBOL_PX * (rng.uniform(0.75, 1.3) if rng else 1.0) / max(symbol_size(strokes), 1e-6)
+    scale = min(scale, (MAX_W - 2 * MARGIN) / extent[0], (MAX_H - 2 * MARGIN) / extent[1])
+    w = int(math.ceil(extent[0] * scale)) + 2 * MARGIN
+    h = int(math.ceil(extent[1] * scale)) + 2 * MARGIN
+    h = max(h, 32)
+    pen = (rng.uniform(1.6, 3.6) if rng else 2.4) * SUPERSAMPLE
+    image = Image.new("L", (w * SUPERSAMPLE, h * SUPERSAMPLE), 0)
+    draw = ImageDraw.Draw(image)
+    offset = np.array([MARGIN, (h - extent[1] * scale) / 2])
+    for s in strokes:
+        pts = ((s - low) * scale + offset) * SUPERSAMPLE
+        pts = [tuple(p) for p in pts]
+        if len(pts) == 1 or max(abs(a - b) for p in pts for a, b in zip(p, pts[0])) < 1:
+            x, y = pts[0]
+            draw.ellipse((x - pen / 2, y - pen / 2, x + pen / 2, y + pen / 2), fill=255)
+        else:
+            draw.line(pts, fill=255, width=int(round(pen)), joint="curve")
+            for x, y in (pts[0], pts[-1]):
+                draw.ellipse((x - pen / 2, y - pen / 2, x + pen / 2, y + pen / 2), fill=255)
+    image = image.resize((w, h), Image.LANCZOS)
+    return np.asarray(image, dtype=np.float32) / 255.0
+
+
+class Packed:
+    """One packed split (see tools/mathwriting_pack.py)."""
+
+    def __init__(self, path):
+        z = np.load(path)
+        self.points = z["points"]
+        self.stroke_ends = z["stroke_ends"]
+        self.ink_ends = z["ink_ends"]
+        self.widths = z["widths"]
+        self.symbols = z["symbols"]
+        self.labels = [str(x) for x in z["labels"]]
+        self.ids = [str(x) for x in z["ids"]]
+
+    def __len__(self):
+        return len(self.labels)
+
+    def strokes(self, i):
+        first = self.ink_ends[i - 1] if i else 0
+        ends = self.stroke_ends[first:self.ink_ends[i]]
+        start = self.stroke_ends[first - 1] if first else 0
+        out = []
+        for end in ends:
+            out.append(self.points[start:end].astype(np.float64))
+            start = end
+        return out
+
+
+class InkSet(Dataset):
+    def __init__(self, packs, vocab, train, max_tokens=160, limit=None):
+        self.items = [(p, i) for p in packs for i in range(len(p)) if len(vocab.encode(p.labels[i])) <= max_tokens]
+        if limit:
+            self.items = random.Random(0).sample(self.items, min(limit, len(self.items)))
+        self.vocab = vocab
+        self.train = train
+
+    def __len__(self):
+        return len(self.items)
+
+    def size(self, k):
+        """The rendered size of item k without augmentation, (h, w) in pixels."""
+        pack, i = self.items[k]
+        scale = SYMBOL_PX / max(float(pack.symbols[i]), 1e-6)
+        scale = min(scale, (MAX_W - 2 * MARGIN) / max(float(pack.widths[i]), 1e-6), MAX_H - 2 * MARGIN)
+        return max(scale + 2 * MARGIN, 32), float(pack.widths[i]) * scale + 2 * MARGIN
+
+    def __getitem__(self, k):
+        pack, i = self.items[k]
+        rng = random.Random() if self.train else None
+        image = render(pack.strokes(i), rng)
+        return torch.from_numpy(image), torch.tensor(self.vocab.encode(pack.labels[i]), dtype=torch.long)
+
+
+class SizedBatches:
+    """Batches of inks of a similar size, each within a pixel budget (padding is the largest image's size), in random order."""
+
+    def __init__(self, dataset, budget, max_batch=64, seed=0):
+        self.sizes = [dataset.size(k) for k in range(len(dataset))]
+        self.budget = budget
+        self.max_batch = max_batch
+        self.rng = random.Random(seed)
+        self.count = len(self.batches(random.Random(seed)))
+
+    def batches(self, rng=None):
+        rng = rng or self.rng
+        order = list(range(len(self.sizes)))
+        rng.shuffle(order)
+        out = []
+        for c in range(0, len(order), 4096):
+            chunk = sorted(order[c:c + 4096], key=lambda k: (self.sizes[k][0], self.sizes[k][1]))
+            batch, h, w = [], 0, 0
+            for k in chunk:
+                nh, nw = max(h, self.sizes[k][0]), max(w, self.sizes[k][1])
+                if batch and (len(batch) == self.max_batch or nh * nw * (len(batch) + 1) > self.budget):
+                    out.append(batch)
+                    batch, nh, nw = [], self.sizes[k][0], self.sizes[k][1]
+                batch.append(k)
+                h, w = nh, nw
+            if batch:
+                out.append(batch)
+        rng.shuffle(out)
+        return out
+
+    def __iter__(self):
+        return iter(self.batches())
+
+    def __len__(self):
+        return self.count
+
+
+def collate(batch):
+    """Images padded to the largest in the batch (with a mask of the real part), token sequences padded with PAD."""
+    images, targets = zip(*batch)
+    h = max(x.shape[0] for x in images)
+    w = max(x.shape[1] for x in images)
+    pixels = torch.zeros(len(images), 1, h, w)
+    mask = torch.ones(len(images), h, w, dtype=torch.bool)
+    for n, x in enumerate(images):
+        pixels[n, 0, :x.shape[0], :x.shape[1]] = x
+        mask[n, :x.shape[0], :x.shape[1]] = False
+    length = max(len(t) for t in targets)
+    tokens = torch.full((len(targets), length), PAD, dtype=torch.long)
+    for n, t in enumerate(targets):
+        tokens[n, :len(t)] = t
+    return pixels, mask, tokens
