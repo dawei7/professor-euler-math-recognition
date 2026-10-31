@@ -67,6 +67,7 @@ def main():
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--check-every", type=int, default=5000)
     parser.add_argument("--check-size", type=int, default=2000)
+    parser.add_argument("--encoder", default="mobile", choices=("mobile", "dense"))
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
@@ -90,7 +91,7 @@ def main():
           flush=True)
 
     device = "cuda"
-    model = Recognizer(len(vocab)).to(device)
+    model = Recognizer(len(vocab), encoder=args.encoder).to(device)
     print(f"parameters {sum(p.numel() for p in model.parameters()) / 1e6:.2f} M", flush=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
     schedule = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda s: min(1.0, (s + 1) / args.warmup) *
@@ -103,7 +104,7 @@ def main():
         schedule.load_state_dict(state["schedule"])
         step, best = state["step"], state["best"]
     log = open(out / "log.tsv", "a", encoding="utf-8")
-    config = {"vocab_size": len(vocab), "steps": args.steps, "lr": args.lr, "budget": args.budget}
+    config = {"vocab_size": len(vocab), "encoder": args.encoder, "steps": args.steps, "lr": args.lr, "budget": args.budget}
     (out / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
 
     model.train()
@@ -136,7 +137,8 @@ def main():
                 torch.save(state, out / "last.pt")
                 if score > best:
                     best = score
-                    torch.save({"model": model.state_dict(), "vocab_size": len(vocab), "step": step, "score": score},
+                    torch.save({"model": model.state_dict(), "vocab_size": len(vocab), "encoder": args.encoder, "step": step,
+                                "score": score},
                                out / "best.pt")
             if step >= args.steps:
                 break

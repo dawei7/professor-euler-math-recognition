@@ -57,6 +57,47 @@ class Encoder(nn.Module):
         return features, small
 
 
+class InvertedResidual(nn.Module):
+    """MobileNetV2's block: widen, a depthwise 3x3 (strided to downsample), narrow; with a shortcut when shapes match."""
+
+    def __init__(self, cin, cout, stride, expand=4):
+        super().__init__()
+        mid = cin * expand
+        self.body = nn.Sequential(
+            nn.Conv2d(cin, mid, 1, bias=False), nn.BatchNorm2d(mid), nn.SiLU(inplace=True),
+            nn.Conv2d(mid, mid, 3, stride=stride, padding=1, groups=mid, bias=False), nn.BatchNorm2d(mid), nn.SiLU(inplace=True),
+            nn.Conv2d(mid, cout, 1, bias=False), nn.BatchNorm2d(cout))
+        self.shortcut = stride == 1 and cin == cout
+
+    def forward(self, x):
+        y = self.body(x)
+        return x + y if self.shortcut else y
+
+
+class MobileEncoder(nn.Module):
+    """Downsamples 16 times like the DenseNet, with depthwise blocks: far less memory and work, on a phone too."""
+
+    STAGES = ((48, 2), (96, 3), (160, 4))  # channels and blocks at 1/4, 1/8 and 1/16
+
+    def __init__(self, d_model):
+        super().__init__()
+        layers = [nn.Conv2d(1, 32, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(32), nn.SiLU(inplace=True),
+                  InvertedResidual(32, 32, 1, expand=2)]
+        cin = 32
+        for cout, blocks in self.STAGES:
+            for b in range(blocks):
+                layers.append(InvertedResidual(cin, cout, 2 if b == 0 else 1))
+                cin = cout
+        self.body = nn.Sequential(*layers)
+        self.project = nn.Conv2d(cin, d_model, 1)
+
+    def forward(self, pixels, mask):
+        features = self.project(self.body(pixels))
+        h, w = features.shape[-2:]
+        small = F.interpolate(mask[:, None].float(), size=(h, w), mode="nearest")[:, 0].bool()
+        return features, small
+
+
 def sinusoid(positions, dim):
     """positions (...,) -> (..., dim)"""
     half = dim // 2
@@ -74,10 +115,10 @@ def image_positions(mask, dim):
 
 
 class Recognizer(nn.Module):
-    def __init__(self, vocab_size, d_model=256, heads=8, layers=3, ff=1024, dropout=0.3):
+    def __init__(self, vocab_size, encoder="mobile", d_model=256, heads=8, layers=3, ff=1024, dropout=0.3):
         super().__init__()
         self.d_model = d_model
-        self.encoder = Encoder(d_model)
+        self.encoder = MobileEncoder(d_model) if encoder == "mobile" else Encoder(d_model)
         self.embed = nn.Embedding(vocab_size, d_model, padding_idx=PAD)
         self.norm = nn.LayerNorm(d_model)
         layer = nn.TransformerDecoderLayer(d_model, heads, ff, dropout, batch_first=True, norm_first=True)

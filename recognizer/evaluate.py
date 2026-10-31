@@ -22,10 +22,18 @@ FUNCTIONS = ("sin", "cos", "tan", "cot", "log", "ln", "exp", "lim", "max", "min"
 
 
 def comparable(latex):
-    """Tokens as MathWriting's normalized labels write them: function names as letters, no \\left / \\right."""
-    latex = re.sub(r"\\(left|right)(?![a-zA-Z])", "", latex)
+    """Tokens as MathWriting's normalized labels write them: function names as letters, no \\left / \\right, display
+    delimiters or \\displaystyle, and a lone token after ^ or _ in braces."""
+    latex = re.sub(r"\\(left|right|displaystyle)(?![a-zA-Z])|\\[\[\]()]", "", latex)
     latex = re.sub(r"\\(" + "|".join(FUNCTIONS) + r")(?![a-zA-Z])", r"\1", latex)
-    return tokenize(latex)
+    tokens, out = tokenize(latex), []
+    for k, t in enumerate(tokens):
+        out.append(t)
+        if t in ("^", "_") and k + 1 < len(tokens) and tokens[k + 1] != "{":
+            out.append("{")
+        elif k and tokens[k - 1] in ("^", "_") and t != "{" and out[-2] == "{":
+            out.append("}")
+    return out
 
 
 def edits(a, b):
@@ -41,9 +49,9 @@ def truths(path):
     """The Expected LaTeX column of the test sheet's table, by formula number."""
     out = {}
     for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) >= 3 and cells[0].isdigit():
-            out[int(cells[0])] = cells[-1].strip("`")
+        row = re.match(r"\|\s*(\d+)\s*\|.*`([^`]*)`\s*\|\s*$", line)
+        if row:
+            out[int(row.group(1))] = row.group(2)
     return out
 
 
@@ -51,7 +59,7 @@ def load(run, device):
     run = pathlib.Path(run)
     vocab = Vocab.load(run / "vocab.json")
     state = torch.load(run / "best.pt", map_location=device, weights_only=True)
-    model = Recognizer(len(vocab)).to(device)
+    model = Recognizer(len(vocab), encoder=state.get("encoder", "dense")).to(device)
     model.load_state_dict(state["model"])
     model.eval()
     return model, vocab

@@ -4,6 +4,7 @@ The scale comes from the writing, not the box: the median size of a stroke is dr
 `a+b` and a tall double fraction show their symbols at the same size, as on a real sheet.
 """
 import math
+import pathlib
 import random
 
 import numpy as np
@@ -73,17 +74,38 @@ def render(strokes, rng=None):
 
 
 class Packed:
-    """One packed split (see tools/mathwriting_pack.py)."""
+    """One packed split (see tools/mathwriting_pack.py). The large arrays are mapped from `.npy` files beside it, so the
+    loader's worker processes share them instead of each holding a copy."""
+
+    MAPPED = ("points", "stroke_ends", "ink_ends")
 
     def __init__(self, path):
-        z = np.load(path)
-        self.points = z["points"]
-        self.stroke_ends = z["stroke_ends"]
-        self.ink_ends = z["ink_ends"]
+        self.path = pathlib.Path(path)
+        folder = self.path.with_suffix(".mapped")
+        z = np.load(self.path)
+        if not folder.is_dir():
+            part = folder.with_suffix(".part")
+            part.mkdir(exist_ok=True)
+            for name in self.MAPPED:
+                np.save(part / f"{name}.npy", z[name])
+            part.rename(folder)
         self.widths = z["widths"]
         self.symbols = z["symbols"]
         self.labels = [str(x) for x in z["labels"]]
         self.ids = [str(x) for x in z["ids"]]
+        self._map()
+
+    def _map(self):
+        folder = self.path.with_suffix(".mapped")
+        for name in self.MAPPED:
+            setattr(self, name, np.load(folder / f"{name}.npy", mmap_mode="r"))
+
+    def __getstate__(self):
+        return {k: v for k, v in self.__dict__.items() if k not in self.MAPPED}
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._map()
 
     def __len__(self):
         return len(self.labels)
