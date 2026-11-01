@@ -49,12 +49,17 @@ class MathCalcTest {
 
     @Test
     fun whatHasNoAnswer() = check(listOf(
-        "5:0=" to "DIVISION_BY_ZERO", "\\sqrt{-4}=" to "UNDEFINED", "\\ln(0)=" to "UNDEFINED", "2,5!=" to "UNDEFINED",
-        "\\tan(90^{\\circ})=" to "UNDEFINED", "\\sin(x)=y" to "SEVERAL_UNKNOWNS", "\\sin(x)+1=" to "NOT_POLYNOMIAL",
-        "\\sin(x)=0" to "MANY_SOLUTIONS", "(3+4=" to "UNREADABLE", "=" to "UNREADABLE", "3\\infty=" to "UNREADABLE",
-        "x^{2}=-1" to "x: none",
+        "5:0=" to "DIVISION_BY_ZERO", "\\ln(0)=" to "UNDEFINED", "2,5!=" to "UNDEFINED",
+        "\\tan(90^{\\circ})=" to "UNDEFINED", "(3+4=" to "UNREADABLE", "=" to "UNREADABLE", "3\\infty=" to "UNREADABLE",
         // Before Calculate had algebra (4.6), these were "more than one unknown" and "an unknown without an equation".
-        "x+y=3" to "differ: x + y | 3", "2x+3=" to "2x + 3 (no factors)",
+        "2x+3=" to "2x + 3 (no factors)",
+    ))
+
+    /** What 4.6's engine answers that 4.5 could not: complex numbers, all solutions, graphs, beyond polynomials. */
+    @Test
+    fun whatHasAnAnswerSince46() = check(listOf(
+        "\\sqrt{-4}=" to "2i", "x^{2}=-1" to "x: none (complex -i; i)", "\\sin(x)=0" to "x = kπ (k)",
+        "\\sin(x)+1=" to "sin(x) + 1", "\\sin(x)=y" to "graph of sin(x)", "x+y=3" to "differ: x + y | 3",
     ))
 
     /** An equation whose unknown drops out is compared (below, [AlgebraTest]); solving it still says what it says of x. */
@@ -70,8 +75,9 @@ class MathCalcTest {
     @Test
     fun numbersAsTheFormulaWritesThem() = check(listOf(
         "1,5:0,7=" to "≈ 2,142857143", "1:3=" to "1/3 ≈ 0.3333333333", "2^{100}=" to "≈ 1.2676506 · 10^30",
-        "\\sqrt{2}=" to "≈ 1.414213562", "\\sqrt[3]{-8}=" to "-2", "x^{3}=8" to "x = 2", "2^{x}=8" to "x = 3",
-        "x^{2}=2" to "x = ≈ -1.414213562; ≈ 1.414213562", "0,1+0,2=" to "0,3", "3\\pi=" to "≈ 9.424777961",
+        // Exact since 4.6: √2, ±√2, 3π, with their decimals.
+        "\\sqrt{2}=" to "√2 ≈ 1.414213562", "\\sqrt[3]{-8}=" to "-2", "x^{3}=8" to "x = 2", "2^{x}=8" to "x = 3",
+        "x^{2}=2" to "x = -√2 ≈ -1.414213562; √2 ≈ 1.414213562", "0,1+0,2=" to "0,3", "3\\pi=" to "3π ≈ 9.424777961",
         // An exact root of a number past a double's precision (123456789012345²), and a small one.
         "\\sqrt{15241578753238669120562399025}=" to "123456789012345", "\\sqrt{2^{2}}=" to "2",
     ))

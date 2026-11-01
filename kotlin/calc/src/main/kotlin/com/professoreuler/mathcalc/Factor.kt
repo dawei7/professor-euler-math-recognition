@@ -303,6 +303,7 @@ internal object Factor {
                 if (trials > MOST_TRIALS) return null to false
                 val bMax = span.toLong()
                 for (bl in -bMax..bMax) {
+                    Budget.check()
                     val b = BigInteger.valueOf(bl)
                     val g = listOf(c, b, a)
                     if (at.any { (k, fk) -> valueAt(g, k).let { gk -> gk.signum() == 0 || fk.mod(gk.abs()).signum() != 0 } }) continue

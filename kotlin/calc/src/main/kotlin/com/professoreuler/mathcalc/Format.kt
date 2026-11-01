@@ -8,13 +8,56 @@ import java.math.MathContext
  * decimal; a decimal where it had decimals or no fractions; a decimal comma where it used one. Ten significant digits.
  */
 internal object Format {
-    private const val DIGITS = 10
+    const val DIGITS = 10
 
-    fun latex(n: Num, c: Calculation): String = write(n, c, latex = true)
+    /** An expression in LaTeX or in the sheets' math shorthand. */
+    fun expr(e: Expr, c: Style, latex: Boolean): String = Write(c, latex).expr(e)
 
-    fun text(n: Num, c: Calculation): String = write(n, c, latex = false)
+    /**
+     * A value: a rational as numbers are written ([latex] of a [Num]), an exact form with its decimal beside it
+     * (`√2 ≈ 1.414213562`), a numeric one as its decimal; a formula as it is.
+     */
+    fun value(e: Expr, c: Style, latex: Boolean): String {
+        if (e is Expr.Num) return write(Num.Exact(e.value), c, latex)
+        val approx = if (latex) "\\approx " else "≈ "
+        if (!e.isConstant() || e.hasI() || e.hasInfinity()) return expr(e, c, latex)
+        val d = Numeric.value(e) ?: return expr(e, c, latex)
+        if (e is Expr.Real || !MathCalc.niceExact(e)) return approx + decimal(BigDecimal(d), c, latex)
+        return expr(e, c, latex) + " " + approx + decimal(BigDecimal(d), c, latex)
+    }
 
-    private fun write(n: Num, c: Calculation, latex: Boolean): String {
+    /**
+     * An inequality's solution: one interval as inequalities (`x < 4`, `-2 < x \le 3`), several as a union of intervals
+     * (`x \in (-\infty, -1] \cup [1, \infty)`), all of ℝ, or none.
+     */
+    fun intervals(s: IntervalSet, c: Style, latex: Boolean): String {
+        val x = name(s.variable, latex)
+        fun v(e: Expr) = expr(e, c, latex)
+        val le = if (latex) "\\le" else "≤"
+        val inSet = if (latex) "\\in" else "∈"
+        if (s.empty) return if (latex) "\\emptyset" else "∅"
+        if (s.all) return if (latex) "$x \\in \\mathbb{R}" else "$x ∈ ℝ"
+        if (s.intervals.size == 1) {
+            val i = s.intervals[0]
+            val lo = i.lower?.let { v(it) + (if (i.lowerClosed) " $le " else " < ") }.orEmpty()
+            val hi = i.upper?.let { (if (i.upperClosed) " $le " else " < ") + v(it) }.orEmpty()
+            if (i.lower != null && i.lower == i.upper) return "$x = ${v(i.lower)}"
+            return "$lo$x$hi".trim()
+        }
+        val inf = if (latex) "\\infty" else "∞"
+        val union = if (latex) " \\cup " else " ∪ "
+        return "$x $inSet " + s.intervals.joinToString(union) { i ->
+            if (i.lower != null && i.lower == i.upper) (if (latex) "\\{${v(i.lower)}\\}" else "{${v(i.lower)}}")
+            else (if (i.lowerClosed) "[" else "(") + (i.lower?.let { v(it) } ?: "-$inf") + ", " + (i.upper?.let { v(it) } ?: inf) +
+                (if (i.upperClosed) "]" else ")")
+        }
+    }
+
+    fun latex(n: Num, c: Style): String = write(n, c, latex = true)
+
+    fun text(n: Num, c: Style): String = write(n, c, latex = false)
+
+    private fun write(n: Num, c: Style, latex: Boolean): String {
         val approx = if (latex) "\\approx " else "≈ "
         val r = n.rational ?: return approx + decimal(BigDecimal(n.double), c, latex)
         if (r.isInteger) {
@@ -32,7 +75,7 @@ internal object Format {
     }
 
     /** Terms highest degree first, with signs between them: `x^{2} - 5x + 6`; in text `x^2 - 5x + 6`, `(5/6)x`. */
-    fun polynomial(p: Polynomial, c: Calculation, latex: Boolean): String {
+    fun polynomial(p: Polynomial, c: Style, latex: Boolean): String {
         if (p.isZero) return "0"
         val out = StringBuilder()
         for ((k, term) in p.sorted.withIndex()) {
@@ -50,7 +93,7 @@ internal object Format {
     }
 
     /** Its number, then its factors: `3x(x - 2)^{2}`; a factor of one term (an unknown) without brackets. */
-    fun product(p: Product, c: Calculation, latex: Boolean): String {
+    fun product(p: Product, c: Style, latex: Boolean): String {
         if (p.factors.isEmpty()) return number(p.constant, c, latex)
         if (p.trivial) return polynomial(p.factors[0].first, c, latex)
         val factors = p.factors.joinToString("") { (f, k) ->
@@ -96,7 +139,7 @@ internal object Format {
     }
 
     /** A number in a polynomial: a decimal where the formula wrote decimals and no fractions and it ends, else a fraction. */
-    private fun coefficient(r: Rational, c: Calculation, latex: Boolean, alone: Boolean): String {
+    fun coefficient(r: Rational, c: Style, latex: Boolean, alone: Boolean): String {
         if (r.isInteger) return r.num.toString()
         if (c.decimals && !c.fractions && r.terminates) {
             val exact = BigDecimal(r.num).divide(BigDecimal(r.den))
@@ -109,7 +152,7 @@ internal object Format {
         }
     }
 
-    private fun number(r: Rational, c: Calculation, latex: Boolean) =
+    private fun number(r: Rational, c: Style, latex: Boolean) =
         (if (r.signum < 0) "-" else "") + coefficient(r.abs(), c, latex, alone = true)
 
     private fun fraction(r: Rational, latex: Boolean): String {
@@ -117,7 +160,7 @@ internal object Format {
         return if (latex) "$sign\\frac{${r.num.abs()}}{${r.den}}" else "$sign${r.num.abs()}/${r.den}"
     }
 
-    private fun decimal(x: BigDecimal, c: Calculation, latex: Boolean, exact: Boolean = false): String {
+    fun decimal(x: BigDecimal, c: Style, latex: Boolean, exact: Boolean = false): String {
         val rounded = if (exact) x else x.round(MathContext(DIGITS))
         val plain = rounded.abs() >= BigDecimal("1e-6") && rounded.abs() < BigDecimal("1e15") || rounded.signum() == 0
         val s = if (plain) {

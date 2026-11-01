@@ -87,6 +87,7 @@ class Polynomial internal constructor(terms: Map<Monomial, Rational>) {
     internal operator fun times(r: Rational) = Polynomial(terms.mapValues { it.value * r })
 
     internal operator fun times(o: Polynomial): Polynomial {
+        Budget.check()
         if (terms.size.toLong() * o.terms.size > MOST_PRODUCTS) throw CalcException(Failure.TOO_LARGE)
         val out = HashMap<Monomial, Rational>()
         for ((a, x) in terms) for ((b, y) in o.terms) {
@@ -143,29 +144,5 @@ class Polynomial internal constructor(terms: Map<Monomial, Rational>) {
         fun constant(r: Rational) = Polynomial(mapOf(Monomial.ONE to r))
 
         fun variable(v: String) = Polynomial(mapOf(Monomial.of(v) to Rational.ONE))
-
-        /**
-         * A formula as a polynomial in its unknowns, or null where it is not one: an unknown in a denominator that does not
-         * divide what is above it, under a root, in a function or an exponent; a number that is not exact (π, e, sin 1).
-         */
-        fun of(node: Node): Polynomial? {
-            if (node.unknowns().isEmpty()) return (node.eval(emptyMap()) as? Num.Exact)?.let { constant(it.r) }
-            return when (node) {
-                is Unknown -> variable(node.name)
-                is Add -> of(node.a)?.let { a -> of(node.b)?.let { a + it } }
-                is Sub -> of(node.a)?.let { a -> of(node.b)?.let { a - it } }
-                is Neg -> of(node.a)?.let { -it }
-                is Mul -> of(node.a)?.let { a -> of(node.b)?.let { a * it } }
-                is Div -> of(node.b)?.let { d -> of(node.a)?.divideExactly(d) }
-                is Percent -> of(node.a)?.let { it * (Rational.ONE / Rational.of(100)) }
-                is Pow -> {
-                    if (node.b.unknowns().isNotEmpty()) return null
-                    val e = node.b.eval(emptyMap()) as? Num.Exact ?: return null
-                    val n = e.r.takeIf { it.isInteger && it.signum >= 0 && it.num.bitLength() < 31 }?.num?.toInt() ?: return null
-                    of(node.a)?.pow(n)
-                }
-                else -> null
-            }
-        }
     }
 }

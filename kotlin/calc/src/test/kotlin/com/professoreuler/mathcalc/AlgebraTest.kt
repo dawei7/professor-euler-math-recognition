@@ -19,7 +19,7 @@ class AlgebraTest {
         "6+x^{2}-5x" to "x^2 - 5x + 6", "x-x+3" to "3", "x_{1}+x_1" to "2x_1", "2a_{n}-a_{n}" to "a_{n}",
         // Fractions as the formula wrote its numbers: as fractions, or as decimals with its separator.
         "\\frac{x}{2}+\\frac{x}{3}" to "(5/6)x", "x/2+x/3" to "(5/6)x", "\\frac{x}{2}+1" to "(1/2)x + 1",
-        "0,5x+1,25x" to "1,75x", "0.5x^{2}+0.5x^{2}-0.25" to "x^2 - 0.25", "\\frac{x^{2}-1}{x-1}" to "x + 1",
+        "0,5x+1,25x" to "1,75x", "0.5x^{2}+0.5x^{2}-0.25" to "x^2 - 0.25", "\\frac{x^{2}-1}{x-1}" to "x + 1 (x ≠ 1)",
         "10\\%x+x" to "(11/10)x",
     ))
 
@@ -63,24 +63,36 @@ class AlgebraTest {
     ))
 
     @Test
-    fun whatIsNoPolynomial() = check(listOf(
-        "\\sin(x)+1" to "NOT_POLYNOMIAL", "\\frac{1}{x}+1=" to "NOT_POLYNOMIAL", "\\sqrt{x}+x" to "NOT_POLYNOMIAL",
-        "2^{x}+1" to "NOT_POLYNOMIAL", "\\pi x+x" to "NOT_POLYNOMIAL", "\\sin(x)=y" to "SEVERAL_UNKNOWNS",
-        "(x+y+z)^{99}" to "TOO_LARGE", "\\frac{x}{0}" to "DIVISION_BY_ZERO",
-    ))
+    fun whatIsTooMuch() {
+        val start = System.nanoTime()
+        check(listOf("(x+y+z)^{99}" to "TOO_LARGE", "\\frac{x}{0}" to "DIVISION_BY_ZERO"))
+        // Whatever it comes to, it ends within the budget (about 3 s) rather than freezing.
+        val heavy = listOf("(a+b+c+d+e+f)^{12}", "(x+1)^{60}(x-1)^{60}", "\\int\\frac{x^{9}+1}{x^{10}+x+1}dx",
+            "x^{40}+x^{17}-3x^{5}+1=0")
+        for (latex in heavy) {
+            val t0 = System.nanoTime()
+            answer(latex)
+            val seconds = (System.nanoTime() - t0) / 1e9
+            assertEquals("$latex took $seconds s", true, seconds < 6)
+        }
+        assertEquals(true, (System.nanoTime() - start) / 1e9 < 20)
+    }
 
     @Test
     fun modesThatFit() {
-        fun modes(latex: String) = MathCalc.calculate(latex).let { c -> c.modes.joinToString(",") + " -> " + c.mode }
-        assertEquals("SIMPLIFY,FACTOR -> SIMPLIFY", modes("(x+2)^{2}"))
-        assertEquals("SIMPLIFY,FACTOR -> FACTOR", modes("x^{2}+4x+4"))
-        assertEquals("SIMPLIFY,FACTOR -> FACTOR", modes("x^{2}+4x+4="))
-        assertEquals("SIMPLIFY,FACTOR -> SIMPLIFY", modes("(x+1)^{2}=x^{2}+2x+1="))
-        assertEquals("SIMPLIFY -> SIMPLIFY", modes("x-x+3"))
-        assertEquals("SOLVE,COMPARE -> SOLVE", modes("2x+3=11"))
-        assertEquals("SOLVE,COMPARE -> COMPARE", modes("(x+2)^{2}=x^{2}+4x+4"))
-        assertEquals("SOLVE -> SOLVE", modes("\\sin(x)=0,5"))
-        assertEquals("COMPARE -> COMPARE", modes("x+y=y+x"))
+        fun modes(latex: String) = MathCalc.calculate(latex).let { c ->
+            c.choices.joinToString(",") { it.mode.name + (it.letter?.let { l -> " $l" } ?: "") } + " -> " + c.choice?.mode
+        }
+        assertEquals("SIMPLIFY,FACTOR,DERIVATIVE x,INTEGRAL x,GRAPH x -> SIMPLIFY", modes("(x+2)^{2}"))
+        assertEquals("SIMPLIFY,FACTOR,DERIVATIVE x,INTEGRAL x,GRAPH x -> FACTOR", modes("x^{2}+4x+4"))
+        assertEquals("SIMPLIFY,FACTOR,DERIVATIVE x,INTEGRAL x,GRAPH x -> FACTOR", modes("x^{2}+4x+4="))
+        // Its letters cancel: a number.
+        assertEquals("CALCULATE,FACTOR -> CALCULATE", modes("x-x+3"))
+        assertEquals("SOLVE x,COMPARE,GRAPH x -> SOLVE", modes("2x+3=11"))
+        assertEquals("SOLVE x,COMPARE,GRAPH x -> COMPARE", modes("(x+2)^{2}=x^{2}+4x+4"))
+        assertEquals("SOLVE x,COMPARE,GRAPH x -> SOLVE", modes("\\sin(x)=0,5"))
+        assertEquals("SOLVE x,SOLVE y,COMPARE,GRAPH x -> COMPARE", modes("x+y=y+x"))
+        assertEquals("SOLVE s,SOLVE t,SOLVE v,COMPARE -> SOLVE", modes("v=\\frac{s}{t}"))
         assertEquals("COMPARE -> COMPARE", modes("2+2=4"))
         assertEquals("CALCULATE,FACTOR -> CALCULATE", modes("37+48="))
         assertEquals("CALCULATE -> CALCULATE", modes("1:3="))
@@ -106,7 +118,7 @@ class AlgebraTest {
             }
             if (round % 2 == 0) p *= x * x + Polynomial.ONE * Rational.of(random.nextInt(9) + 1L)
             val product = Factor.of(p)
-            val shown = MathCalc.calculate("1").text(product)
+            val shown = Format.product(product, Style.PLAIN, latex = false)
             assertEquals("complete: $shown", true, product.complete)
             assertEquals("linear factors: $shown", linear, product.factors.filter { it.first.degree == 1 }.sumOf { it.second })
             assertEquals("the same polynomial: $shown", p, product.expanded())
@@ -129,17 +141,17 @@ class AlgebraTest {
     @Test
     fun latexOfAlgebra() {
         val c = MathCalc.calculate("(x+2)^{2}")
-        assertEquals("x^{2} + 4x + 4", c.latex((c.outcome as Outcome.Simplified).polynomial))
+        assertEquals("x^{2} + 4x + 4", c.latex((c.outcome as Outcome.Expression).result))
         val f = MathCalc.calculate("x^{2}+4x+4")
-        assertEquals("(x + 2)^{2}", f.latex((f.outcome as Outcome.Factored).product))
+        assertEquals("(x + 2)^{2}", f.latex((f.outcome as Outcome.Factored).result))
         val g = MathCalc.calculate("\\frac{x}{2}+\\frac{x}{3}")
-        assertEquals("\\frac{5}{6}x", g.latex((g.outcome as Outcome.Simplified).polynomial))
+        assertEquals("\\frac{5}{6}x", g.latex((g.outcome as Outcome.Expression).result))
         val d = MathCalc.calculate("0,5x+1,25x")
-        assertEquals("1{,}75x", d.latex((d.outcome as Outcome.Simplified).polynomial))
+        assertEquals("1{,}75x", d.latex((d.outcome as Outcome.Expression).result))
         val p = MathCalc.calculate("360=", Mode.FACTOR)
         assertEquals("2^{3} \\cdot 3^{2} \\cdot 5", p.latex(p.outcome as Outcome.Primes))
         val s = MathCalc.calculate("x_{12}^{2}+x_{12}^{2}")
-        assertEquals("2x_{12}^{2}", s.latex((s.outcome as Outcome.Simplified).polynomial))
-        assertEquals("2x_12^2", s.text((s.outcome as Outcome.Simplified).polynomial))
+        assertEquals("2x_{12}^{2}", s.latex((s.outcome as Outcome.Expression).result))
+        assertEquals("2x_12^2", s.text((s.outcome as Outcome.Expression).result))
     }
 }
