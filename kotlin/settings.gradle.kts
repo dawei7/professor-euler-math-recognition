@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "math-reader"
 include(":reader")
+include(":calc")
 include(":bench")
