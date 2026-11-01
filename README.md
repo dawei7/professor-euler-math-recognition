@@ -14,6 +14,7 @@ Work in progress: the model is in training and no weights are published yet.
 | `tools/mathwriting_pack.py` | Packs MathWriting's 630,000 InkML files into one compact file per split, read straight from the archive. |
 | `tools/calc_synth.py` | Calculator-style training formulas (arithmetic with `·`, `:` and decimal commas, fractions, powers, roots, sin/cos/tan/ln/log, equations), typeset from single handwritten symbols cut out of MathWriting's training inks and vetted by a trained recognizer. The test sheet's formulas are never generated. |
 | `recognizer/` | The recognizer: strokes rendered as an image, a MobileNetV2-style encoder (or a DenseNet-B one, as in WAP/DWAP) and a Transformer decoder that writes LaTeX tokens. About 4.3 M parameters. Training (`train.py`) and evaluation with beam search (`evaluate.py`). |
+| `recognizer/fast.py`, `recognizer/export.py` | Reading as the apps will: the encoder once, then the decoder one token at a time with its keys and values kept (the same readings as training's decoder). The export writes two ONNX graphs for ONNX Runtime, with 8-bit versions, and checks them against PyTorch. |
 | `reference/texteller_read.py` | Reads the same inks with [TexTeller](https://github.com/OleehyO/TexTeller) (about 300 M parameters), for comparison with a large open model. |
 | `tools/sheet_lines.py`, `tools/numbered_sheet.py` | Cut a Professor Euler canvas sheet into lines or numbered formulas. |
 | `test-sheet/formulas.md` | 38 calculator-style formulas to write by hand as a test: arithmetic, fractions, powers, roots, functions and equations. |
@@ -23,7 +24,7 @@ Work in progress: the model is in training and no weights are published yet.
 ```
 python -m venv .venv
 .venv/Scripts/python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-.venv/Scripts/python -m pip install pillow numpy
+.venv/Scripts/python -m pip install pillow numpy onnx onnxruntime
 curl -L -o data/mathwriting-2024.tgz https://storage.googleapis.com/mathwriting_data/mathwriting-2024.tgz
 .venv/Scripts/python -I tools/mathwriting_pack.py data/mathwriting-2024.tgz data/packed
 .venv/Scripts/python -m recognizer.train --data data/packed --out runs/m1
