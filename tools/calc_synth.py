@@ -6,8 +6,9 @@ roots, sin, cos, tan, ln and log, and equations in one variable. The formulas of
 
 Glyphs: a training ink whose label is one row of separate symbols (no fraction, root or accent, and no base with both a
 subscript and a superscript) is cut into groups of strokes that overlap horizontally. Where there are exactly as many
-groups as symbols, each group is taken as its symbol, and a recognizer trained on MathWriting vets it (see `vet`). The
-symbols split adds its single symbols, and the root signs.
+groups as symbols, each group is taken as its symbol, and a recognizer trained on MathWriting vets it (see `vet`); a 4
+closed at the top is kept on its shape instead (see `closed_four`), and half the writers write every 4 so. The symbols
+split adds its single symbols, and the root signs.
 
 Usage: python -m tools.calc_synth --data data/packed [--count 250000] [--vet runs/m1]
 Writes `<data>/glyphs.npz` (once) and `<data>/calc.npz`, packed like the MathWriting splits.
@@ -31,6 +32,7 @@ NOT_A_ROW = {r"\frac", r"\sqrt", r"\begin", r"\end", r"\overline", r"\underline"
              r"\tilde", r"\widehat", r"\mathbb", r"\left", r"\right", r"\\", "&", r"\ldots", r"\cdots", r"\vdots",
              r"\ddots", r"\sum", r"\int", r"\iint", r"\oint", r"\prod", r"\not", r"\bigcup", r"\bigcap"}
 OPERATORS = {"+", "-", "=", r"\cdot", r"\times", r"\div", ":", "/", "*", "<", ">"}
+CLOSED_FOUR = "4 closed"  # the 4s of `closed_four`, a pool of their own beside "4", which holds them too
 
 
 def metrics():
@@ -87,6 +89,20 @@ def plausible(token, strokes):
     return max(w, h) > 0.08
 
 
+def closed_four(glyph):
+    """A 4 closed at the top, as in print: two strokes, the upright the full height and an arm that runs diagonally
+    down-left from where the upright starts, then along the crossbar. Many hands write it so; about one 4 in fourteen of
+    MathWriting's does, and a recognizer trained on MathWriting alone reads it as A, 1 or 7, so `vet` would drop it."""
+    if len(glyph) != 2:
+        return False
+    pts = np.concatenate(glyph)
+    (x0, y0), (w, h) = pts.min(axis=0), np.ptp(pts, axis=0)
+    arm, upright = sorted(glyph, key=lambda s: s[:, 0].min())
+    top, left, start = arm[arm[:, 1].argmin()], arm[arm[:, 0].argmin()], upright[upright[:, 1].argmin()]
+    return (np.ptp(upright[:, 1]) > 0.75 * h and top[1] - y0 < 0.2 * h and abs(top[0] - start[0]) < 0.25 * w
+            and top[0] - left[0] > 0.45 * w and left[1] - top[1] > 0.35 * h)
+
+
 def vet(pools, run, rank=5, batch=256):
     """Keeps a cut glyph only where a trained recognizer, reading it alone, counts its symbol among its `rank` likeliest
     first tokens and then takes the formula to end there. That drops most cuts that went wrong (half a 4, a parenthesis
@@ -117,7 +133,7 @@ def vet(pools, run, rank=5, batch=256):
 
 
 def harvest(data, run, cap=4000, seed=0):
-    pools = {t: [] for t in METRICS}
+    pools, closed = {t: [] for t in METRICS}, []
     train = Packed(data / "train.npz")
     order = list(range(len(train)))
     random.Random(seed).shuffle(order)
@@ -132,12 +148,15 @@ def harvest(data, run, cap=4000, seed=0):
         if len(parts) != len(glyphs):
             continue
         for token, part in zip(glyphs, parts):
-            pool = pools.get(token)
-            if pool is not None and len(pool) < cap:
-                glyph = [strokes[k] for k in part]
-                if plausible(token, glyph):
-                    pool.append(glyph)
+            pool, glyph = pools.get(token), [strokes[k] for k in part]
+            if token == "4" and closed_four(glyph):
+                if len(closed) < cap:
+                    closed.append(glyph)
+            elif pool is not None and len(pool) < cap and plausible(token, glyph):
+                pool.append(glyph)
     vet(pools, run)
+    print(f"4 closed at the top, kept on their shape: {len(closed)}", flush=True)
+    pools["4"] += closed
     pools[r"\sqrt"] = []
     symbols = Packed(data / "symbols.npz")
     for i in range(len(symbols)):
@@ -171,6 +190,7 @@ def load_glyphs(path):
         glyph = [points[s:e].astype(np.float64) for s, e in zip(starts, stroke_ends[first:end])]
         pools.setdefault(str(token), []).append(glyph)
         first = end
+    pools[CLOSED_FOUR] = [g for g in pools.get("4", []) if closed_four(g)]
     return pools
 
 
@@ -397,10 +417,12 @@ class Writer:
     def __init__(self, pools, rng):
         self.pools, self.rng, self.chosen = pools, rng, {}
         self.spacing = rng.uniform(0.6, 1.5)
+        self.closed_four = bool(pools.get(CLOSED_FOUR)) and rng.random() < 0.5
 
     def pick(self, token):
         if token not in self.chosen or self.rng.random() > 0.6:
-            self.chosen[token] = self.rng.choice(self.pools[token])
+            pool = self.pools[CLOSED_FOUR if token == "4" and self.closed_four else token]
+            self.chosen[token] = self.rng.choice(pool)
         return self.chosen[token]
 
     def glyph(self, token, size=None, y=None):
