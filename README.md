@@ -35,9 +35,22 @@ default run of 120,000 steps takes about three hours.
 
 ## Results so far
 
-On 38 formulas of the test sheet in one person's handwriting, TexTeller read 31 exactly and 36 with at most one wrong
-token. Its mistakes: a 2 read as z, a 5 as s, a low multiplication dot as a decimal point, `|−7|` as `1-71`, and the lower
-half of a double fraction lost. The small model's figures follow when its training ends.
+The first run (`runs/m1`: the MobileNetV2-style encoder, 120,000 steps, about three hours), read with beam search of 5:
+
+| | Exact | At most 1 token wrong | At most 2 |
+| --- | --- | --- | --- |
+| MathWriting test, a fixed random 2,000 of its inks | 51.0 % | 69.9 % | 80.0 % |
+| The 38 formulas of the test sheet, in one person's handwriting | 18 (47 %) | 33 (87 %) | 35 (92 %) |
+| TexTeller on the same 38 | 31 (82 %) | 36 (95 %) | |
+
+Half of the small model's misses on the test sheet are one digit: a 4 with a closed, pointed top, which it reads as A, 1
+or 7. It also reads a 2 as Z, a 5 as S and a multiplication dot as a minus. Both models lose the lower half of a double
+fraction and read `|−7|` as `1-71`. MathWriting's formulas come from Wikipedia and hold far more letters than numbers,
+so where a glyph is unclear the model guesses a letter; calculator-style training examples are the next step.
+
+Speed, before any work on it (float32, no cached decoder state, no quantization): 4.3 M parameters, a 17 MB file, and
+on one thread of a desktop CPU a median of 36 ms per formula with greedy decoding and 74 ms with a beam of 5. Phones
+are not measured yet.
 
 ## Design choices
 
