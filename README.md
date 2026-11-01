@@ -5,7 +5,7 @@ A small model that reads a handwritten formula and writes it as LaTeX, trained o
 phone or tablet. It is being built for [Professor Euler](https://euler.dawei7.com), a free mathematics study app: on a canvas
 note, the learner circles a formula and gets back what was read and its result.
 
-Work in progress: the model is in training and no weights are published yet.
+Work in progress: no weights are published yet, and the apps do not use it yet.
 
 ## What is here
 
@@ -37,22 +37,42 @@ default run of 120,000 steps takes about three hours.
 
 ## Results so far
 
-The first run (`runs/m1`: the MobileNetV2-style encoder, 120,000 steps, about three hours), read with beam search of 5:
+Two runs, both with the MobileNetV2-style encoder and read with beam search of 5:
+
+- `m1`: MathWriting only, 120,000 steps (about three hours).
+- `m2`: `m1` trained on for 40,000 more steps (about 80 minutes), with 250,000 calculator-style formulas from
+  `tools/calc_synth.py` as about 28 % of what it sees:
+  `--init runs/m1/best.pt --packs train,synthetic,symbols,calc --steps 40000 --lr 2e-4 --warmup 1000`.
 
 | | Exact | At most 1 token wrong | At most 2 |
 | --- | --- | --- | --- |
-| MathWriting test, a fixed random 2,000 of its inks | 51.0 % | 69.9 % | 80.0 % |
-| The 38 formulas of the test sheet, in one person's handwriting | 18 (47 %) | 33 (87 %) | 35 (92 %) |
+| MathWriting test, a fixed random 2,000 of its inks: `m1` | 51.0 % | 69.9 % | 80.0 % |
+| the same: `m2` | 52.1 % | 70.2 % | 80.0 % |
+| The 38 formulas of the test sheet, in one person's handwriting: `m1` | 18 (47 %) | 33 (87 %) | 35 (92 %) |
+| the same: `m2` | 26 (68 %) | 36 (95 %) | 37 (97 %) |
 | TexTeller on the same 38 | 31 (82 %) | 36 (95 %) | |
 
-Half of the small model's misses on the test sheet are one digit: a 4 with a closed, pointed top, which it reads as A, 1
-or 7. It also reads a 2 as Z, a 5 as S and a multiplication dot as a minus. Both models lose the lower half of a double
-fraction and read `|−7|` as `1-71`. MathWriting's formulas come from Wikipedia and hold far more letters than numbers,
-so where a glyph is unclear the model guesses a letter; calculator-style training examples are the next step.
+The calculator-style formulas taught `m2` that a formula is mostly numbers: it no longer reads a 2 as Z, `2x` as `Z_{x}`,
+`4y` as `A_{y}`, x as χ, a degree sign as 8 or the dot of `15\%\cdot80` as a minus. Eight of its twelve misses on the
+test sheet are one digit: a 4 with a closed, pointed top, which it now reads as 7 (`m1` read it as A, 1 or 7). It still
+reads a 5 as S and the dot between two fractions as a minus, loses the lower half of a double fraction and reads
+`|−7|` as `1-71`, as TexTeller does with the last two.
 
-Speed, before any work on it (float32, no cached decoder state, no quantization): 4.3 M parameters, a 17 MB file, and
-on one thread of a desktop CPU a median of 36 ms per formula with greedy decoding and 74 ms with a beam of 5. Phones
-are not measured yet.
+### Speed
+
+`recognizer/fast.py` decodes one token at a time with each layer's keys and values kept: the same readings as the
+model's own beam search, about three times faster. `recognizer/export.py` writes it as two ONNX graphs. `m2` on one
+thread of a desktop CPU (an otherwise idle machine), beam 5, the test sheet and 150 MathWriting test inks:
+
+| | Size | Median | 90th percentile | Slowest | Same readings as PyTorch |
+| --- | --- | --- | --- | --- | --- |
+| PyTorch, float32 | 17 MB | 55 ms | 130 ms | 305 ms | |
+| ONNX Runtime, float32 | 17.2 MB | 21 ms | 53 ms | 115 ms | 188 of 188 |
+| ONNX Runtime, float32 encoder, 8-bit decoder (`step.int8mm.onnx`) | 8.8 MB | 19 ms | 45 ms | 108 ms | 185 of 188, all 38 of the test sheet |
+| ONNX Runtime, all 8-bit | 4.6 MB | 129 ms | 285 ms | 697 ms | 168 of 188 |
+
+The all-8-bit encoder is slower, because ONNX Runtime has no fast 8-bit convolution on this processor. Phones and
+tablets are not measured yet.
 
 ## Design choices
 
