@@ -7,8 +7,9 @@ roots, sin, cos, tan, ln and log, and equations in one variable. The formulas of
 Glyphs: a training ink whose label is one row of separate symbols (no fraction, root or accent, and no base with both a
 subscript and a superscript) is cut into groups of strokes that overlap horizontally. Where there are exactly as many
 groups as symbols, each group is taken as its symbol, and a recognizer trained on MathWriting vets it (see `vet`); a 4
-closed at the top is kept on its shape instead (see `closed_four`), and half the writers write every 4 so. The symbols
-split adds its single symbols, and the root signs.
+closed at the top is kept on its shape instead (see `closed_four`). The symbols split adds its single symbols, and the
+root signs. Each writer writes every 4 one way: as MathWriting's writers do (mostly open at the top), closed at the top,
+or as a 1 with a long flag and a crossbar (see `Writer.crossed`), which MathWriting hardly has.
 
 Usage: python -m tools.calc_synth --data data/packed [--count 250000] [--vet runs/m1]
 Writes `<data>/glyphs.npz` (once) and `<data>/calc.npz`, packed like the MathWriting splits.
@@ -33,6 +34,7 @@ NOT_A_ROW = {r"\frac", r"\sqrt", r"\begin", r"\end", r"\overline", r"\underline"
              r"\ddots", r"\sum", r"\int", r"\iint", r"\oint", r"\prod", r"\not", r"\bigcup", r"\bigcap"}
 OPERATORS = {"+", "-", "=", r"\cdot", r"\times", r"\div", ":", "/", "*", "<", ">"}
 CLOSED_FOUR = "4 closed"  # the 4s of `closed_four`, a pool of their own beside "4", which holds them too
+FLAGGED_ONE = "1 flagged"  # the 1s of `flagged_one`, from which `Writer.crossed` makes 4s
 
 
 def metrics():
@@ -101,6 +103,22 @@ def closed_four(glyph):
     top, left, start = arm[arm[:, 1].argmin()], arm[arm[:, 0].argmin()], upright[upright[:, 1].argmin()]
     return (np.ptp(upright[:, 1]) > 0.75 * h and top[1] - y0 < 0.2 * h and abs(top[0] - start[0]) < 0.25 * w
             and top[0] - left[0] > 0.45 * w and left[1] - top[1] > 0.35 * h)
+
+
+def flagged_one(glyph):
+    """A 1 of one stroke with a long, steep, straight flag: from low on the left up to the top, then straight down the
+    whole upright, with no foot. Such a 1 with a crossbar is a 4 as many hands write it (`Writer.crossed`); the flag's
+    steepness keeps it from looking like a crossed 7, whose top is a level bar, and its straightness from an arch."""
+    if len(glyph) != 1:
+        return False
+    s = glyph[0]
+    h, k = np.ptp(s[:, 1]), int(s[:, 1].argmin())
+    drop, run = s[0, 1] - s[k, 1], s[k, 0] - s[0, 0]
+    if not (k > 0 and np.ptp(s[k:, 1]) > 0.9 * h and np.ptp(s[k:, 0]) < 0.3 * h and 0.3 * h < drop < 0.75 * h
+            and run > 0.15 * h and drop > 0.8 * run):
+        return False
+    (cx, cy), d = s[k] - s[0], s[:k + 1] - s[0]
+    return np.abs(cx * d[:, 1] - cy * d[:, 0]).max() / np.hypot(cx, cy) < 0.12 * h
 
 
 def vet(pools, run, rank=5, batch=256):
@@ -191,6 +209,7 @@ def load_glyphs(path):
         pools.setdefault(str(token), []).append(glyph)
         first = end
     pools[CLOSED_FOUR] = [g for g in pools.get("4", []) if closed_four(g)]
+    pools[FLAGGED_ONE] = [g for g in pools.get("1", []) if flagged_one(g)]
     return pools
 
 
@@ -417,13 +436,35 @@ class Writer:
     def __init__(self, pools, rng):
         self.pools, self.rng, self.chosen = pools, rng, {}
         self.spacing = rng.uniform(0.6, 1.5)
-        self.closed_four = bool(pools.get(CLOSED_FOUR)) and rng.random() < 0.5
+        four = rng.choices(["4", CLOSED_FOUR, FLAGGED_ONE], [0.4, 0.3, 0.3])[0]
+        self.four = four if pools.get(four) else "4"
 
     def pick(self, token):
         if token not in self.chosen or self.rng.random() > 0.6:
-            pool = self.pools[CLOSED_FOUR if token == "4" and self.closed_four else token]
-            self.chosen[token] = self.rng.choice(pool)
+            if token == "4" and self.four == FLAGGED_ONE:
+                self.chosen[token] = self.crossed(self.rng.choice(self.pools[FLAGGED_ONE]))
+            else:
+                self.chosen[token] = self.rng.choice(self.pools[self.four if token == "4" else token])
         return self.chosen[token]
+
+    def crossed(self, one):
+        """A 4 as a 1 with a long flag and a crossbar, a handwritten minus, through its upright at about the height where
+        the flag begins: from a little left or right of the flag's start to a little past the upright."""
+        rng, s = self.rng, one[0]
+        h, k = np.ptp(s[:, 1]), int(s[:, 1].argmin())
+        start, upright = s[0], s[k:, 0].mean()
+        bar = rng.choice(self.pools["-"])
+        while len(bar) != 1:
+            bar = rng.choice(self.pools["-"])
+        bar = bar[0]
+        bw, bh = np.ptp(bar, axis=0)
+        left, right = start[0] + h * rng.uniform(-0.08, 0.12), upright + h * rng.uniform(0.08, 0.35)
+        sx = (right - left) / max(bw, 1e-6)
+        sy = min(sx, 0.12 * h / max(bh, 1e-6))
+        y = start[1] + h * rng.uniform(-0.06, 0.06) - bh * sy / 2
+        strokes = [s, (bar - bar.min(axis=0)) * (sx, sy) + (left, y)]
+        low = np.concatenate(strokes).min(axis=0)
+        return [p - low for p in strokes]
 
     def glyph(self, token, size=None, y=None):
         rng, strokes = self.rng, self.pick(token)
