@@ -153,9 +153,9 @@ internal class Write(private val style: Style, private val latex: Boolean) {
             return sign + joinFactors(number, top)
         }
         // Otherwise one fraction bar: the number's numerator above, its denominator below.
-        val above = joinFactors(if (coefficient.num == java.math.BigInteger.ONE) "" else coefficient.num.toString(), top).ifEmpty { "1" }
+        val above = barPart(if (coefficient.num == java.math.BigInteger.ONE) "" else coefficient.num.toString(), top).ifEmpty { "1" }
         val belowFactors = bottom
-        val below = joinFactors(if (coefficient.den == java.math.BigInteger.ONE) "" else coefficient.den.toString(), belowFactors)
+        val below = barPart(if (coefficient.den == java.math.BigInteger.ONE) "" else coefficient.den.toString(), belowFactors)
         return sign + if (latex) "\\frac{$above}{$below}" else "${grouped(above, 1, denominator = false)}/${grouped(below, belowFactors.size + (if (coefficient.den == java.math.BigInteger.ONE) 0 else 1))}"
     }
 
@@ -176,6 +176,10 @@ internal class Write(private val style: Style, private val latex: Boolean) {
         return if (open || s.startsWith("-") || (denominator && count > 1)) "($s)" else s
     }
 
+    /** Above or below a LaTeX fraction bar a lone sum needs no brackets: \frac{2x + 1}{x^{2}}. */
+    private fun barPart(number: String, factors: List<Expr>): String =
+        if (latex && number.isEmpty() && factors.size == 1 && factors[0] is Expr.Add) expr(factors[0]) else joinFactors(number, factors)
+
     private fun joinFactors(number: String, factors: List<Expr>): String {
         val out = StringBuilder(number)
         val ordered = factors.sortedWith(compareBy<Expr>({ factorRank(it) }, { bracketKey(it).first }, { bracketKey(it).second },
@@ -186,6 +190,8 @@ internal class Write(private val style: Style, private val latex: Boolean) {
             val dot = out.isNotEmpty() && (text.first().isDigit() || (out.last().isDigit() && text.first() == '.') ||
                 (!latex && f is Expr.Fn && f.f != Func.ABS && out.last().isLetterOrDigit()))
             if (dot) out.append(if (latex) " \\cdot " else "·")
+            // A command before a letter needs a space, or the two read as one: \pi r^{2}, not \pir^{2}.
+            else if (latex && text.first().isLetter() && COMMAND_END.containsMatchIn(out)) out.append(' ')
             out.append(text)
         }
         return out.toString()
@@ -314,6 +320,9 @@ internal class Write(private val style: Style, private val latex: Boolean) {
 
     companion object {
         private val TALL = listOf("\\frac", "\\sqrt", "\\sum", "\\int", "\\prod")
+
+        /** LaTeX that ends in a command's name: \pi, \infty. */
+        private val COMMAND_END = Regex("\\\\[a-zA-Z]+$")
 
         private val SQUARED_FUNCTIONS = setOf(Func.SIN, Func.COS, Func.TAN, Func.COT, Func.SEC, Func.CSC, Func.SINH, Func.COSH, Func.TANH)
 

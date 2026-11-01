@@ -50,12 +50,16 @@ class CorpusTest {
         "|2x-1|=3" to "x = -1; 2", "3^{x}=5" to "x = log_3(5) ≈ 1.464973521", "e^{x}=5" to "x = ln(5) ≈ 1.609437912",
         "e^{2x}-3e^{x}+2=0" to "x = 0; ln(2) ≈ 0.6931471806", "\\ln(x)=2" to "x = e^2 ≈ 7.389056099", "\\log_{2}(x)=5" to "x = 32",
         "\\ln(x)+\\ln(x-1)=\\ln(6)" to "x = 3 (rejected -2)", "x^{5}-x-1=0" to "x = ≈ 1.167303978",
+        // The sides differ by 1 only where x ≠ 2: an equation without solutions, not a comparison.
+        "\\frac{x}{x-2}=\\frac{2}{x-2}" to "x: none",
     ))
 
     @Test
     fun trigonometricEquations() = check(listOf(
         "\\sin(x)=\\frac{1}{2}" to "x = π/6 + 2kπ; 5π/6 + 2kπ (k)", "\\cos(x)=0" to "x = π/2 + kπ (k)", "\\tan(x)=1" to "x = π/4 + kπ (k)",
         "2\\sin^{2}(x)-\\sin(x)-1=0" to "x = π/2 + 2kπ; 7π/6 + 2kπ; 11π/6 + 2kπ (k)",
+        // An unknown in degrees has its solutions in degrees.
+        "\\sin(x^{\\circ})=\\frac{1}{2}" to "x = 30° + k·360°; 150° + k·360° (k)",
     ))
 
     @Test
@@ -83,6 +87,8 @@ class CorpusTest {
         "\\frac{d}{dx}(x^{3}+2x)=" to "3x^2 + 2", "\\frac{d}{dx}\\sin(x^{2})=" to "2x·cos(x^2)", "(x^{2}e^{x})'=" to "x^2e^x + 2xe^x",
         "\\frac{d}{dx}\\ln(x)=" to "1/x", "\\frac{d}{dx}\\frac{x}{x+1}=" to "1/(x + 1)^2", "\\frac{d^{2}}{dx^{2}}x^{4}=" to "12x^2",
         "\\frac{d}{dx}x^{3}=3x^{2}" to "equal: 3x^2 | 3x^2", "\\frac{d}{dx}x^{3}=3x" to "differ: 3x^2 | 3x",
+        // A bracket's power belongs to the body; a quotient of sin and cos comes back to one function.
+        "\\frac{d}{dx}(2x+1)^{5}=" to "10(2x + 1)^4", "\\frac{d}{dx}(\\tan(x)\\cos(x))=" to "cos(x)",
     ))
 
     @Test
@@ -104,7 +110,17 @@ class CorpusTest {
         "\\lim_{x\\rightarrow0}\\frac{\\sin(x)}{x}" to "1", "\\lim_{x\\rightarrow2}\\frac{x^{2}-4}{x-2}" to "4",
         "\\lim_{x\\rightarrow\\infty}\\frac{2x^{2}+1}{x^{2}-3}" to "2", "\\lim_{x\\rightarrow\\infty}(1+\\frac{1}{x})^{x}" to "e ≈ 2.718281828",
         "\\lim_{x\\rightarrow0^{+}}\\frac{1}{x}" to "∞", "\\lim_{x\\rightarrow0}\\frac{1}{x}" to "NO_LIMIT",
+        // Values too near 0 lose their digits (1 − cos x is 0 in a double at x = 10⁻⁸); the ones before count.
+        "\\lim_{x\\rightarrow0}\\frac{1-\\cos(x)}{x^{2}}" to "1/2 = 0.5", "\\lim_{x\\rightarrow0}\\frac{x^{2}}{1-\\cos(x)}" to "2",
     ))
+
+    /** What the card typesets: a lone sum over a fraction bar without brackets, a command apart from the letter after it. */
+    @Test
+    fun latexOutput() {
+        fun latex(formula: String, choice: Choice) = MathCalc.calculate(formula, choice).let { c -> c.latex((c.outcome as Outcome.Expression).result) }
+        assertEquals("\\frac{2x + 1}{x(x + 1)}", latex("\\frac{1}{x}+\\frac{1}{x+1}", Choice(Mode.SIMPLIFY)))
+        assertEquals("2\\pi r^{2}", latex("\\pi r^{2}+\\pi r^{2}", Choice(Mode.SIMPLIFY)))
+    }
 
     @Test
     fun sums() = check(listOf(

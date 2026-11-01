@@ -21,13 +21,20 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.DefiniteIntegral -> o.exact?.let { c.textValue(it) } ?: "≈ ${o.value}"
     is Outcome.Graph -> "graph of " + o.functions.joinToString(" | ") { c.text(it) } + (o.implicit?.let { "implicit " + c.text(it) } ?: "")
+    is Outcome.LinesChecked -> o.lines.joinToString(" | ") { l ->
+        when (l.holds) { true -> "✓"; false -> "✗"; null -> if (l.unreadable) "?" else "·" } +
+            (if (l.lost.isNotEmpty()) " lost " + l.lost.joinToString(";") { c.text(it) } else "") +
+            (if (l.gained.isNotEmpty()) " gained " + l.gained.joinToString(";") { c.text(it) } else "")
+    }
     is Outcome.Failed -> o.failure.name
 }
+
+internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))
 
 private fun solutions(c: Calculation, s: Solutions): String = when {
     s.many -> "MANY_SOLUTIONS"
     s.always -> "${s.variable}: always"
-    s.periodic.isNotEmpty() -> "${s.variable} = " + s.periodic.joinToString("; ") { c.text(it) } + " (k)"
+    s.periodic.isNotEmpty() -> "${s.variable} = " + s.periodic.joinToString("; ") { if (s.degrees) c.textAngle(it) else c.text(it) } + " (k)"
     s.values.isEmpty() -> "${s.variable}: none" + (if (s.complex.isNotEmpty()) " (complex " + s.complex.joinToString("; ") { c.text(it) } + ")" else "")
     else -> "${s.variable} = " + s.values.joinToString("; ") { c.textValue(it) } +
         (if (s.rejected.isNotEmpty()) " (rejected " + s.rejected.joinToString("; ") { c.textValue(it) } + ")" else "") +

@@ -298,7 +298,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         val top = groupTokens()
         val bottom = groupTokens()
         derivativeOperator(top, bottom)?.let { (variable, order) ->
-            val body = if (peek() == "(") bracket("(", ")") else term()
+            // A bracket with its power is the body: d/dx (2x + 1)^5; otherwise the product that follows.
+            val body = if (peek() == "(") factor() else term()
             return op(OpKind.DERIVATIVE, body, Expr.Sym(variable), num(order.toLong()))
         }
         flags.fractions = true

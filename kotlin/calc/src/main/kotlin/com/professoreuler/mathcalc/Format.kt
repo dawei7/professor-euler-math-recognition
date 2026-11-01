@@ -53,6 +53,18 @@ internal object Format {
         }
     }
 
+    /** An angle in degrees, a family a + k·b written as a° + k·b°. */
+    fun angle(e: Expr, c: Style, latex: Boolean): String {
+        val deg = if (latex) "^{\\circ}" else "°"
+        if (!e.has(K)) return expr(e, c, latex) + deg
+        val a = Solve.simplifyValue(e.substitute(K, Expr.ZERO))
+        val b = Solve.simplifyValue(e.substitute(K, Expr.ONE) - a)
+        val dot = if (latex) " \\cdot " else "·"
+        val negative = Write.isNegative(b)
+        val step = expr(if (negative) neg(b) else b, c, latex) + deg
+        return expr(a, c, latex) + deg + (if (negative) " - k" else " + k") + dot + step
+    }
+
     fun latex(n: Num, c: Style): String = write(n, c, latex = true)
 
     fun text(n: Num, c: Style): String = write(n, c, latex = false)

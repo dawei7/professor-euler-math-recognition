@@ -141,6 +141,9 @@ sealed class Outcome {
     /** A graph: [functions] of [variable], each drawn; for an equation both sides, which meet at its solutions. */
     data class Graph(val variable: String, val functions: List<Expr>, val implicit: Expr? = null) : Outcome()
 
+    /** Several lines of a learner's working, each checked against the line before. */
+    data class LinesChecked(val lines: List<LineCheck>) : Outcome()
+
     data class Failed(val failure: Failure) : Outcome()
 }
 
@@ -181,6 +184,11 @@ class Calculation(val outcome: Outcome, override val decimalComma: Boolean, over
 
     fun textValue(e: Expr): String = Format.value(e, this, latex = false)
 
+    /** An angle in degrees: `30^{\circ}`, a family `30^{\circ} + k \cdot 360^{\circ}`. */
+    fun latexAngle(e: Expr): String = Format.angle(e, this, latex = true)
+
+    fun textAngle(e: Expr): String = Format.angle(e, this, latex = false)
+
     /** An inequality's solution: `x < 4`, `x \in (-\infty, -1] \cup [1, \infty)`. */
     fun latex(s: IntervalSet): String = Format.intervals(s, this, latex = true)
 
@@ -206,7 +214,7 @@ object MathCalc {
             val others = if (flags.plusMinus) Parser(tokens, Flags().also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
             Budget.within(LIMIT_MS) {
-                val plan = plan(statements, others, style)
+                val plan = plan(statements, others, style, flags.degrees)
                 choices = plan.choices
                 val chosen = choice?.takeIf { it in plan.choices } ?: plan.likeliest
                 shown = chosen
@@ -221,6 +229,9 @@ object MathCalc {
         }
         return Calculation(outcome, flags.decimalComma, flags.decimals, flags.fractions, choices, shown, flags.degrees)
     }
+
+    /** Several lines of working, each read on its own: checked step by step, or solved as a system ([Lines]). */
+    fun lines(readings: List<String>): Calculation = Lines.check(readings)
 
     /** Calculate with a mode by name: the [choice] for the formula's likeliest letter. */
     fun calculate(latex: String, mode: Mode?): Calculation {
@@ -240,7 +251,7 @@ object MathCalc {
     /** The choices that fit a formula, the likeliest of them, and how each comes to its outcome. */
     private class Plan(val choices: List<Choice>, val likeliest: Choice, val outcome: (Choice) -> Outcome)
 
-    private fun plan(statements: List<Statement>, others: List<Statement>?, style: Style): Plan {
+    private fun plan(statements: List<Statement>, others: List<Statement>?, style: Style, degrees: Boolean): Plan {
         if (statements.size > 1) return systemPlan(statements)
         val s = statements[0]
         if (s.definition != null) return definitionPlan(s)
@@ -347,7 +358,10 @@ object MathCalc {
                     else if (letters.size == 1) Outcome.Graph(variable, listOf(lhs, rhs)) else Outcome.Graph("x", emptyList(), implicit = difference)
                 Mode.SOLVE -> {
                     val v = Expr.Sym(c.letter ?: variable)
-                    val solutions = if (letters.size == 1) Solve.equation(lhs, rhs, v) else Solve.forLetter(lhs, rhs, v)
+                    val found = if (letters.size == 1) Solve.equation(lhs, rhs, v) else Solve.forLetter(lhs, rhs, v)
+                    // An unknown in degrees (sin x° = 1/2) has its solutions in degrees: numbers without π, shown with °.
+                    val inDegrees = degrees && found.periodic.isNotEmpty() && (found.periodic + found.values).none { it.hasPi() }
+                    val solutions = if (inDegrees) found.markedDegrees() else found
                     if (letters.size > 1 && solutions.values.isEmpty()) throw CalcException(Failure.SEVERAL_UNKNOWNS)
                     Outcome.Solved(solutions)
                 }
@@ -357,6 +371,15 @@ object MathCalc {
     }
 
     private fun Expr.isConstantInLetters() = symbols().isEmpty()
+
+    private fun Expr.hasPi(): Boolean = when (this) {
+        is Expr.Const -> kind == Constant.PI
+        is Expr.Add -> terms.any { it.hasPi() }
+        is Expr.Mul -> factors.any { it.hasPi() }
+        is Expr.Pow -> base.hasPi() || exp.hasPi()
+        is Expr.Fn -> args.any { it.hasPi() }
+        else -> false
+    }
 
     /** Factors cancelled from a denominator as the values they exclude: x − 1 as x ≠ 1. */
     private fun excludedValues(factors: List<Expr>): List<Pair<String, Expr>> = factors.distinct().flatMap { f ->
@@ -382,8 +405,13 @@ object MathCalc {
         else -> letters.last()
     }
 
+    /**
+     * Whether the sides differ by a number for every value: 2x + 1 = 2x + 3. Not where that needs a factor cancelled from a
+     * denominator, x/(x − 2) = 2/(x − 2), which is an equation to solve (here without solutions).
+     */
     private fun isConstantDifference(d: Expr): Boolean = try {
-        Algebra.simplify(d).isConstant()
+        val excluded = ArrayList<Expr>()
+        Algebra.simplify(d, excluded).isConstant() && excluded.isEmpty()
     } catch (e: CalcException) {
         false
     }

@@ -290,10 +290,11 @@ object Algebra {
         }
     }
 
-    /** cos² u replaced by 1 − sin² u (or the other way round) where that makes a polynomial in them smaller. */
+    /**
+     * cos² u replaced by 1 − sin² u (or the other way round) where that makes the expression smaller, in a fraction too:
+     * (1 − sin² x)/cos x is cos x.
+     */
     fun pythagoras(e: Expr): Expr {
-        val kernels = Kernels()
-        val p = polynomial(e, kernels) ?: return e
         var best = e
         // For each angle with both sin and cos, try both replacements.
         val angles = trigArguments(e)
@@ -304,7 +305,6 @@ object Algebra {
                 if (expanded.size() < best.size()) best = expanded
             }
         }
-        if (p.isConstant) return best
         return best
     }
 
@@ -373,6 +373,15 @@ object Algebra {
             val cancelled = ArrayList<Expr>()
             val one = try { cancel(inside, cancelled) } catch (x: CalcException) { if (x.failure == Failure.DIVISION_BY_ZERO) throw x; null }
             if (one != null && Verify.replaces(e, one) || one != null && Verify.same(e, one)) {
+                // With tan, sec and the like written in sin and cos, more may cancel: 1/cos² x · cos x − tan x · sin x is cos x.
+                if (trigArguments(sinCos(e)).isNotEmpty()) {
+                    val inTrig = ArrayList<Expr>()
+                    val trig = try { cancel(sinCos(inside), inTrig)?.let { pythagoras(it) } } catch (x: CalcException) { if (x.failure == Failure.DIVISION_BY_ZERO) throw x; null }
+                    if (trig != null && complexity(trig) < complexity(one) && Verify.replaces(e, trig)) {
+                        excluded?.addAll(inTrig)
+                        return trig
+                    }
+                }
                 excluded?.addAll(cancelled)
                 return one
             }

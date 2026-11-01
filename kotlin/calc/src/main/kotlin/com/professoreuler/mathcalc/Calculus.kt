@@ -15,11 +15,26 @@ object Calculus {
     // ---------------------------------------------------------------------------------------------------------------------
     // Derivatives.
 
-    /** d/dx of [e], every rule, simplified. */
+    /**
+     * d/dx of [e], every rule, simplified; a product the chain rule gives stays one where that is shorter than multiplied
+     * out: d/dx (2x + 1)^5 is 10(2x + 1)^4.
+     */
     fun derivative(e: Expr, x: Expr.Sym, order: Int = 1): Expr {
         var d = e
-        repeat(order) { d = tidy(diff(d, x)) }
+        repeat(order) {
+            val raw = diff(d, x)
+            val tidied = tidy(raw)
+            d = if ((raw is Expr.Mul || raw is Expr.Pow) && !hasDenominator(raw) && Algebra.complexity(raw) < Algebra.complexity(tidied)) raw else tidied
+        }
         return d
+    }
+
+    private fun hasDenominator(e: Expr): Boolean = when (e) {
+        is Expr.Pow -> rational(e.exp)?.let { it.signum < 0 } == true || hasDenominator(e.base) || hasDenominator(e.exp)
+        is Expr.Add -> e.terms.any(::hasDenominator)
+        is Expr.Mul -> e.factors.any(::hasDenominator)
+        is Expr.Fn -> e.args.any(::hasDenominator)
+        else -> false
     }
 
     /** d/dx without tidying: the rules applied. */
@@ -590,17 +605,33 @@ object Calculus {
     private fun numericLimit(e: Expr, x: Expr.Sym, a: Expr, side: Int?): Double? {
         fun seq(sign: Int): Double? {
             val values = ArrayList<Double>()
-            for (k in 3..9) {
+            for (k in 2..10) {
                 val t = if (a.hasInfinity()) {
                     (if (a == Expr.INF) 1.0 else -1.0) * Math.pow(10.0, k.toDouble())
                 } else (Numeric.value(a) ?: return null) + sign * Math.pow(10.0, -k.toDouble())
                 val v = Numeric.eval(e, mapOf(x.name to t))
-                if (v.isNaN()) return null
+                // 0/0 of rounding, nearer a than the digits reach: the values before it are the ones to go by.
+                if (v.isNaN()) break
                 values += v
             }
-            val last = values.last()
-            if (last.isInfinite() || abs(last) > 1e12) return if (values.takeLast(3).all { it.sign == last.sign && abs(it) > 1e6 }) last.sign * Double.POSITIVE_INFINITY else null
-            val prev = values[values.size - 2]
+            if (values.size < 3) return null
+            // Without bound: each of the last four steps at least three times as far from 0, with one sign.
+            val tail = values.takeLast(5)
+            if (tail.size == 5 && tail.zipWithNext().all { (p, q) -> abs(q) >= 3 * abs(p) && p.sign == q.sign } &&
+                (tail.last().isInfinite() || abs(tail.last()) > 1e6)) return tail.last().sign * Double.POSITIVE_INFINITY
+            // Where the step between two values suddenly grows tenfold, rounding has taken over (1 − cos x at x = 10⁻⁸ is 0
+            // in a double): only the values before it count.
+            var trusted = values.size
+            for (j in 1 until values.size - 1) {
+                val step = abs(values[j + 1] - values[j])
+                if (values[j + 1].isInfinite() || (step > 10 * abs(values[j] - values[j - 1]) && step > 1e-10 * max(1.0, abs(values[j])))) {
+                    trusted = j + 1
+                    break
+                }
+            }
+            if (trusted < 2) return null
+            val last = values[trusted - 1]
+            val prev = values[trusted - 2]
             return if (abs(last - prev) <= 1e-5 * max(1.0, abs(last))) last else null
         }
         return when (side) {

@@ -22,7 +22,13 @@ class Solutions internal constructor(
     val many: Boolean = false,
     /** Conditions on the other letters for a formula solved for one: a ≠ 0. */
     val conditions: List<Expr> = emptyList(),
-)
+    /** Angles in degrees, as the formula wrote its own: 30 for 30°, the families' step 360. */
+    val degrees: Boolean = false,
+) {
+    /** The same solutions, marked as angles in degrees: sin(x°) = 1/2 gives x = 30 + 360k, shown as 30° + k·360°. */
+    internal fun markedDegrees(): Solutions =
+        Solutions(variable, values, periodic, complex, always, rejected, excluded, numeric, many, conditions, degrees = true)
+}
 
 /** An interval of the real line: null bounds are ∓∞. */
 class Interval internal constructor(val lower: Expr?, val lowerClosed: Boolean, val upper: Expr?, val upperClosed: Boolean)
