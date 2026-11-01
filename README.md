@@ -59,6 +59,9 @@ Every run uses the MobileNetV2-style encoder and is read with beam search of 5.
   - `m4`: a third of the writers write the 4 as a 1 with a long flag and a crossbar.
   - `m5`: one writer in three has a continental European hand (1s with a long flag, crossed 7s, crossed 4s), and an
     angle π/n is mostly π/2, π/3, π/4 or π/6.
+  - `m6`: `m5`'s data, drawn as the apps draw it (`recognizer/data.py`: each pixel's ink from its distance to the
+    stroke, which Kotlin draws to the same pixel). `m1` to `m5` were trained and are measured on PIL's drawing,
+    `render_pil`, whose lines are thinner across than along an axis and which the apps could not match.
 
 | | Exact | At most 1 token wrong | At most 2 |
 | --- | --- | --- | --- |
@@ -67,11 +70,13 @@ Every run uses the MobileNetV2-style encoder and is read with beam search of 5.
 | the same: `m3` | 52.3 % | 71.6 % | 80.7 % |
 | the same: `m4` | 52.6 % | 71.2 % | 80.8 % |
 | the same: `m5` | 51.8 % | 70.2 % | 80.0 % |
+| the same: `m6` | 52.8 % | 70.7 % | 80.7 % |
 | The 38 formulas of the test sheet, in one person's handwriting: `m1` | 18 (47 %) | 33 (87 %) | 35 (92 %) |
 | the same: `m2` | 26 (68 %) | 36 (95 %) | 37 (97 %) |
 | the same: `m3` | 25 (66 %) | 36 (95 %) | 37 (97 %) |
 | the same: `m4` | 31 (82 %) | 35 (92 %) | 36 (95 %) |
 | the same: `m5` | 33 (87 %) | 36 (95 %) | 37 (97 %) |
+| the same: `m6` | 34 (89 %) | 36 (95 %) | 37 (97 %) |
 | TexTeller on the same 38 | 31 (82 %) | 36 (95 %) | |
 
 The calculator-style formulas taught `m2` that a formula is mostly numbers: it no longer reads a 2 as Z, `2x` as `Z_{x}`,
@@ -80,28 +85,30 @@ The calculator-style formulas taught `m2` that a formula is mostly numbers: it n
 continental European hand, which MathWriting hardly has. `m4` learned the 4 but took a 1 with a short stroke at its foot
 for a 4; `m5`, which sees that hand's 1s beside fraction lines and minus signs, reads both. Its five misses: the dot
 between two fractions read as a minus, the lower half of a double fraction lost, the 5 of `5!` read as S, `|−7|` read
-as `1-71` (as TexTeller does with the last two), and the small 4 of `\tan(\frac{\pi}{4})` still read as 7.
+as `1-71` (as TexTeller does with the last two), and the small 4 of `\tan(\frac{\pi}{4})` still read as 7. `m6` reads
+the dot too.
 
 **The test sheet is no longer a blind test.** The ways of writing a 4, a 1 and a 7 that `m3` to `m5` learn were chosen
 after looking at how its writer writes them; its formulas themselves are never generated (`--exclude`). MathWriting's
 test set stays blind: `m5` reads 76 of its inks right that `m4` missed and misses 92 that `m4` read, a difference within
-its noise. A blind measure of the European hand needs a second sheet of new formulas.
+its noise. A blind measure of the European hand needs a second sheet of new formulas: `test-sheet/formulas-2.md`.
 
 ### Speed
 
 `recognizer/fast.py` decodes one token at a time with each layer's keys and values kept: the same readings as the
-model's own beam search, about three times faster. `recognizer/export.py` writes it as two ONNX graphs. `m5` on one
+model's own beam search, about three times faster. `recognizer/export.py` writes it as two ONNX graphs. `m6` on one
 thread of a desktop CPU (an otherwise idle machine), beam 5, the test sheet and 150 MathWriting test inks:
 
 | | Size | Median | 90th percentile | Slowest | Same readings as PyTorch |
 | --- | --- | --- | --- | --- | --- |
-| PyTorch, float32 | 17 MB | 56 ms | 123 ms | 219 ms | |
-| ONNX Runtime, float32 | 17.2 MB | 21 ms | 52 ms | 106 ms | 188 of 188 |
-| ONNX Runtime, float32 encoder, 8-bit decoder (`step.int8mm.onnx`) | 8.8 MB | 16 ms | 37 ms | 81 ms | 187 of 188 |
-| ONNX Runtime, all 8-bit | 4.6 MB | 125 ms | 274 ms | 804 ms | 169 of 188 |
+| PyTorch, float32 | 17 MB | 47 ms | 97 ms | 179 ms | |
+| ONNX Runtime, float32 | 17.2 MB | 18 ms | 41 ms | 90 ms | 188 of 188 |
+| ONNX Runtime, float32 encoder, 8-bit decoder (`step.int8mm.onnx`) | 8.8 MB | 14 ms | 35 ms | 73 ms | 187 of 188 |
+| ONNX Runtime, all 8-bit | 4.6 MB | 117 ms | 249 ms | 597 ms | 170 of 188 |
 
-The all-8-bit encoder is slower, because ONNX Runtime has no fast 8-bit convolution on this processor. Phones and
-tablets are not measured yet.
+The all-8-bit encoder is slower, because ONNX Runtime has no fast 8-bit convolution on this processor. The Kotlin reader
+(`kotlin/reader`, ONNX Runtime 1.31.1 for Java) reads the same 188 inks to the same tokens as the Python one, from the
+same pixels. Phones and tablets are not measured yet; `kotlin/bench` is the app that measures them.
 
 ## Design choices
 
