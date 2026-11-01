@@ -16,7 +16,9 @@ class Reading(val ids: List<Int>, val latex: String, val encoderMs: Double, val 
  * here is the reading on the desktop. Not thread-safe; [close] it when done.
  */
 class MathReader(encoder: ByteArray, step: ByteArray, val vocab: Vocab, threads: Int = 1) : AutoCloseable {
-    private val env = OrtEnvironment.getEnvironment()
+    // ONNX Runtime's own telemetry stays off: nothing about the learner leaves the device. Its Android library starts
+    // Microsoft's telemetry client from a provider of its own as well, which an app removes from its manifest (README).
+    private val env = OrtEnvironment.getEnvironment().also { it.setTelemetry(false) }
     private val options = OrtSession.SessionOptions().apply {
         setIntraOpNumThreads(threads)
         setInterOpNumThreads(1)

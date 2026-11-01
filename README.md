@@ -123,6 +123,21 @@ decoder), from the ink's strokes to the reading:
 Every reading is the desktop's. Two threads are the fastest; four spend more on sharing such small work than they gain.
 The first loading includes starting ONNX Runtime. Drawing the ink takes under a millisecond. A phone is not measured.
 
+## ONNX Runtime's telemetry
+
+`onnxruntime-android` 1.31.1 starts Microsoft's telemetry client when an app launches, from a provider in its own
+manifest (`ai.onnxruntime.TelemetryInitializer`): it collects the device's Android ID and system, power and network
+details. An app that reads with it should remove that provider, as `kotlin/bench` does:
+
+```xml
+<provider android:name="ai.onnxruntime.TelemetryInitializer"
+    android:authorities="${applicationId}.onnxruntime_telemetry_initializer" tools:node="remove" />
+```
+
+Without it the library's native side reports its telemetry as unavailable. `MathReader` also switches ONNX Runtime's
+telemetry off (`setTelemetry(false)`), on Android and on desktop Java. The bench app timed on a tablet on 1 November 2026
+still had the provider.
+
 ## Design choices
 
 - **On the device.** The model is small enough for a phone, so handwriting never has to leave it.
