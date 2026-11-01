@@ -9,7 +9,8 @@ subscript and a superscript) is cut into groups of strokes that overlap horizont
 groups as symbols, each group is taken as its symbol, and a recognizer trained on MathWriting vets it (see `vet`); a 4
 closed at the top is kept on its shape instead (see `closed_four`). The symbols split adds its single symbols, and the
 root signs. Each writer writes every 4 one way: as MathWriting's writers do (mostly open at the top), closed at the top,
-or as a 1 with a long flag and a crossbar (see `Writer.crossed`), which MathWriting hardly has.
+or as a 1 with a long flag and a crossbar (see `Writer.crossed`), which MathWriting hardly has. One writer in three has
+a continental European hand, which MathWriting hardly has either: 1s with a long flag, crossed 7s, crossed 4s.
 
 Usage: python -m tools.calc_synth --data data/packed [--count 250000] [--vet runs/m1]
 Writes `<data>/glyphs.npz` (once) and `<data>/calc.npz`, packed like the MathWriting splits.
@@ -35,6 +36,9 @@ NOT_A_ROW = {r"\frac", r"\sqrt", r"\begin", r"\end", r"\overline", r"\underline"
 OPERATORS = {"+", "-", "=", r"\cdot", r"\times", r"\div", ":", "/", "*", "<", ">"}
 CLOSED_FOUR = "4 closed"  # the 4s of `closed_four`, a pool of their own beside "4", which holds them too
 FLAGGED_ONE = "1 flagged"  # the 1s of `flagged_one`, from which `Writer.crossed` makes 4s
+UPRIGHT_ONE = "1 upright"  # 1s of one straight stroke, to which `Writer.flagged` draws a flag
+CROSSED_SEVEN = "7 crossed"  # the 7s of `crossed_seven`
+PLAIN_SEVEN = "7 plain"  # 7s of one stroke, through which `Writer.crossed_seven` draws a bar
 
 
 def metrics():
@@ -119,6 +123,17 @@ def flagged_one(glyph):
         return False
     (cx, cy), d = s[k] - s[0], s[:k + 1] - s[0]
     return np.abs(cx * d[:, 1] - cy * d[:, 0]).max() / np.hypot(cx, cy) < 0.12 * h
+
+
+def crossed_seven(glyph):
+    """A 7 with a bar through its stem: two strokes, one of them a short level line in the lower two thirds."""
+    if len(glyph) != 2:
+        return False
+    pts = np.concatenate(glyph)
+    y0, (w, h) = pts[:, 1].min(), np.ptp(pts, axis=0)
+    seven, bar = sorted(glyph, key=lambda s: -np.ptp(s[:, 1]))
+    bw, bh = np.ptp(bar, axis=0)
+    return np.ptp(seven[:, 1]) > 0.9 * h and bh < 0.3 * bw and bw < 0.9 * w and 0.3 * h < bar[:, 1].mean() - y0 < 0.75 * h
 
 
 def vet(pools, run, rank=5, batch=256):
@@ -210,6 +225,9 @@ def load_glyphs(path):
         first = end
     pools[CLOSED_FOUR] = [g for g in pools.get("4", []) if closed_four(g)]
     pools[FLAGGED_ONE] = [g for g in pools.get("1", []) if flagged_one(g)]
+    pools[UPRIGHT_ONE] = [g for g in pools.get("1", []) if len(g) == 1 and np.ptp(g[0][:, 0]) < 0.15 * np.ptp(g[0][:, 1])]
+    pools[CROSSED_SEVEN] = [g for g in pools.get("7", []) if crossed_seven(g)]
+    pools[PLAIN_SEVEN] = [g for g in pools.get("7", []) if len(g) == 1]
     return pools
 
 
@@ -375,8 +393,8 @@ def function(rng, style):
         r = rng.random()
         if r < 0.4:
             arg = [("sup", row(integer(rng, rng.choice((1, 2, 2, 3)))), row(g(r"\circ")))]
-        elif r < 0.6:
-            arg = [("frac", row(g(r"\pi")), row(factor(rng)))]
+        elif r < 0.6:  # mostly the angles of the exercises: π/2, π/3, π/4 and π/6
+            arg = [("frac", row(g(r"\pi")), row(g(rng.choice("2346")) if rng.random() < 0.7 else factor(rng)))]
         elif r < 0.75:
             arg = (factor(rng) if rng.random() < 0.4 else []) + g(r"\pi")
         else:
@@ -431,40 +449,85 @@ class Box:
 
 class Writer:
     """Writes one formula: picks a glyph per symbol (often the same one again, as a person writes a 4 the same way twice)
-    and spaces them in a style of its own."""
+    and spaces them in a style of its own.
+
+    One writer in three has a continental European hand: every 1 with a long flag, every 7 crossed, and the 4 mostly as
+    a crossed 1. Such a hand puts its flagged 1s beside fraction lines and minus signs too, so a recognizer learns that
+    only a bar through the stem makes a 4, and that a bare upright line beside its 1s is a bar of |x|."""
 
     def __init__(self, pools, rng):
         self.pools, self.rng, self.chosen = pools, rng, {}
         self.spacing = rng.uniform(0.6, 1.5)
-        four = rng.choices(["4", CLOSED_FOUR, FLAGGED_ONE], [0.4, 0.3, 0.3])[0]
+        self.european = rng.random() < 0.35 and all(pools.get(t) for t in (FLAGGED_ONE, UPRIGHT_ONE, PLAIN_SEVEN))
+        four = rng.choices(["4", CLOSED_FOUR, FLAGGED_ONE], [0.25, 0.15, 0.6] if self.european else [0.6, 0.4, 0])[0]
         self.four = four if pools.get(four) else "4"
 
     def pick(self, token):
         if token not in self.chosen or self.rng.random() > 0.6:
-            if token == "4" and self.four == FLAGGED_ONE:
-                self.chosen[token] = self.crossed(self.rng.choice(self.pools[FLAGGED_ONE]))
-            else:
-                self.chosen[token] = self.rng.choice(self.pools[self.four if token == "4" else token])
+            self.chosen[token] = self.draw(token)
         return self.chosen[token]
 
-    def crossed(self, one):
-        """A 4 as a 1 with a long flag and a crossbar, a handwritten minus, through its upright at about the height where
-        the flag begins: from a little left or right of the flag's start to a little past the upright."""
-        rng, s = self.rng, one[0]
-        h, k = np.ptp(s[:, 1]), int(s[:, 1].argmin())
-        start, upright = s[0], s[k:, 0].mean()
+    def draw(self, token):
+        rng, pools = self.rng, self.pools
+        if token == "4" and self.four == FLAGGED_ONE:
+            return self.crossed(self.flagged())
+        if token == "1" and self.european:
+            return self.flagged()
+        if token == "7" and self.european:
+            if pools.get(CROSSED_SEVEN) and rng.random() < 0.4:
+                return rng.choice(pools[CROSSED_SEVEN])
+            return self.crossed_seven(rng.choice(pools[PLAIN_SEVEN]))
+        return rng.choice(pools[self.four if token == "4" else token])
+
+    def flagged(self):
+        """A 1 with a long flag: one of MathWriting's, or an upright 1 given a slightly bowed flag that runs up to its
+        top from a third to two thirds of the way down, as long as it drops or a little shorter."""
+        rng = self.rng
+        if rng.random() < 0.4:
+            return rng.choice(self.pools[FLAGGED_ONE])
+        s = rng.choice(self.pools[UPRIGHT_ONE])[0]
+        s = s if s[0, 1] <= s[-1, 1] else s[::-1]
+        h = np.ptp(s[:, 1])
+        drop = h * rng.uniform(0.3, 0.62)
+        run = drop * rng.uniform(0.45, 1.15)
+        t = np.linspace(0, 1, max(4, int(len(s) * drop / max(h, 1e-6))))[:, None]
+        start = s[0] + (-run, drop)
+        bow = rng.uniform(-0.05, 0.05) * h * np.sin(np.pi * t) * np.array([drop, run]) / np.hypot(drop, run)
+        flag = start + t * (s[0] - start) + bow
+        stroke = np.concatenate([flag[:-1], s])
+        return [stroke - stroke.min(axis=0)]
+
+    def through(self, strokes, left, right, y, h):
+        """`strokes` and a bar, a handwritten minus, from `left` to `right` at `y`, at most an eighth of `h` thick."""
+        rng = self.rng
         bar = rng.choice(self.pools["-"])
         while len(bar) != 1:
             bar = rng.choice(self.pools["-"])
         bar = bar[0]
         bw, bh = np.ptp(bar, axis=0)
-        left, right = start[0] + h * rng.uniform(-0.08, 0.12), upright + h * rng.uniform(0.08, 0.35)
         sx = (right - left) / max(bw, 1e-6)
         sy = min(sx, 0.12 * h / max(bh, 1e-6))
-        y = start[1] + h * rng.uniform(-0.06, 0.06) - bh * sy / 2
-        strokes = [s, (bar - bar.min(axis=0)) * (sx, sy) + (left, y)]
+        strokes = strokes + [(bar - bar.min(axis=0)) * (sx, sy) + (left, y - bh * sy / 2)]
         low = np.concatenate(strokes).min(axis=0)
         return [p - low for p in strokes]
+
+    def crossed(self, one):
+        """A 4 as a 1 with a long flag and a crossbar through its upright at about the height where the flag begins:
+        from a little left or right of the flag's start to a little past the upright."""
+        rng, s = self.rng, one[0]
+        h, k = np.ptp(s[:, 1]), int(s[:, 1].argmin())
+        start, upright = s[0], s[k:, 0].mean()
+        left, right = start[0] + h * rng.uniform(-0.08, 0.12), upright + h * rng.uniform(0.08, 0.35)
+        return self.through([s], left, right, start[1] + h * rng.uniform(-0.06, 0.06), h)
+
+    def crossed_seven(self, seven):
+        """A 7 with a bar through its stem, about halfway down, reaching out on both sides of it."""
+        rng, s = self.rng, seven[0]
+        (x0, y0), (w, h) = s.min(axis=0), np.ptp(s, axis=0)
+        y = y0 + h * rng.uniform(0.42, 0.62)
+        stem = s[int(np.abs(s[:, 1] - y).argmin()), 0]
+        left, right = stem - max(w, 0.3 * h) * rng.uniform(0.2, 0.4), stem + max(w, 0.3 * h) * rng.uniform(0.15, 0.35)
+        return self.through([s], left, right, y, h)
 
     def glyph(self, token, size=None, y=None):
         rng, strokes = self.rng, self.pick(token)
