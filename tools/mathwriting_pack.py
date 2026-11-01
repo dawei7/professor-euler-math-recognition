@@ -48,6 +48,33 @@ def normalize(strokes):
     return kept
 
 
+class Bucket:
+    """The inks of one split as they are packed."""
+
+    def __init__(self):
+        self.points, self.stroke_ends, self.ink_ends, self.widths, self.symbols, self.labels, self.ids = [], [], [], [], [], [], []
+        self.n = 0
+
+    def add(self, kept, label, sample_id):
+        """`kept` are strokes as `normalize` returns them."""
+        for s in kept:
+            self.points.append(s)
+            self.n += len(s)
+            self.stroke_ends.append(self.n)
+        self.ink_ends.append(len(self.stroke_ends))
+        self.widths.append(max(float(s[:, 0].max()) for s in kept))
+        sizes = [float(np.ptp(s.astype(np.float32), axis=0).max()) for s in kept if len(s) > 1]
+        self.symbols.append(float(np.median(sizes)) if sizes else 1.0)
+        self.labels.append(label)
+        self.ids.append(sample_id)
+
+    def save(self, path):
+        np.savez(path, points=np.concatenate(self.points), stroke_ends=np.array(self.stroke_ends, np.int64),
+                 ink_ends=np.array(self.ink_ends, np.int64), widths=np.array(self.widths, np.float32),
+                 symbols=np.array(self.symbols, np.float32), labels=np.array(self.labels), ids=np.array(self.ids))
+        print(f"{path}: {len(self.ids)} inks, {len(self.stroke_ends)} strokes, {self.n} points")
+
+
 def main():
     archive, out = sys.argv[1], pathlib.Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
@@ -60,26 +87,12 @@ def main():
             sample_id, label, strokes = parse(tar.extractfile(member).read())
             if not strokes:
                 continue
-            bucket = splits.setdefault(split, {"points": [], "stroke_ends": [], "ink_ends": [], "widths": [], "symbols": [],
-                                               "labels": [], "ids": [], "n": 0})
-            kept = normalize(strokes)
-            for s in kept:
-                bucket["points"].append(s)
-                bucket["n"] += len(s)
-                bucket["stroke_ends"].append(bucket["n"])
-            bucket["ink_ends"].append(len(bucket["stroke_ends"]))
-            bucket["widths"].append(max(float(s[:, 0].max()) for s in kept))
-            sizes = [float(np.ptp(s.astype(np.float32), axis=0).max()) for s in kept if len(s) > 1]
-            bucket["symbols"].append(float(np.median(sizes)) if sizes else 1.0)
-            bucket["labels"].append(label)
-            bucket["ids"].append(sample_id)
-            if len(bucket["ids"]) % 50000 == 0:
-                print(split, len(bucket["ids"]), flush=True)
-    for split, b in splits.items():
-        np.savez(out / f"{split}.npz", points=np.concatenate(b["points"]), stroke_ends=np.array(b["stroke_ends"], np.int64),
-                 ink_ends=np.array(b["ink_ends"], np.int64), widths=np.array(b["widths"], np.float32),
-                 symbols=np.array(b["symbols"], np.float32), labels=np.array(b["labels"]), ids=np.array(b["ids"]))
-        print(f"{split}: {len(b['ids'])} inks, {len(b['stroke_ends'])} strokes, {b['n']} points")
+            bucket = splits.setdefault(split, Bucket())
+            bucket.add(normalize(strokes), label, sample_id)
+            if len(bucket.ids) % 50000 == 0:
+                print(split, len(bucket.ids), flush=True)
+    for split, bucket in splits.items():
+        bucket.save(out / f"{split}.npz")
 
 
 if __name__ == "__main__":

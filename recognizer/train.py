@@ -1,12 +1,15 @@
 """Trains the recognizer on packed MathWriting (train, synthetic and symbols), checking it on part of valid as it goes.
 
 Usage: python -m recognizer.train --data data/packed --out runs/<name> [--steps 120000]
-A run writes `vocab.json`, `log.tsv`, `last.pt` and `best.pt` (the best exact-match rate on the check set).
+       [--packs train,synthetic,symbols,calc] [--init runs/<earlier>/best.pt]
+A run writes `vocab.json`, `log.tsv`, `last.pt` and `best.pt` (the best exact-match rate on the check set). `--init`
+starts from an earlier run's weights and keeps its vocabulary.
 """
 import argparse
 import json
 import math
 import pathlib
+import shutil
 import time
 
 import torch
@@ -68,14 +71,18 @@ def main():
     parser.add_argument("--check-every", type=int, default=5000)
     parser.add_argument("--check-size", type=int, default=2000)
     parser.add_argument("--encoder", default="mobile", choices=("mobile", "dense"))
+    parser.add_argument("--packs", default="train,synthetic,symbols", help="the packed splits to train on")
+    parser.add_argument("--init", help="an earlier run's best.pt to start from")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     data = pathlib.Path(args.data)
-    train_packs = [Packed(data / f"{s}.npz") for s in ("train", "synthetic", "symbols")]
+    train_packs = [Packed(data / f"{s}.npz") for s in args.packs.split(",")]
     vocab_path = out / "vocab.json"
+    if args.init and not vocab_path.exists():
+        shutil.copy(pathlib.Path(args.init).parent / "vocab.json", vocab_path)
     if vocab_path.exists():
         vocab = Vocab.load(vocab_path)
     else:
@@ -97,6 +104,11 @@ def main():
     schedule = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda s: min(1.0, (s + 1) / args.warmup) *
                                                  0.5 * (1 + math.cos(math.pi * min(s, args.steps) / args.steps)))
     step, best = 0, -1.0
+    if args.init and not (args.resume and (out / "last.pt").exists()):
+        state = torch.load(args.init, map_location=device, weights_only=True)
+        if state.get("encoder", "dense") != args.encoder:
+            raise SystemExit(f"{args.init} has the {state.get('encoder', 'dense')} encoder")
+        model.load_state_dict(state["model"])
     if args.resume and (out / "last.pt").exists():
         state = torch.load(out / "last.pt", map_location=device, weights_only=True)
         model.load_state_dict(state["model"])
@@ -104,7 +116,8 @@ def main():
         schedule.load_state_dict(state["schedule"])
         step, best = state["step"], state["best"]
     log = open(out / "log.tsv", "a", encoding="utf-8")
-    config = {"vocab_size": len(vocab), "encoder": args.encoder, "steps": args.steps, "lr": args.lr, "budget": args.budget}
+    config = {"vocab_size": len(vocab), "encoder": args.encoder, "steps": args.steps, "lr": args.lr, "budget": args.budget,
+              "warmup": args.warmup, "packs": args.packs, "init": args.init}
     (out / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
 
     model.train()

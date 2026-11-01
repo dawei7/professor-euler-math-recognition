@@ -12,6 +12,7 @@ Work in progress: the model is in training and no weights are published yet.
 | Path | What it does |
 | --- | --- |
 | `tools/mathwriting_pack.py` | Packs MathWriting's 630,000 InkML files into one compact file per split, read straight from the archive. |
+| `tools/calc_synth.py` | Calculator-style training formulas (arithmetic with `·`, `:` and decimal commas, fractions, powers, roots, sin/cos/tan/ln/log, equations), typeset from single handwritten symbols cut out of MathWriting's training inks and vetted by a trained recognizer. The test sheet's formulas are never generated. |
 | `recognizer/` | The recognizer: strokes rendered as an image, a MobileNetV2-style encoder (or a DenseNet-B one, as in WAP/DWAP) and a Transformer decoder that writes LaTeX tokens. About 4.3 M parameters. Training (`train.py`) and evaluation with beam search (`evaluate.py`). |
 | `reference/texteller_read.py` | Reads the same inks with [TexTeller](https://github.com/OleehyO/TexTeller) (about 300 M parameters), for comparison with a large open model. |
 | `tools/sheet_lines.py`, `tools/numbered_sheet.py` | Cut a Professor Euler canvas sheet into lines or numbered formulas. |
