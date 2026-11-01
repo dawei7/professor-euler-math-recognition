@@ -7,3 +7,6 @@ __pycache__/
 *.onnx
 *.ckpt
 *.pt
+kotlin/local.properties
+kotlin/.gradle/
+kotlin/.kotlin/

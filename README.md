@@ -15,6 +15,7 @@ Work in progress: no weights are published yet, and the apps do not use it yet.
 | `tools/calc_synth.py` | Calculator-style training formulas (arithmetic with `·`, `:` and decimal commas, fractions, powers, roots, sin/cos/tan/ln/log, equations), typeset from single handwritten symbols cut out of MathWriting's training inks and vetted by a trained recognizer. The test sheet's formulas are never generated. |
 | `recognizer/` | The recognizer: strokes rendered as an image, a MobileNetV2-style encoder (or a DenseNet-B one, as in WAP/DWAP) and a Transformer decoder that writes LaTeX tokens. About 4.3 M parameters. Training (`train.py`) and evaluation with beam search (`evaluate.py`). |
 | `recognizer/fast.py`, `recognizer/export.py` | Reading as the apps will: the encoder once, then the decoder one token at a time with its keys and values kept (the same readings as training's decoder). The export writes two ONNX graphs for ONNX Runtime, with 8-bit versions, and checks them against PyTorch. |
+| `kotlin/` | The reader in Kotlin for the apps (`reader/`: the same drawing to the pixel, ONNX Runtime and the same beam search, on Android and on desktop Java), its tests against the Python reader on the fixture of `tools/kotlin_fixture.py`, and an Android app that times it on a device (`bench/`). |
 | `reference/texteller_read.py` | Reads the same inks with [TexTeller](https://github.com/OleehyO/TexTeller) (about 300 M parameters), for comparison with a large open model. |
 | `tools/sheet_lines.py`, `tools/numbered_sheet.py` | Cut a Professor Euler canvas sheet into lines or numbered formulas. |
 | `test-sheet/formulas.md`, `formulas-2.md` | Calculator-style formulas to write by hand as a test (38 and 40): arithmetic, fractions, powers, roots, functions and equations. The second was written after the first had shaped the training data, so it is the blind one. |
@@ -24,7 +25,7 @@ Work in progress: no weights are published yet, and the apps do not use it yet.
 ```
 python -m venv .venv
 .venv/Scripts/python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-.venv/Scripts/python -m pip install pillow numpy onnx onnxruntime
+.venv/Scripts/python -m pip install pillow numpy numba onnx onnxruntime
 curl -L -o data/mathwriting-2024.tgz https://storage.googleapis.com/mathwriting_data/mathwriting-2024.tgz
 .venv/Scripts/python -I tools/mathwriting_pack.py data/mathwriting-2024.tgz data/packed
 .venv/Scripts/python -m recognizer.train --data data/packed --out runs/m1
@@ -34,6 +35,16 @@ curl -L -o data/mathwriting-2024.tgz https://storage.googleapis.com/mathwriting_
 (On Linux or macOS the interpreter is `.venv/bin/python`. The TexTeller comparison also needs `transformers`.) Packing
 takes about 16 minutes. On an RTX 4070 Ti SUPER the
 default run of 120,000 steps takes about three hours.
+
+The Kotlin reader (JDK 17 or later, and the Android SDK for the bench):
+
+```
+.venv/Scripts/python -m recognizer.export --run runs/m6
+.venv/Scripts/python -m tools.kotlin_fixture --run runs/m6
+cd kotlin
+./gradlew :reader:test -Pfixture=../runs/m6/onnx
+./gradlew :bench:assembleRelease -PbenchAssets=../runs/m6/onnx
+```
 
 ## Results so far
 
