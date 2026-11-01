@@ -67,7 +67,7 @@ The calculator-style formulas taught `m2` that a formula is mostly numbers: it n
 `4y` as `A_{y}`, x as χ or a degree sign as 8. Eight of its twelve misses on the test sheet were one digit, the sheet's
 4, which it read as 7. That 4 is a 1 with a long flag and a crossbar, beside 1s with a long flag and crossed 7s: a
 continental European hand, which MathWriting hardly has. `m4` learned the 4 but took a 1 with a short stroke at its foot
-for one; `m5`, which sees that hand's 1s beside fraction lines and minus signs, reads both. Its five misses: the dot
+for a 4; `m5`, which sees that hand's 1s beside fraction lines and minus signs, reads both. Its five misses: the dot
 between two fractions read as a minus, the lower half of a double fraction lost, the 5 of `5!` read as S, `|−7|` read
 as `1-71` (as TexTeller does with the last two), and the small 4 of `\tan(\frac{\pi}{4})` still read as 7.
 
