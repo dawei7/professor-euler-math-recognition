@@ -91,7 +91,7 @@ class Rational private constructor(val num: BigInteger, val den: BigInteger) : C
 
         private fun integerRoot(x: BigInteger, n: Int): BigInteger? {
             if (x.signum() == 0 || x == BigInteger.ONE || n == 1) return x
-            if (n == 2) return x.sqrt().takeIf { it * it == x }
+            if (n == 2) return squareRoot(x).takeIf { it * it == x }
             val guess = Math.round(Math.pow(x.toDouble(), 1.0 / n))
             if (guess <= 0 || guess == Long.MAX_VALUE) return null
             for (r in (guess - 1)..(guess + 1)) {
@@ -99,6 +99,16 @@ class Rational private constructor(val num: BigInteger, val den: BigInteger) : C
                 if (r > 0 && b.pow(n) == x) return b
             }
             return null
+        }
+
+        /** The whole part of √[x], by Newton's method: Android has `BigInteger.sqrt` only from version 13. */
+        private fun squareRoot(x: BigInteger): BigInteger {
+            var r = BigInteger.ONE.shiftLeft((x.bitLength() + 1) / 2)
+            while (true) {
+                val next = (r + x / r).shiftRight(1)
+                if (next >= r) return r
+                r = next
+            }
         }
     }
 }
