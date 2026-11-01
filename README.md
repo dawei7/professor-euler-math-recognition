@@ -108,7 +108,19 @@ thread of a desktop CPU (an otherwise idle machine), beam 5, the test sheet and 
 
 The all-8-bit encoder is slower, because ONNX Runtime has no fast 8-bit convolution on this processor. The Kotlin reader
 (`kotlin/reader`, ONNX Runtime 1.31.1 for Java) reads the same 188 inks to the same tokens as the Python one, from the
-same pixels. Phones and tablets are not measured yet; `kotlin/bench` is the app that measures them.
+same pixels.
+
+On a tablet, a Xiaomi Pad 7 (Snapdragon 7+ Gen 3, Android 16), `kotlin/bench` with `m6` (float32 encoder, 8-bit
+decoder), from the ink's strokes to the reading:
+
+| Threads | Model loaded | First reading | Test sheet, 38 inks: median, 90th percentile, slowest | MathWriting, 150 inks: the same |
+| --- | --- | --- | --- | --- |
+| 1 | 180 ms | 77 ms | 32, 61, 163 ms | 49, 114, 209 ms |
+| 2 | 72 ms | 21 ms | 26, 45, 143 ms | 46, 112, 196 ms |
+| 4 | 77 ms | 25 ms | 35, 56, 149 ms | 59, 138, 247 ms |
+
+Every reading is the desktop's. Two threads are the fastest; four spend more on sharing such small work than they gain.
+The first loading includes starting ONNX Runtime. Drawing the ink takes under a millisecond. A phone is not measured.
 
 ## Design choices
 
