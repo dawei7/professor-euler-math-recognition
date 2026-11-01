@@ -2,7 +2,7 @@ r"""Calculator-style training inks, typeset from single handwritten glyphs cut o
 
 MathWriting's formulas come mostly from Wikipedia, so a model trained on it alone reads an unclear digit as a letter.
 These inks are the kind a learner checks by hand: arithmetic with `\cdot`, `:` and decimal commas, fractions, powers,
-roots, sin, cos, tan, ln and log, and equations in one variable. The formulas of the test sheet are never generated.
+roots, sin, cos, tan, ln and log, and equations in one variable. The formulas of the test sheets are never generated.
 
 Glyphs: a training ink whose label is one row of separate symbols (no fraction, root or accent, and no base with both a
 subscript and a superscript) is cut into groups of strokes that overlap horizontally. Where there are exactly as many
@@ -659,7 +659,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="data/packed")
     parser.add_argument("--count", type=int, default=250_000)
-    parser.add_argument("--exclude", default="test-sheet/formulas.md", help="a test sheet whose formulas are never made")
+    parser.add_argument("--exclude", nargs="+", default=["test-sheet/formulas.md", "test-sheet/formulas-2.md"],
+                        help="test sheets whose formulas are never made")
     parser.add_argument("--vet", default="runs/m1", help="a trained run that vets the cut glyphs (see `vet`)")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--workers", type=int, default=12)
@@ -671,7 +672,7 @@ def main():
     pools = load_glyphs(glyph_path)
     print("glyphs:", ", ".join(f"{t} {len(p)}" for t, p in sorted(pools.items())), flush=True)
     missing = [t for t in list(METRICS) + [r"\sqrt"] if not pools.get(t)]
-    excluded = {tuple(comparable(t)) for t in truths(args.exclude).values()}
+    excluded = {tuple(comparable(t)) for sheet in args.exclude for t in truths(sheet).values()}
     jobs = [(args.seed * 1_000_003 + k, 1000) for k in range(args.count // 1000)]
     bucket = Bucket()
     with multiprocessing.Pool(args.workers, initializer=start, initargs=(glyph_path, excluded)) as pool:

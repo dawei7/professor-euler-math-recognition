@@ -17,7 +17,7 @@ Work in progress: no weights are published yet, and the apps do not use it yet.
 | `recognizer/fast.py`, `recognizer/export.py` | Reading as the apps will: the encoder once, then the decoder one token at a time with its keys and values kept (the same readings as training's decoder). The export writes two ONNX graphs for ONNX Runtime, with 8-bit versions, and checks them against PyTorch. |
 | `reference/texteller_read.py` | Reads the same inks with [TexTeller](https://github.com/OleehyO/TexTeller) (about 300 M parameters), for comparison with a large open model. |
 | `tools/sheet_lines.py`, `tools/numbered_sheet.py` | Cut a Professor Euler canvas sheet into lines or numbered formulas. |
-| `test-sheet/formulas.md` | 38 calculator-style formulas to write by hand as a test: arithmetic, fractions, powers, roots, functions and equations. |
+| `test-sheet/formulas.md`, `formulas-2.md` | Calculator-style formulas to write by hand as a test (38 and 40): arithmetic, fractions, powers, roots, functions and equations. The second was written after the first had shaped the training data, so it is the blind one. |
 
 ## Use it
 
