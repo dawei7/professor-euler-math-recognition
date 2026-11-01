@@ -5,7 +5,7 @@ A small model that reads a handwritten formula and writes it as LaTeX, trained o
 phone or tablet. It is being built for [Professor Euler](https://euler.dawei7.com), a free mathematics study app: on a canvas
 note, the learner circles a formula and gets back what was read and its result.
 
-Work in progress: no weights are published yet, and the apps do not use it yet.
+The model `m6` is published as the release [m6](https://github.com/dawei7/professor-euler-math-recognition/releases/tag/m6) (weights CC BY-NC-SA 4.0), and Professor Euler 4.5.0 reads with it on the device: Calculate in canvas notes, on Android and Windows, with no AI provider and nothing sent anywhere.
 
 ## What is here
 
