@@ -5,23 +5,8 @@ import org.junit.Test
 
 class MathCalcTest {
 
-    /** An outcome as a line of text, to compare. */
-    private fun answer(latex: String): String {
-        val c = MathCalc.calculate(latex)
-        return when (val o = c.outcome) {
-            is Outcome.Value -> c.text(o.value) + if (o.steps.isNotEmpty()) " (steps ${o.steps})" else ""
-            is Outcome.Solved -> when {
-                o.always -> "${o.unknown}: always"
-                o.roots.isEmpty() -> "${o.unknown}: none"
-                else -> "${o.unknown} = " + o.roots.joinToString("; ") { c.text(it) }
-            }
-            is Outcome.Checked -> "${o.holds}"
-            is Outcome.Failed -> o.failure.name
-        }
-    }
-
-    private fun check(cases: List<Pair<String, String>>) {
-        val wrong = cases.mapNotNull { (latex, expected) -> answer(latex).takeIf { it != expected }?.let { "$latex: $it, not $expected" } }
+    private fun check(cases: List<Pair<String, String>>, mode: Mode? = null) {
+        val wrong = cases.mapNotNull { (latex, expected) -> answer(latex, mode).takeIf { it != expected }?.let { "$latex: $it, not $expected" } }
         assertEquals("", wrong.joinToString("\n"))
     }
 
@@ -65,10 +50,16 @@ class MathCalcTest {
     @Test
     fun whatHasNoAnswer() = check(listOf(
         "5:0=" to "DIVISION_BY_ZERO", "\\sqrt{-4}=" to "UNDEFINED", "\\ln(0)=" to "UNDEFINED", "2,5!=" to "UNDEFINED",
-        "\\tan(90^{\\circ})=" to "UNDEFINED", "x+y=3" to "SEVERAL_UNKNOWNS", "2x+3=" to "UNKNOWN_WITHOUT_EQUATION",
+        "\\tan(90^{\\circ})=" to "UNDEFINED", "\\sin(x)=y" to "SEVERAL_UNKNOWNS", "\\sin(x)+1=" to "NOT_POLYNOMIAL",
         "\\sin(x)=0" to "MANY_SOLUTIONS", "(3+4=" to "UNREADABLE", "=" to "UNREADABLE", "3\\infty=" to "UNREADABLE",
-        "x^{2}=-1" to "x: none", "2(x+1)=2x+2" to "x: always", "2x=2x+1" to "x: none",
+        "x^{2}=-1" to "x: none",
+        // Before Calculate had algebra (4.6), these were "more than one unknown" and "an unknown without an equation".
+        "x+y=3" to "differ: x + y | 3", "2x+3=" to "2x + 3 (no factors)",
     ))
+
+    /** An equation whose unknown drops out is compared (below, [AlgebraTest]); solving it still says what it says of x. */
+    @Test
+    fun equationsWithoutTheUnknownSolved() = check(listOf("2(x+1)=2x+2" to "x: always", "2x=2x+1" to "x: none"), Mode.SOLVE)
 
     @Test
     fun checksAndChains() = check(listOf(

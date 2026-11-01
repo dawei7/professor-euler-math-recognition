@@ -16,6 +16,8 @@ class Rational private constructor(val num: BigInteger, val den: BigInteger) : C
     }
     operator fun unaryMinus() = Rational(num.negate(), den)
 
+    fun abs() = if (num.signum() < 0) -this else this
+
     val isInteger get() = den == BigInteger.ONE
     val signum get() = num.signum()
 

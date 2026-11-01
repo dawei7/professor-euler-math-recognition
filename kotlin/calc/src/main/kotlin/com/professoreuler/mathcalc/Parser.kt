@@ -18,11 +18,16 @@ internal class Parser(private val t: List<String>) {
     var decimals = false
     var fractions = false
 
+    /** Each side's tokens as written, for [formula]'s sides in order. */
+    val sideTexts = mutableListOf<String>()
+
     /** The sides between `=` signs; null where a side is empty, as after a closing `=`. */
     fun formula(): List<Node?> {
         val sides = mutableListOf<Node?>()
         while (true) {
+            val start = i
             sides.add(if (i == t.size || t[i] == "=") null else expression())
+            sideTexts.add(t.subList(start, i).joinToString(""))
             if (i == t.size) return sides
             expect("=")
         }
@@ -206,7 +211,9 @@ internal class Parser(private val t: List<String>) {
             sub.append(peek() ?: throw unreadable())
             i++
         }
-        return Unknown("${tok}_$sub")
+        // x_{1} and x_1 are the same unknown.
+        val inner = if (sub.length >= 2 && sub.first() == '{' && sub.last() == '}') sub.substring(1, sub.length - 1) else sub.toString()
+        return Unknown("${tok}_$inner")
     }
 
     private fun call(name: String): Node {

@@ -31,6 +31,87 @@ internal object Format {
         }
     }
 
+    /** Terms highest degree first, with signs between them: `x^{2} - 5x + 6`; in text `x^2 - 5x + 6`, `(5/6)x`. */
+    fun polynomial(p: Polynomial, c: Calculation, latex: Boolean): String {
+        if (p.isZero) return "0"
+        val out = StringBuilder()
+        for ((k, term) in p.sorted.withIndex()) {
+            val (m, coefficient) = term
+            val negative = coefficient.signum < 0
+            if (k == 0) { if (negative) out.append('-') } else out.append(if (negative) " - " else " + ")
+            val size = coefficient.abs()
+            when {
+                m == Monomial.ONE -> out.append(coefficient(size, c, latex, alone = true))
+                size == Rational.ONE -> out.append(monomial(m, latex))
+                else -> out.append(coefficient(size, c, latex, alone = false)).append(monomial(m, latex))
+            }
+        }
+        return out.toString()
+    }
+
+    /** Its number, then its factors: `3x(x - 2)^{2}`; a factor of one term (an unknown) without brackets. */
+    fun product(p: Product, c: Calculation, latex: Boolean): String {
+        if (p.factors.isEmpty()) return number(p.constant, c, latex)
+        if (p.trivial) return polynomial(p.factors[0].first, c, latex)
+        val factors = p.factors.joinToString("") { (f, k) ->
+            val base = if (f.size == 1) polynomial(f, c, latex) else "(${polynomial(f, c, latex)})"
+            when {
+                k == 1 -> base
+                latex -> "$base^{$k}"
+                else -> "$base^$k"
+            }
+        }
+        val constant = when (p.constant) {
+            Rational.ONE -> ""
+            -Rational.ONE -> "-"
+            else -> (if (p.constant.signum < 0) "-" else "") + coefficient(p.constant.abs(), c, latex, alone = false)
+        }
+        return constant + factors
+    }
+
+    /** `2^{3} \cdot 3^{2} \cdot 5`; in text `2^3 · 3^2 · 5`. */
+    fun primes(p: Outcome.Primes, latex: Boolean): String =
+        (if (p.n.signum() < 0) "-" else "") + p.factors.joinToString(if (latex) " \\cdot " else " · ") { (prime, k) ->
+            when {
+                k == 1 -> "$prime"
+                latex -> "$prime^{$k}"
+                else -> "$prime^$k"
+            }
+        }
+
+    /** An unknown's name: `x`; `x_{1}` in LaTeX and `x_1` in text (`a_{n+1}` where its index is more than digits). */
+    fun name(v: String, latex: Boolean): String {
+        val i = v.indexOf('_')
+        if (i < 0) return v
+        val index = v.substring(i + 1)
+        return if (latex || !index.all { it.isDigit() }) "${v.substring(0, i)}_{$index}" else v
+    }
+
+    private fun monomial(m: Monomial, latex: Boolean) = m.powers.joinToString("") { (v, k) ->
+        name(v, latex) + when {
+            k == 1 -> ""
+            latex -> "^{$k}"
+            else -> "^$k"
+        }
+    }
+
+    /** A number in a polynomial: a decimal where the formula wrote decimals and no fractions and it ends, else a fraction. */
+    private fun coefficient(r: Rational, c: Calculation, latex: Boolean, alone: Boolean): String {
+        if (r.isInteger) return r.num.toString()
+        if (c.decimals && !c.fractions && r.terminates) {
+            val exact = BigDecimal(r.num).divide(BigDecimal(r.den))
+            if (exact.stripTrailingZeros().scale() <= DIGITS) return decimal(exact, c, latex, exact = true)
+        }
+        return when {
+            latex -> "\\frac{${r.num}}{${r.den}}"
+            alone -> "${r.num}/${r.den}"
+            else -> "(${r.num}/${r.den})"
+        }
+    }
+
+    private fun number(r: Rational, c: Calculation, latex: Boolean) =
+        (if (r.signum < 0) "-" else "") + coefficient(r.abs(), c, latex, alone = true)
+
     private fun fraction(r: Rational, latex: Boolean): String {
         val sign = if (r.signum < 0) "-" else ""
         return if (latex) "$sign\\frac{${r.num.abs()}}{${r.den}}" else "$sign${r.num.abs()}/${r.den}"
