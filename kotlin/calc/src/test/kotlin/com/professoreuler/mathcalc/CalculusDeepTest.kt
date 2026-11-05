@@ -125,6 +125,19 @@ class CalculusDeepTest {
         assertEquals("", wrong.joinToString("\n"))
         val atOne = TextInput.read("taylor series of e^x at x = 1")
         assertEquals(Choice(Mode.SERIES, "x", point = "1"), atOne.choice)
+        // As textbooks put it, where the verb is also the one for multiplying out or factoring.
+        val textbook = listOf("desarrolla sin(x) en serie de taylor" to "es", "rozwiń sin(x) w szereg maclaurina" to "pl", "sin(x)を級数展開" to "ja",
+            "разложите в ряд тейлора функцию sin(x)" to "ru", "把sin(x)展开成泰勒级数" to "zh-Hans", "sviluppa sin(x) in serie di taylor" to "it",
+            "développe sin(x) en série entière" to "fr", "sin(x) 급수 전개" to "ko").mapNotNull { (text, language) ->
+            val c = Reports.of(TextInput.read(text, language)).result
+            val o = c.outcome
+            val got = if (o is Outcome.Expression) c.textResult(o) else answerOf(c)
+            if (got != expected) "$language $text: $got" else null
+        }
+        assertEquals("", textbook.joinToString("\n"))
+        // The point in words: "nel punto 1", "в точке 1".
+        assertEquals(Choice(Mode.SERIES, "x", point = "1"), TextInput.read("serie di taylor di ln(x) nel punto 1", "it").choice)
+        assertEquals(Choice(Mode.SERIES, "x", point = "1"), TextInput.read("ряд тейлора ln(x) в точке 1", "ru").choice)
     }
 
     private fun critical(latex: String) = answerOf(MathCalc.calculate(latex, Choice(Mode.EXTREMA)))

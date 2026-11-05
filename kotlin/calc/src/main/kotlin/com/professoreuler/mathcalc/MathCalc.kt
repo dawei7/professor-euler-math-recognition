@@ -97,6 +97,8 @@ enum class Mode {
     ROW_REDUCE,
     /** A matrix with its rows as columns. */
     TRANSPOSE,
+    /** A linear system with a letter in it, solved for each value of that letter: where it has one solution, none, or many. */
+    CASES,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -193,6 +195,9 @@ sealed class Outcome {
     data class Eigenvalues(val characteristic: Expr, val values: List<LinAlg.Eigen>,
         /** P and D of A = P·D·P⁻¹ where A can be diagonalized. */
         val diagonal: Pair<Expr.Mat, Expr.Mat>? = null) : Outcome()
+
+    /** A linear system with a parameter, case by case ([LinAlg.cases]). */
+    data class SystemCases(val cases: LinAlg.Cases) : Outcome()
 
     /** z = [function] of [x] and [y], drawn as a surface. */
     data class Surface(val function: Expr, val x: String, val y: String) : Outcome()
@@ -827,11 +832,30 @@ object MathCalc {
                 Outcome.SystemSolved(letters, Solve.system(equations, letters) ?: throw CalcException(Failure.UNSOLVED))
             }
         }
+        // Unknowns x, y, z (x₁, x₂, …) and one letter beside them: a system with a parameter, case by case.
+        val unknowns = letters.filter { it in UNKNOWNS || it.startsWith("x_") }
+        val parameters = letters - unknowns.toSet()
+        if (unknowns.size == statements.size && parameters.size == 1) {
+            val cases = try { LinAlg.cases(equations, unknowns, parameters[0]) } catch (e: CalcException) {
+                if (e.failure == Failure.TOO_LONG) throw e
+                null
+            }
+            if (cases != null) {
+                val byCase = Choice(Mode.CASES, parameters[0])
+                return Plan(listOf(byCase, choice), byCase) { c ->
+                    if (c.mode == Mode.CASES) Outcome.SystemCases(cases)
+                    else Outcome.SystemSolved(letters, Solve.system(equations, letters) ?: throw CalcException(Failure.UNSOLVED))
+                }
+            }
+        }
         return Plan(listOf(choice), choice) {
             val solutions = Solve.system(equations, letters) ?: throw CalcException(Failure.UNSOLVED)
             Outcome.SystemSolved(letters, solutions)
         }
     }
+
+    /** The letters a system is solved for; the others in it are its parameters. */
+    private val UNKNOWNS = setOf("x", "y", "z", "w")
 
     /** x = f(t) and y = g(t), both in one letter t: t and the curve, or null. */
     private fun parametric(statements: List<Statement>): Pair<String, Pair<Expr, Expr>>? {

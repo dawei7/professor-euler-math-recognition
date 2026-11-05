@@ -99,4 +99,16 @@ class LinAlgTest {
         // One comma between digits in round brackets is still a decimal comma.
         ("(1,5)\\cdot2" to null) to "3",
     )
+
+    /** A linear system with a parameter, case by case: one solution for most values, none or a family where its determinant is 0. */
+    @Test fun systemsCaseByCase() = check(
+        ("\\begin{cases}ax+y=1\\\\x+ay=1\\end{cases}" to null) to
+            "otherwise: x = 1/(a + 1), y = 1/(a + 1) | a = -1: none | a = 1: x = -t + 1, y = t",
+        ("\\begin{cases}x+y+z=1\\\\x+ay+z=1\\\\x+y+az=1\\end{cases}" to null) to
+            "otherwise: x = 1, y = 0, z = 0 | a = 1: x = -s - t + 1, y = t, z = s",
+        ("\\begin{cases}x+2y=3\\\\2x+ky=6\\end{cases}" to null) to "otherwise: x = 3, y = 0 | k = 4: x = -2t + 3, y = t",
+        ("\\begin{cases}x+2y=3\\\\2x+ky=5\\end{cases}" to null) to "otherwise: x = (-10 + 3k)/(-4 + k), y = -1/(-4 + k) | k = 4: none",
+        // Without a parameter it is solved as before.
+        ("\\begin{cases}x+y=3\\\\x-y=1\\end{cases}" to null) to "x = 2, y = 1",
+    )
 }

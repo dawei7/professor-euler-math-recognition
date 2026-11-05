@@ -291,6 +291,83 @@ object LinAlg {
         return p to d
     }
 
+    /** One value of a system's parameter: the system there has [solution] (in [free] letters, as many as it has), or none. */
+    class Case(val value: Expr, val solution: Map<String, Expr>?, val free: List<String>)
+
+    /** A linear system in [unknowns] with one [parameter]: for every value but [excluded] the [generic] solution; at those, [special]. */
+    class Cases(val parameter: String, val unknowns: List<String>, val excluded: List<Expr>, val generic: Map<String, Expr>?, val special: List<Case>)
+
+    /**
+     * A square linear system with a letter in its coefficients, case by case: its determinant in that letter is 0 at a few
+     * values; for every other value one solution (by elimination, in the letter); at each of those values the system solved
+     * again, with none, one, or a family in free letters. Every solution put back into every equation. Null where the system
+     * is not linear in its unknowns, not square, or the determinant's zeros cannot be found.
+     */
+    fun cases(equations: List<Expr>, unknowns: List<String>, parameter: String): Cases? {
+        val n = unknowns.size
+        if (equations.size != n || n !in 2..4) return null
+        val xs = unknowns.map { Expr.Sym(it) }
+        // Coefficients: each equation's derivative in each unknown, free of every unknown; the rest is its constant.
+        val rows = ArrayList<List<Expr>>()
+        val rhs = ArrayList<Expr>()
+        for (e in equations) {
+            val row = xs.map { x -> tidy(Calculus.derivative(e, x)) }
+            if (row.any { c -> xs.any { c.has(it) } }) return null
+            rows += row
+            rhs += tidy(neg(xs.fold(e) { acc, x -> acc.substitute(x, Expr.ZERO) }))
+        }
+        val a = Expr.Sym(parameter)
+        val m = Expr.Mat(rows)
+        val d = det(m)
+        if (!d.has(a)) return null
+        val zeros = Solve.equation(d, Expr.ZERO, a)
+        if (zeros.always || zeros.numeric || zeros.periodic.isNotEmpty()) return null
+        val excluded = zeros.values
+        fun holds(solution: Map<String, Expr>, at: Expr?): Boolean = equations.all { e ->
+            var v = e
+            if (at != null) v = v.substitute(a, at)
+            for ((name, value) in solution) v = v.substitute(Expr.Sym(name), value)
+            isNull(tidy(v))
+        }
+        // The generic solution, by Cramer's rule with the determinant in the letter.
+        val generic = unknowns.indices.associate { k ->
+            val replaced = Expr.Mat(rows.mapIndexed { i, r -> r.mapIndexed { j, c -> if (j == k) rhs[i] else c } })
+            unknowns[k] to tidy(det(replaced) / d)
+        }
+        if (!holds(generic, null)) return null
+        val special = excluded.map { value -> case(rows, rhs, unknowns, a, value, equations) ?: return null }
+        return Cases(parameter, unknowns, excluded, generic, special)
+    }
+
+    /** The system at a = [value]: its echelon form decides none, one, or a family in the free unknowns. */
+    private fun case(rows: List<List<Expr>>, rhs: List<Expr>, unknowns: List<String>, a: Expr.Sym, value: Expr, equations: List<Expr>): Case? {
+        val n = unknowns.size
+        val augmented = Expr.Mat(rows.mapIndexed { i, r -> r.map { tidy(it.substitute(a, value)) } + tidy(rhs[i].substitute(a, value)) })
+        val e = echelon(augmented)
+        // A pivot in the last column: 0 = 1, no solution.
+        if (n in e.pivots) return Case(value, null, emptyList())
+        val freeColumns = (0 until n).filter { it !in e.pivots }
+        val names = freeNames(unknowns, a.name, freeColumns.size)
+        val solution = HashMap<String, Expr>()
+        for ((k, column) in freeColumns.withIndex()) solution[unknowns[column]] = Expr.Sym(names[k])
+        for ((row, pc) in e.pivots.withIndex()) {
+            var v: Expr = e.form.rows[row][n]
+            for ((k, column) in freeColumns.withIndex()) v = v - mul(e.form.rows[row][column], Expr.Sym(names[k]))
+            solution[unknowns[pc]] = tidy(v)
+        }
+        val ordered = unknowns.associateWith { solution.getValue(it) }
+        val ok = equations.all { eq ->
+            var v = eq.substitute(a, value)
+            for ((name, x) in ordered) v = v.substitute(Expr.Sym(name), x)
+            isNull(tidy(v))
+        }
+        return if (ok) Case(value, ordered, names) else null
+    }
+
+    /** Letters for a family's free unknowns: t, s, r, … that the system does not use. */
+    private fun freeNames(unknowns: List<String>, parameter: String, count: Int): List<String> =
+        listOf("t", "s", "r", "u", "v", "w").filter { it !in unknowns && it != parameter }.take(count)
+
     /** A vector with its fractions cleared where its entries are rational: (1/2, 1) as (1, 2). */
     private fun cleared(v: Expr.Mat): Expr.Mat {
         val entries = v.rows.map { it[0] }

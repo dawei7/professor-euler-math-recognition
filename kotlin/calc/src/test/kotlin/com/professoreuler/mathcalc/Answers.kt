@@ -31,6 +31,13 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
         "(" + o.letters.joinToString(", ") { c.text(p.at.getValue(it)) } + ") " + p.kind.name.lowercase() + " " + c.textValue(p.value)
     }
     is Outcome.Surface -> "surface " + c.text(o.function)
+    is Outcome.SystemCases -> {
+        val k = o.cases
+        val generic = k.generic?.let { g -> k.unknowns.joinToString(", ") { "$it = " + c.text(g.getValue(it)) } }
+        "otherwise: $generic" + k.special.joinToString("") { s ->
+            " | ${k.parameter} = ${c.text(s.value)}: " + (s.solution?.let { sol -> k.unknowns.joinToString(", ") { "$it = " + c.text(sol.getValue(it)) } } ?: "none")
+        }
+    }
     is Outcome.RowReduced -> c.text(o.form) + " rank ${o.rank}" + (if (o.nullSpace.isNotEmpty()) " null " + o.nullSpace.joinToString(" ") { c.text(it) } else "")
     is Outcome.Eigenvalues -> o.values.joinToString("; ") { e ->
         c.text(e.value) + (if (e.multiplicity > 1) " (${e.multiplicity}×)" else "") + ": " + e.vectors.joinToString(" ") { c.text(it) }
