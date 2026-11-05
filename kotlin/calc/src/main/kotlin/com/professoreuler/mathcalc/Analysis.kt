@@ -45,6 +45,12 @@ class FunctionFacts internal constructor(
     val asymptotes: List<Asymptote>?,
     /** f at −∞ and at +∞ where the domain reaches them (±∞ as [Expr.INF]), null where it does not or no limit was found. */
     val limits: Pair<Expr?, Expr?>,
+    /** The smallest period the solvers see (sin x: 2π), null where f is not periodic or it cannot be settled. */
+    val period: Expr? = null,
+    /** The values f takes: from its extrema and limits on all of ℝ, or over one period; null where that cannot be settled. */
+    val range: IntervalSet? = null,
+    /** f⁻¹ in the same letter, where f is strictly monotonic on its whole domain and y = f(x) solves for x in one way. */
+    val inverse: Expr? = null,
 )
 
 /** The curve sketch of a function: [Analysis.of]. */
@@ -84,13 +90,123 @@ object Analysis {
                 inflections = r.changes.map { (c, _) -> GraphPoint(c, value(f, x, c)) }
             }
         }
+        // A periodic function: its extrema and inflection points as families, one period's worth, and the period itself.
+        var period: Expr? = null
+        if (d1 != null && extrema == null && x != K) {
+            part { periodicPoints(f, d1, x) }?.let { (t, points) ->
+                period = t
+                val second = d2
+                extrema = points.mapNotNull { a ->
+                    val curve = second?.let { Numeric.value(value(it, x, a)) } ?: return@mapNotNull null
+                    // The second derivative's sign settles an extremum only where it is clearly not zero.
+                    if (abs(curve) < 1e-9) return@mapNotNull null
+                    Extremum(Solve.simplifyValue(add(a, mul(K, t))), value(f, x, a), maximum = curve < 0)
+                }.takeIf { it.size == points.size }
+            }
+            if (d2 != null && period != null) {
+                part { periodicPoints(f, d2, x) }?.let { (t, points) ->
+                    if (t == period) {
+                        val third = part { Calculus.derivative(f, x, 3) }
+                        inflections = points.mapNotNull { a ->
+                            val v = third?.let { Numeric.value(value(it, x, a)) } ?: return@mapNotNull null
+                            if (abs(v) < 1e-9) null else GraphPoint(Solve.simplifyValue(add(a, mul(K, t))), value(f, x, a))
+                        }.takeIf { it.size == points.size }
+                    }
+                }
+            }
+        }
         val reachesLeft = spans.firstOrNull()?.lo == null
         val reachesRight = spans.lastOrNull()?.hi == null
         val atLeft = if (reachesLeft && families.isEmpty()) part { Calculus.limit(f, x, neg(Expr.INF), null) } else null
         val atRight = if (reachesRight && families.isEmpty()) part { Calculus.limit(f, x, Expr.INF, null) } else null
         val asymptotes = if (families.isEmpty()) part { asymptotesOf(f, x, spans, atLeft, atRight) } else null
+        val range = part { rangeOf(spans, families, extrema, asymptotes, atLeft, atRight, period, x) }
+        // One-to-one: rising, or falling, on all of its domain (one interval of it). Its inverse, where y = f(x) gives x once.
+        val monotonic = spans.size == 1 && families.isEmpty() &&
+            (increasing?.size == 1 && decreasing?.isEmpty() == true || decreasing?.size == 1 && increasing?.isEmpty() == true)
+        val inverse = if (monotonic && x != Y) part { inverseOf(f, x) } else null
         return FunctionFacts(x.name, f, set, families, zeros, yIntercept, symmetry, d1, d2, extrema, inflections, increasing,
-            decreasing, convex, concave, asymptotes, atLeft to atRight)
+            decreasing, convex, concave, asymptotes, atLeft to atRight, period, range, inverse)
+    }
+
+    private val Y = Expr.Sym("y")
+
+    /** y = f(x) solved for x, then written in x: f⁻¹(x). Null where it gives no single formula. */
+    private fun inverseOf(f: Expr, x: Expr.Sym): Expr? {
+        val s = Solve.forLetter(Y, f, x)
+        val value = s.values.singleOrNull() ?: return null
+        if (s.periodic.isNotEmpty() || value.has(x)) return null
+        val g = Solve.simplifyValue(value.substitute(Y, x))
+        // f(f⁻¹(x)) = x wherever both are defined.
+        return g.takeIf { Verify.same(f.substitute(x, g), x) }
+    }
+
+    /**
+     * Where [d] (f′ or f″) is zero along families (sin x: f′ = cos x is zero at π/2 + kπ): f's period, the smallest multiple
+     * of the families' step that f repeats after, and the zeros of [d] in one period [0, T). Null where [d]'s zeros are no
+     * families or f does not repeat after a few steps.
+     */
+    private fun periodicPoints(f: Expr, d: Expr, x: Expr.Sym): Pair<Expr, List<Expr>>? {
+        val s = Solve.equation(d, Expr.ZERO, x)
+        if (s.periodic.isEmpty() || s.many) return null
+        val steps = s.periodic.map { fam -> Solve.simplifyValue(Algebra.expand(fam.substitute(K, Expr.ONE) - fam.substitute(K, Expr.ZERO))) }
+        val step = steps.first()
+        val stepValue = Numeric.value(step)?.takeIf { it > 0 } ?: return null
+        if (steps.any { st -> Numeric.value(st)?.let { abs(it - stepValue) < 1e-9 } != true }) return null
+        val m = (1..4).firstOrNull { k -> Verify.same(f.substitute(x, add(x, mul(num(k.toLong()), step))), f) } ?: return null
+        val t = Solve.simplifyValue(mul(num(m.toLong()), step))
+        val tv = Numeric.value(t) ?: return null
+        val points = ArrayList<Expr>()
+        for (fam in s.periodic) for (k in -m..m) {
+            val v = Solve.simplifyValue(Algebra.expand(fam.substitute(K, num(k.toLong()))))
+            val dv = Numeric.value(v) ?: continue
+            if (dv >= -1e-12 && dv < tv - 1e-12 && points.none { p -> Numeric.value(p)?.let { abs(it - dv) < 1e-9 } == true }) points += v
+        }
+        return t to points.sortedBy { Numeric.value(it) }
+    }
+
+    /**
+     * The values f takes, from what is settled: on all of ℝ without poles, the least and greatest of its extrema and its limits
+     * at ±∞ (a limit is not attained, an extremum is); for a periodic function, its extrema's values over a period.
+     */
+    private fun rangeOf(spans: List<Span>, families: List<Expr>, extrema: List<Extremum>?, asymptotes: List<Asymptote>?,
+        atLeft: Expr?, atRight: Expr?, period: Expr?, x: Expr.Sym): IntervalSet? {
+        val list = extrema ?: return null
+        if (families.isNotEmpty()) return null
+        val values = list.mapNotNull { e -> Numeric.value(e.y)?.let { it to e.y } }
+        if (values.size != list.size) return null
+        if (period != null) {
+            if (values.isEmpty()) return null
+            val lo = values.minBy { it.first }
+            val hi = values.maxBy { it.first }
+            return IntervalSet("y", listOf(Interval(lo.second, true, hi.second, true)))
+        }
+        if (spans.size != 1 || spans[0].lo != null || spans[0].hi != null) return null
+        if (asymptotes == null || asymptotes.any { it is Asymptote.Vertical }) return null
+        val left = atLeft ?: return null
+        val right = atRight ?: return null
+        // The ends: a number (approached, not attained) or ±∞.
+        fun end(e: Expr): Double? = when {
+            e == Expr.INF -> Double.POSITIVE_INFINITY
+            e.hasInfinity() -> Double.NEGATIVE_INFINITY
+            else -> Numeric.value(e)
+        }
+        val ends = listOf(left to end(left), right to end(right))
+        if (ends.any { it.second == null }) return null
+        var lo: Pair<Double, Expr?> = Double.POSITIVE_INFINITY to null
+        var loClosed = false
+        var hi: Pair<Double, Expr?> = Double.NEGATIVE_INFINITY to null
+        var hiClosed = false
+        for ((d, e) in values) {
+            if (d < lo.first - 1e-12) { lo = d to e; loClosed = true }
+            if (d > hi.first + 1e-12) { hi = d to e; hiClosed = true }
+        }
+        for ((e, d) in ends) {
+            val v = d!!
+            if (v < lo.first - 1e-12) { lo = v to (if (v.isInfinite()) null else e); loClosed = false }
+            if (v > hi.first + 1e-12) { hi = v to (if (v.isInfinite()) null else e); hiClosed = false }
+        }
+        return IntervalSet("y", listOf(Interval(lo.second, loClosed && lo.second != null, hi.second, hiClosed && hi.second != null)))
     }
 
     /** A part that fails to settle is left out; only the time running out stops the whole. */

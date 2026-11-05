@@ -75,6 +75,8 @@ enum class Mode {
     INTEGRAL,
     /** A graph of the function, or of both sides of the equation. */
     GRAPH,
+    /** A fraction of polynomials as its partial fractions: 1/(x² − 1) = 1/(2(x − 1)) − 1/(2(x + 1)). */
+    PARTIAL_FRACTIONS,
 }
 
 /** A mode, and for Solve, Derivative and Integral the letter it is for. */
@@ -114,8 +116,12 @@ sealed class Outcome {
     data class Expression(val result: Expr, val steps: List<Boolean> = emptyList(), val excluded: List<Pair<String, Expr>> = emptyList(),
         val plusC: Boolean = false, val approx: Double? = null) : Outcome()
 
-    /** A product of factors; [complete] where none can be taken apart further, [trivial] where nothing came out. */
-    data class Factored(val result: Expr, val complete: Boolean, val trivial: Boolean) : Outcome()
+    /**
+     * A product of factors; [complete] where none can be taken apart further, [trivial] where nothing came out. [overReals] and
+     * [overComplex] take it further where that is possible: x² − 2 = (x − √2)(x + √2), x² + 1 = (x − i)(x + i).
+     */
+    data class Factored(val result: Expr, val complete: Boolean, val trivial: Boolean, val overReals: Expr? = null,
+        val overComplex: Expr? = null) : Outcome()
 
     /** An equation and whether its sides are equal for every value of its letters; [sides] each simplified, [at] a value where they differ. */
     data class Compared(val holds: Boolean, val sides: List<Expr>, val at: Map<String, Double>? = null) : Outcome()
@@ -138,8 +144,15 @@ sealed class Outcome {
     /** A whole number and its primes with their powers: 360 = 2³ · 3² · 5. */
     data class Primes(val n: BigInteger, val factors: List<Pair<BigInteger, Int>>) : Outcome()
 
-    /** A graph: [functions] of [variable], each drawn; for an equation both sides, which meet at its solutions. */
-    data class Graph(val variable: String, val functions: List<Expr>, val implicit: Expr? = null) : Outcome()
+    /**
+     * A graph: [functions] of [variable], each drawn; for an equation both sides, which meet at its solutions; an equation in
+     * x and y as the curve [implicit] = 0, and an inequality in them as the region where [implicit] [region] 0. [parameters] are
+     * its other letters (y = ax² + bx + c: a, b, c), each a slider, 1 until moved ([Plot.at]).
+     */
+    data class Graph(val variable: String, val functions: List<Expr>, val implicit: Expr? = null, val parameters: List<String> = emptyList(),
+        val region: Rel? = null,
+        /** A curve (x(t), y(t)) in [variable] (x = cos t, y = sin t; a polar r(θ) as (r cos θ, r sin θ)). */
+        val curve: Pair<Expr, Expr>? = null) : Outcome()
 
     /** Several lines of a learner's working, each checked against the line before. */
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
@@ -312,9 +325,17 @@ object MathCalc {
             choices += Choice(Mode.SIMPLIFY)
             if (expanded != simplified && expanded != last) choices += Choice(Mode.EXPAND)
             if (factorable && !last.isConstantInLetters()) choices += Choice(Mode.FACTOR)
+            // A fraction of polynomials in one letter, taken apart where that is something else than its simplest form.
+            val partial = if (letters.size == 1) {
+                try { Calculus.partialFractions(last, x)?.takeIf { it != simplified && it != last } } catch (e: CalcException) { null }
+            } else {
+                null
+            }
+            if (partial != null) choices += Choice(Mode.PARTIAL_FRACTIONS)
             letters.forEach { choices += Choice(Mode.DERIVATIVE, it) }
             letters.forEach { choices += Choice(Mode.INTEGRAL, it) }
-            if (letters.size == 1) choices += Choice(Mode.GRAPH, variable)
+            // A graph in its main letter, the others as sliders (a x² + b x + c).
+            if (letters.size in 1..4) choices += Choice(Mode.GRAPH, variable)
             // A polynomial already written as Simplify would write it is factored first.
             val asWritten = written.size == 1 && plain(s.texts[s.sides.indexOfFirst { it != null }]) == plain(Format.expr(simplified, style, true))
             val polynomial = Algebra.Kernels().let { k -> Algebra.polynomial(last, k) != null && k.isEmpty }
@@ -326,15 +347,18 @@ object MathCalc {
                 when (c.mode) {
                     Mode.SIMPLIFY -> {
                         val excluded = ArrayList<Expr>()
-                        val r = Algebra.simplify(last, excluded)
-                        Outcome.Expression(r, steps, excluded = excludedValues(excluded))
+                        val usual = Algebra.simplify(last, excluded)
+                        // A trigonometric form may come shorter through its formulas (sin 2x / sin x is 2 cos x).
+                        val r = TrigForms.best(last, usual) { Algebra.simplify(it) }
+                        Outcome.Expression(r, steps, excluded = if (r == usual) excludedValues(excluded) else emptyList())
                     }
                     Mode.EXPAND -> Outcome.Expression(expanded, steps)
                     Mode.FACTOR -> factored(last)
                     Mode.DERIVATIVE -> Outcome.Expression(Calculus.derivative(last, Expr.Sym(c.letter!!)))
                     Mode.INTEGRAL -> Outcome.Expression(Calculus.antiderivative(last, Expr.Sym(c.letter!!))
                         ?: throw CalcException(Failure.NO_ANTIDERIVATIVE), plusC = true)
-                    Mode.GRAPH -> Outcome.Graph(variable, listOf(last))
+                    Mode.GRAPH -> Outcome.Graph(variable, listOf(last), parameters = letters - variable)
+                    Mode.PARTIAL_FRACTIONS -> Outcome.Expression(partial ?: throw CalcException(Failure.UNREADABLE), steps)
                     else -> throw CalcException(Failure.UNREADABLE)
                 }
             }
@@ -349,10 +373,23 @@ object MathCalc {
         val choices = ArrayList<Choice>()
         for (v in letters) choices += Choice(Mode.SOLVE, v)
         choices += Choice(Mode.COMPARE)
-        val graphable = letters.size == 1 || (letters.toSet() == setOf("x", "y"))
-        if (graphable) choices += Choice(Mode.GRAPH, variable)
+        // r = f(θ): a polar curve, drawn as (r cos θ, r sin θ).
+        val angle = letters.firstOrNull { it in POLAR_ANGLES }
+        if (angle != null && letters.toSet() == setOf("r", angle) && (lhs == Expr.Sym("r") && !rhs.has(Expr.Sym("r")) || rhs == Expr.Sym("r") && !lhs.has(Expr.Sym("r")))) {
+            val r = if (lhs == Expr.Sym("r")) rhs else lhs
+            val th = Expr.Sym(angle)
+            val graph = Choice(Mode.GRAPH, angle)
+            return Plan(listOf(graph), graph) {
+                Outcome.Graph(angle, emptyList(), curve = mul(r, fn(Func.COS, th)) to mul(r, fn(Func.SIN, th)))
+            }
+        }
+        // The letters beside x and y are sliders: y = ax² + bx + c, a·x + b = 0.
+        val parameters = letters - setOf("x", "y")
+        val inXY = letters.containsAll(listOf("x", "y"))
+        val graphable = letters.size == 1 || ((inXY || "x" in letters) && parameters.size <= 3)
+        if (graphable) choices += Choice(Mode.GRAPH, if ("x" in letters) "x" else variable)
         // y = f(x) is a graph; an equation whose letter drops out, or a learner's answer to calculus, is checked; else solved.
-        val explicit = letters.toSet() == setOf("x", "y") && (lhs == Expr.Sym("y") || rhs == Expr.Sym("y"))
+        val explicit = inXY && (lhs == Expr.Sym("y") && !rhs.has(Expr.Sym("y")) || rhs == Expr.Sym("y") && !lhs.has(Expr.Sym("y")))
         // A formula, a letter on one side (v = s/t), is rearranged; two compound sides in several letters, (a+b)² = a² + b², checked.
         val formula = lhs is Expr.Sym || rhs is Expr.Sym
         val likeliest = when {
@@ -366,8 +403,12 @@ object MathCalc {
         return Plan(choices, likeliest) { c ->
             when (c.mode) {
                 Mode.COMPARE -> compareOutcome()
-                Mode.GRAPH -> if (explicit) Outcome.Graph("x", listOf(if (lhs == Expr.Sym("y")) rhs else lhs))
-                    else if (letters.size == 1) Outcome.Graph(variable, listOf(lhs, rhs)) else Outcome.Graph("x", emptyList(), implicit = difference)
+                Mode.GRAPH -> when {
+                    explicit -> Outcome.Graph("x", listOf(if (lhs == Expr.Sym("y")) rhs else lhs), parameters = parameters)
+                    letters.size == 1 -> Outcome.Graph(variable, listOf(lhs, rhs))
+                    inXY -> Outcome.Graph("x", emptyList(), implicit = difference, parameters = parameters)
+                    else -> Outcome.Graph("x", listOf(lhs, rhs), parameters = letters - "x")
+                }
                 Mode.SOLVE -> {
                     val v = Expr.Sym(c.letter ?: variable)
                     val found = if (letters.size == 1) Solve.equation(lhs, rhs, v) else Solve.forLetter(lhs, rhs, v)
@@ -383,6 +424,9 @@ object MathCalc {
     }
 
     private fun Expr.isConstantInLetters() = symbols().isEmpty()
+
+    /** The letters a polar angle is written with. */
+    private val POLAR_ANGLES = setOf("\\theta", "\\varphi", "\\phi", "θ", "φ")
 
     /** Factors cancelled from a denominator as the values they exclude: x − 1 as x ≠ 1. */
     private fun excludedValues(factors: List<Expr>): List<Pair<String, Expr>> = factors.distinct().flatMap { f ->
@@ -438,22 +482,41 @@ object MathCalc {
 
     /** An exact form worth showing: roots, π, e, logarithms of numbers; not sin(47°), whose decimal says more. */
     internal fun niceExact(e: Expr): Boolean {
-        if (e is Expr.Real || e.size() > 24) return false
+        // Long enough for Cardano's two cube roots, not for a formula nobody reads.
+        if (e is Expr.Real || e.size() > 36) return false
         fun ok(t: Expr): Boolean = when (t) {
             is Expr.Num, is Expr.Const -> true
             is Expr.Real -> false
             is Expr.Add -> t.terms.all(::ok)
             is Expr.Mul -> t.factors.all(::ok)
             is Expr.Pow -> ok(t.base) && ok(t.exp)
-            is Expr.Fn -> (t.f == Func.LN || t.f == Func.LOG || t.f == Func.ABS) && t.args.all(::ok)
+            is Expr.Fn -> ((t.f == Func.LN || t.f == Func.LOG || t.f == Func.ABS) && t.args.all(::ok)) ||
+                // 2cos(2π/9): a cubic's roots where all three are real, which radicals cannot write; sin(47°) stays a decimal.
+                ((t.f == Func.COS || t.f == Func.SIN) && t.args.size == 1 && smallPiMultiple(t.args[0]))
             else -> false
         }
         return ok(e)
     }
 
+    /** A rational multiple of π with a small denominator (2π/9, π/7), not a degree's 47π/180. */
+    private fun smallPiMultiple(a: Expr): Boolean {
+        if (a !is Expr.Mul || a.factors.size != 2 || a.factors.none { it == Expr.PI }) return false
+        val r = (a.factors.firstOrNull { it is Expr.Num } as? Expr.Num)?.value ?: return false
+        return r.den <= BigInteger.valueOf(12)
+    }
+
     private fun factored(e: Expr): Outcome {
         val (result, product) = Algebra.factor(e) ?: throw CalcException(Failure.NOT_POLYNOMIAL)
-        return Outcome.Factored(result, complete = product?.complete ?: true, trivial = product?.trivial ?: (result == e))
+        // Further over the reals, and over the complex numbers where they are wanted.
+        val (overReals, overComplex) = try {
+            Algebra.factorFurther(e) ?: (null to null)
+        } catch (x: CalcException) {
+            null to null
+        } catch (x: ArithmeticException) {
+            null to null
+        }
+        return Outcome.Factored(result, complete = product?.complete ?: true, trivial = product?.trivial ?: (result == e),
+            overReals = overReals, overComplex = overComplex?.takeIf { Domain.isComplex })
     }
 
     private fun compare(sides: List<Expr>): Outcome {
@@ -483,6 +546,13 @@ object MathCalc {
                 }
             }
             return Plan(listOf(Choice(Mode.COMPARE)), Choice(Mode.COMPARE)) { Outcome.Checked(holds) }
+        }
+        // An inequality in x and y: the region where it holds (y > x², x² + y² ≤ 4), its other letters as sliders.
+        if (letters.containsAll(listOf("x", "y")) && sides.size == 2 && relations[0] != Rel.NE && letters.size <= 5) {
+            val graph = Choice(Mode.GRAPH, "x")
+            return Plan(listOf(graph), graph) {
+                Outcome.Graph("x", emptyList(), implicit = sides[0] - sides[1], parameters = letters - setOf("x", "y"), region = relations[0])
+            }
         }
         if (letters.size > 1 || sides.size > 3) throw CalcException(Failure.SEVERAL_UNKNOWNS)
         val x = Expr.Sym(letters[0])
@@ -533,10 +603,31 @@ object MathCalc {
         }
         val letters = equations.flatMap { it.symbols() }.toSortedSet().toList()
         val choice = Choice(Mode.SOLVE)
+        // x = f(t), y = g(t): a curve in the parameter t, drawn first; still solvable.
+        val curve = parametric(statements)
+        if (curve != null) {
+            val graph = Choice(Mode.GRAPH, curve.first)
+            return Plan(listOf(graph, choice), graph) { c ->
+                if (c.mode == Mode.GRAPH) return@Plan Outcome.Graph(curve.first, emptyList(), curve = curve.second)
+                Outcome.SystemSolved(letters, Solve.system(equations, letters) ?: throw CalcException(Failure.UNSOLVED))
+            }
+        }
         return Plan(listOf(choice), choice) {
             val solutions = Solve.system(equations, letters) ?: throw CalcException(Failure.UNSOLVED)
             Outcome.SystemSolved(letters, solutions)
         }
+    }
+
+    /** x = f(t) and y = g(t), both in one letter t: t and the curve, or null. */
+    private fun parametric(statements: List<Statement>): Pair<String, Pair<Expr, Expr>>? {
+        if (statements.size != 2) return null
+        val sides = statements.map { s -> s.sides.filterNotNull().takeIf { it.size == 2 && s.relations == listOf(Rel.EQ) } ?: return null }
+        fun of(name: String): Expr? = sides.firstOrNull { it[0] == Expr.Sym(name) }?.get(1) ?: sides.firstOrNull { it[1] == Expr.Sym(name) }?.get(0)
+        val x = of("x") ?: return null
+        val y = of("y") ?: return null
+        val t = (x.symbols() + y.symbols()).singleOrNull() ?: return null
+        if (t == "x" || t == "y") return null
+        return t to (Calculus.evaluate(x) to Calculus.evaluate(y))
     }
 
     private fun definitionPlan(s: Statement): Plan {

@@ -277,6 +277,66 @@ object Calculus {
         return result
     }
 
+    /**
+     * [e] as its partial fractions in [x]: the polynomial part and, over each factor of the denominator, A/(x − r)ʲ or
+     * (Bx + C)/qʲ for every power j up to the factor's (x/(x² − 1) = 1/(2(x − 1)) + 1/(2(x + 1))). Null where [e] is no
+     * fraction of polynomials in [x] alone, or its denominator has a factor of degree three or more over the rationals. The
+     * result is compared with [e] before it is given.
+     */
+    fun partialFractions(e: Expr, x: Expr.Sym): Expr? {
+        val kernels = Algebra.Kernels()
+        val (n0, d0) = Algebra.fraction(e, kernels) ?: return null
+        if (!kernels.isEmpty || d0.isConstant) return null
+        if (!(n0.unknowns + d0.unknowns).all { it == x.name } || d0.unknowns != setOf(x.name)) return null
+        val g = Algebra.gcd(n0, d0)
+        val n = n0.divideExactly(g) ?: n0
+        val d = d0.divideExactly(g) ?: d0
+        if (d.isConstant) return null
+        val dc = univariate(d, x.name)
+        var nc = univariate(n, x.name)
+        val quotient = ArrayList<Rational>()
+        if (nc.size >= dc.size) {
+            val (q, r) = divide(nc, dc)
+            quotient += q
+            nc = r
+        }
+        val product = Factor.of(d)
+        val factors = product.factors.map { (f, k) -> univariate(f, x.name) to k }
+        // One factor to the first power is no decomposition at all.
+        if (factors.size == 1 && factors[0].second == 1) return null
+        if (factors.any { (f, _) -> f.size - 1 > 2 }) return null
+        data class Part(val factor: List<Rational>, val power: Int, val linearNumerator: Boolean)
+        val parts = ArrayList<Part>()
+        for ((f, k) in factors) for (j in 1..k) parts += Part(f, j, f.size - 1 == 2)
+        val degree = dc.size - 1
+        if (parts.sumOf { if (it.linearNumerator) 2 else 1 } != degree) return null
+        val columns = ArrayList<List<Rational>>()
+        val dMonic = dc.map { it / product.constant }
+        for (part in parts) {
+            val rest = divide(dMonic, power(part.factor, part.power)).first
+            columns += pad(rest, degree)
+            if (part.linearNumerator) columns += pad(listOf(Rational.ZERO) + rest, degree)
+        }
+        val target = pad(nc.map { it / product.constant }, degree)
+        val solution = solveLinear(columns, target) ?: return null
+        val terms = ArrayList<Expr>()
+        terms += quotient.withIndex().map { (k, c) -> mul(num(c), pow(x, num(k.toLong()))) }
+        var idx = 0
+        for (part in parts) {
+            val factorExpr = add(part.factor.withIndex().map { (k, c) -> mul(num(c), pow(x, num(k.toLong()))) })
+            val numerator = if (part.linearNumerator) {
+                val c = solution[idx++]
+                val b = solution[idx++]
+                add(num(c), mul(num(b), x))
+            } else {
+                num(solution[idx++])
+            }
+            if (!isZero(numerator)) terms += mul(numerator, pow(factorExpr, num(-part.power.toLong())))
+        }
+        val result = add(terms)
+        return result.takeIf { Verify.same(it, e) }
+    }
+
     private fun univariate(p: Polynomial, x: String): List<Rational> =
         List(max(0, p.degreeIn(x)) + 1) { k -> p.terms[if (k == 0) Monomial.ONE else Monomial(listOf(x to k))] ?: Rational.ZERO }
 

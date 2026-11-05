@@ -69,6 +69,23 @@ object Precise {
         return PreciseValue(fallback(z.re, digits), if (z.isReal) null else fallback(z.im, digits))
     }
 
+    /**
+     * Whether the constant [e] is zero to within 2^-[bits], in ball arithmetic: the whole ball of its value lies that close to
+     * 0. A check stronger than a double's: a root of radicals or cosines put back into its equation leaves a residual this small
+     * only where it is the root. Null where the value cannot be taken this way (a function the balls do not have).
+     */
+    internal fun nearZero(e: Expr, bits: Int = 130, complex: Boolean = true): Boolean? = try {
+        val z = eval(e, bits + 96, complex, emptyMap())
+        val tiny = BigFloat.of(1).shl(-bits.toLong())
+        z.re.magUp() <= tiny && z.im.magUp() <= tiny
+    } catch (x: CalcException) {
+        null
+    } catch (x: Imprecise) {
+        null
+    } catch (x: ArithmeticException) {
+        null
+    }
+
     /** The value of a constant expression as a complex ball at [prec] bits; [env] gives letters their values. */
     internal fun eval(e: Expr, prec: Int, complex: Boolean, env: Map<String, CBall>): CBall {
         Budget.check()

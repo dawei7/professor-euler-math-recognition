@@ -75,7 +75,25 @@ class PreparedPlot internal constructor(
     val implicit: Boolean,
     private val functions: List<(Double) -> Double>,
     private val implicitFunction: ((Double, Double) -> Double)?,
+    /** An inequality's relation: the graph is the region where the implicit function stands so to 0. */
+    val region: Rel? = null,
+    /** A parametric or polar curve, sampled once: its pieces, in any window. */
+    private val path: List<DoubleArray>? = null,
 ) {
+    /** Whether the region holds at (x, y); false for a graph that is no region. */
+    fun holds(x: Double, y: Double): Boolean {
+        val r = region ?: return false
+        val v = implicitFunction?.invoke(x, y) ?: return false
+        if (!v.isFinite()) return false
+        return when (r) {
+            Rel.LT -> v < 0
+            Rel.LE -> v <= 0
+            Rel.GT -> v > 0
+            Rel.GE -> v >= 0
+            else -> false
+        }
+    }
+
     /** How many curves there are. */
     val curves: Int get() = if (implicit) 1 else functions.size
 
@@ -84,6 +102,7 @@ class PreparedPlot internal constructor(
 
     /** The curves in [window], about one sample per pixel of [pixels] across. */
     fun sample(window: PlotWindow, pixels: Int): PlotSample {
+        path?.let { return PlotSample(listOf(PlotCurve(0, it)), emptyList()) }
         val n = pixels.coerceIn(100, 2000)
         if (implicit) return PlotSample(listOf(PlotCurve(0, Plot.contour(implicitFunction!!, window, n))), emptyList())
         val poles = ArrayList<Double>()
@@ -102,11 +121,17 @@ object Plot {
     private const val EXACT_MS = 1500L
     private const val MOST_MARKS = 40
 
-    fun prepare(graph: Outcome.Graph): PreparedPlot {
+    /**
+     * [graph] worked out for drawing; [exact] false while a slider moves: the marks are then found only numerically, fast.
+     * Parameters still in it stand at 1.
+     */
+    fun prepare(graph0: Outcome.Graph, exact: Boolean = true): PreparedPlot {
+        val graph = if (graph0.parameters.isEmpty()) graph0 else at(graph0, graph0.parameters.associateWith { 1.0 }, keep = false)
         val x = Expr.Sym(graph.variable)
-        graph.implicit?.let { return prepareImplicit(it) }
+        graph.implicit?.let { return prepareImplicit(it, graph.region) }
+        graph.curve?.let { return prepareCurve(it, graph.variable) }
         val functions = graph.functions.map { compile(it, graph.variable) }
-        val exact = exactPoints(graph.functions, x)
+        val exact = if (exact) exactPoints(graph.functions, x) else Exact().also { it.functions += graph.functions }
         val trig = period(graph.functions, x)
         val window0 = xRange(exact, trig)
         val members = exact.withPeriodicIn(window0, x)
@@ -657,7 +682,62 @@ object Plot {
         return out
     }
 
-    private fun prepareImplicit(e: Expr): PreparedPlot {
+    /**
+     * [graph] with its parameters at [values] (exact numbers, so marks stay exact: a = 1/2, not 0.5000001); with [keep] the
+     * list of parameters stays on the graph, for the sliders.
+     */
+    fun at(graph: Outcome.Graph, values: Map<String, Double>, keep: Boolean = true): Outcome.Graph = with(graph) {
+        fun put(e: Expr): Expr {
+            var out = e
+            for ((name, v) in values) out = out.substitute(Expr.Sym(name), num(Rational.near(v) ?: Rational.of(Math.round(v * 1000)) / Rational.of(1000)))
+            return out
+        }
+        Outcome.Graph(variable, functions.map(::put), implicit?.let(::put), if (keep) parameters else parameters - values.keys, region)
+    }
+
+    /**
+     * A curve (x(t), y(t)): t over [0, 2π] where its parts are trigonometric (a circle, a rose, a polar curve), over [−10, 10]
+     * otherwise; split where it is undefined or jumps; a unit as long on both axes.
+     */
+    private fun prepareCurve(curve: Pair<Expr, Expr>, t: String): PreparedPlot {
+        val fx = compile(curve.first, t)
+        val fy = compile(curve.second, t)
+        val trig = period(listOf(curve.first, curve.second), Expr.Sym(t)) != null || TrigForms.has(curve.first) || TrigForms.has(curve.second)
+        val (a, b) = if (trig) 0.0 to 2 * Math.PI else -10.0 to 10.0
+        val n = 2400
+        val pieces = ArrayList<DoubleArray>()
+        var piece = DoubleArrayBuilder()
+        var lastX = Double.NaN
+        var lastY = Double.NaN
+        var lo = Double.POSITIVE_INFINITY
+        var hi = Double.NEGATIVE_INFINITY
+        var bottom = Double.POSITIVE_INFINITY
+        var top = Double.NEGATIVE_INFINITY
+        for (k in 0..n) {
+            val tt = a + (b - a) * k / n
+            val x = fx(tt)
+            val y = fy(tt)
+            val jump = lastX.isFinite() && (abs(x - lastX) > 1e3 || abs(y - lastY) > 1e3)
+            if (!x.isFinite() || !y.isFinite() || jump) {
+                if (piece.size > 1) pieces += piece.toArray()
+                piece = DoubleArrayBuilder()
+                lastX = Double.NaN
+                if (!x.isFinite() || !y.isFinite()) continue
+            }
+            piece.add(x, y)
+            lastX = x
+            lastY = y
+            lo = min(lo, x); hi = max(hi, x); bottom = min(bottom, y); top = max(top, y)
+        }
+        if (piece.size > 1) pieces += piece.toArray()
+        if (!lo.isFinite()) { lo = -10.0; hi = 10.0; bottom = -10.0; top = 10.0 }
+        val padX = max(0.5, (hi - lo) * 0.1)
+        val padY = max(0.5, (top - bottom) * 0.1)
+        val window = PlotWindow(lo - padX, hi + padX, bottom - padY, top + padY)
+        return PreparedPlot(t, window, emptyList(), emptyList(), false, true, emptyList(), null, null, pieces)
+    }
+
+    private fun prepareImplicit(e: Expr, region: Rel? = null): PreparedPlot {
         val f = compile2(e)
         // The curve's extent on a coarse grid; ±10 where none shows.
         var lo = Double.POSITIVE_INFINITY
@@ -684,7 +764,7 @@ object Plot {
             val half = max(max(hi - lo, top - bottom) / 2 * 1.3, 1.0)
             PlotWindow(cx - half, cx + half, cy - half, cy + half)
         } else PlotWindow(-10.0, 10.0, -10.0, 10.0)
-        return PreparedPlot("x", window, emptyList(), emptyList(), false, true, emptyList(), f)
+        return PreparedPlot("x", window, emptyList(), emptyList(), false, true, emptyList(), f, region)
     }
 }
 

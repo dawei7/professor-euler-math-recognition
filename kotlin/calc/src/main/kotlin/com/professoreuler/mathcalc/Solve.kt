@@ -157,7 +157,42 @@ object Solve {
             roots(substituteExact(f, a, neg(a.args[0])), x, out, depth + 1)
             return
         }
+        // a·sin u + b·cos u + c as one sine: R·sin(u + φ) + c, R = √(a² + b²), which has x once.
+        harmonic(f, x)?.let { g -> roots(g, x, out, depth + 1); return }
         numericRoots(f, x, out)
+    }
+
+    /**
+     * [f] = a·sin u + b·cos u + c (a, b, c numbers, u with x in it) as R·sin(u + φ) + c with R = √(a² + b²) and φ the angle
+     * of (a, b): cos x − sin x = 0 is √2·sin(x + 3π/4) = 0. Null where [f] is no such sum.
+     */
+    private fun harmonic(f: Expr, x: Expr.Sym): Expr? {
+        val kernels = Algebra.Kernels()
+        val p = Algebra.polynomial(Algebra.expand(f), kernels) ?: return null
+        val names = p.unknowns.toList()
+        if (names.size != 2) return null
+        val ks = names.map { kernels.expr(it) }
+        val sinAt = ks.indexOfFirst { it is Expr.Fn && it.f == Func.SIN }
+        val cosAt = ks.indexOfFirst { it is Expr.Fn && it.f == Func.COS }
+        if (sinAt < 0 || cosAt < 0) return null
+        val u = (ks[sinAt] as Expr.Fn).args[0]
+        if (u != (ks[cosAt] as Expr.Fn).args[0] || !u.has(x)) return null
+        var a = Rational.ZERO
+        var b = Rational.ZERO
+        var c = Rational.ZERO
+        for ((m, k) in p.terms) {
+            when {
+                m == Monomial.ONE -> c = k
+                m.powers.size == 1 && m.power(names[sinAt]) == 1 -> a = k
+                m.powers.size == 1 && m.power(names[cosAt]) == 1 -> b = k
+                else -> return null
+            }
+        }
+        if (a.signum == 0 || b.signum == 0) return null
+        val r = sqrt(num(a * a + b * b))
+        val angle = fn(Func.ATAN, num(b / a))
+        val phi = if (a.signum > 0) angle else add(angle, Expr.PI)
+        return add(mul(r, fn(Func.SIN, add(u, phi))), num(c))
     }
 
     /** An exponential of x (a positive base to a power with x) that is a factor of every term of [f]: it is never 0. */
@@ -275,6 +310,16 @@ object Solve {
                 val fc = coefficientsIn(Algebra.toExpr(f, Algebra.Kernels()), x) ?: continue
                 when (fc.size - 1) {
                     1, 2 -> formula(fc, out)
+                    // An irreducible cubic or quartic: its roots exactly where they have a form worth reading.
+                    3, 4 -> {
+                        val exact = fc.map { rational(it) }.takeIf { r -> r.all { it != null } }?.let { r -> Roots.exact(r.map { it!! }) }
+                        if (exact != null) {
+                            out.exact += exact.first
+                            out.complex += exact.second
+                        } else {
+                            numericPolynomial(fc, out)
+                        }
+                    }
                     else -> numericPolynomial(fc, out)
                 }
             }
@@ -331,10 +376,15 @@ object Solve {
             if (moved < 1e-15) return@repeat
         }
         out.numeric = true
+        // With rational coefficients the real roots come from Sturm's sequence: certain, none missed however close.
+        val exactCoefficients = c.map { rational(it) }
+        val certain = if (exactCoefficients.all { it != null }) Sturm.realRoots(exactCoefficients.map { it!! }) else null
+        certain?.forEach { out.exact += Expr.Real(it) }
         for (r in z) {
             if (!r.finite) continue
-            if (abs(r.im) <= 1e-9 * max(1.0, r.abs)) out.exact += Expr.Real(polish(monic, r.re))
-            else if (r.im > 0) {
+            if (abs(r.im) <= 1e-9 * max(1.0, r.abs)) {
+                if (certain == null) out.exact += Expr.Real(polish(monic, r.re))
+            } else if (r.im > 0) {
                 out.complex += add(Expr.Real(r.re), mul(Expr.Real(r.im), Expr.I))
                 out.complex += add(Expr.Real(r.re), mul(Expr.Real(-r.im), Expr.I))
             }
@@ -654,7 +704,9 @@ object Solve {
             val va = Numeric.value(a)
             val vb = Numeric.value(b)
             if (va == null || vb == null) return false
-            abs(va - vb) <= 1e-9 * max(1.0, max(abs(va), abs(vb)))
+            if (abs(va - vb) > 1e-9 * max(1.0, max(abs(va), abs(vb)))) return false
+            // A root of radicals or cosines (Cardano, a casus irreducibilis): its residual is checked in ball arithmetic too.
+            if (v !is Expr.Num && !lhs.hasOp() && !rhs.hasOp()) Precise.nearZero(add(a, neg(b)), complex = true) != false else true
         } catch (e: CalcException) {
             false
         }
@@ -801,7 +853,8 @@ object Solve {
      */
     fun system(equations: List<Expr>, letters: List<String>): List<Map<String, Expr>>? {
         if (equations.isEmpty() || letters.isEmpty()) return null
-        val solutions = linear(equations, letters) ?: substitution(equations, letters, 0) ?: return null
+        // Linear ones by elimination, others by putting one letter into the rest, and polynomial ones by a Gröbner basis.
+        val solutions = linear(equations, letters) ?: substitution(equations, letters, 0) ?: Groebner.solve(equations, letters) ?: return null
         // In order of their values, letter by letter.
         return solutions.sortedWith { p, q ->
             letters.asSequence().map { v -> (Numeric.value(p.getValue(v)) ?: 0.0).compareTo(Numeric.value(q.getValue(v)) ?: 0.0) }

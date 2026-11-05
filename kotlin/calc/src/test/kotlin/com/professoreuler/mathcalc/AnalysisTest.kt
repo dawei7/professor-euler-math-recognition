@@ -118,8 +118,20 @@ class AnalysisTest {
         val sine = facts("\\sin(x)")
         assertEquals(Symmetry.ODD, sine.symmetry)
         assertTrue(sine.zeros!!.periodic.isNotEmpty())
-        // Extrema in families are not listed (yet); never a wrong finite list.
-        assertNull(sine.extrema)
+        // Extrema and inflection points as families, one period's worth: the period, and the range over it.
+        assertEquals("2π", t(sine.period))
+        assertEquals("max (π/2 + 2kπ, 1); min (3π/2 + 2kπ, -1)", extrema(sine))
+        assertEquals("(2kπ, 0); (π + 2kπ, 0)", inflections(sine))
+        assertEquals("-1 ≤ y ≤ 1", Format.intervals(sine.range!!, Style.PLAIN, latex = false))
+        val cos2 = facts("\\cos(2x)")
+        assertEquals("π", t(cos2.period))
+        assertEquals("max (kπ, 1); min (π/2 + kπ, -1)", extrema(cos2))
+        // Ranges on all of ℝ: attained where an extremum is, approached where only a limit is.
+        assertEquals("0 ≤ y", Format.intervals(facts("x^{2}").range!!, Style.PLAIN, latex = false))
+        assertEquals("0 < y", Format.intervals(facts("e^{x}").range!!, Style.PLAIN, latex = false))
+        assertEquals("0 < y ≤ 1", Format.intervals(facts("\\frac{1}{x^{2}+1}").range!!, Style.PLAIN, latex = false))
+        assertEquals("y ∈ ℝ", Format.intervals(facts("x^{3}-3x").range!!, Style.PLAIN, latex = false))
+        assertNull(facts("\\frac{1}{x}").range)
         val tangent = facts("\\tan(x)")
         assertTrue(tangent.domainFamilies.isNotEmpty())
         assertEquals(Symmetry.ODD, tangent.symmetry)

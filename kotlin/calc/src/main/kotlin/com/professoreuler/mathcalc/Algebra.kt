@@ -203,6 +203,14 @@ object Algebra {
         return mul(productExpr(num, kernels), pow(productExpr(den, kernels), Expr.MINUS_ONE)) to null
     }
 
+    /** A polynomial's factors over the reals and over the complex numbers ([Split]), or null where [e] is no polynomial. */
+    fun factorFurther(e: Expr): Pair<Expr?, Expr?>? {
+        val kernels = Kernels()
+        val p = polynomial(e, kernels) ?: return null
+        if (p.isConstant) return null
+        return Split.of(Factor.of(p), kernels)
+    }
+
     private fun productExpr(p: Product, kernels: Kernels): Expr =
         mul(listOf(num(p.constant)) + p.factors.map { (f, k) -> pow(toExpr(f, kernels), num(k.toLong())) })
 

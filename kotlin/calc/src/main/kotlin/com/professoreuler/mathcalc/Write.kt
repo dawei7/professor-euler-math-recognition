@@ -78,7 +78,8 @@ internal class Write(private val style: Style, private val latex: Boolean) {
     private fun displayOrder(terms: List<Expr>): List<Expr> {
         val constant = terms.all { it.symbols().isEmpty() }
         return terms.sortedWith(compareBy<Expr> { if (it.has(K)) 1 else 0 }
-            .thenByDescending { if (constant) (if (it is Expr.Num) 1.0 else 0.0) else degree(it) }
+            // A complex number's real part before its imaginary one, a decimal too (−0.727 + 0.430i, not 0.430i − 0.727).
+            .thenByDescending { if (constant) (if (it is Expr.Num) 2.0 else if (!it.hasI()) 1.0 else 0.0) else degree(it) }
             .thenBy { if (isNegative(it) && degree(it) <= 1.0) 1 else 0 }
             .thenComparator { a, b ->
                 lexicographic(splitCoefficient(a).second, splitCoefficient(b).second) ?: Order.compare(splitCoefficient(a).second, splitCoefficient(b).second)
