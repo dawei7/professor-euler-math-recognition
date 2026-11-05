@@ -20,7 +20,11 @@ object Geometry {
     // Triangles.
 
     /** Sides a, b, c and the angles α, β, γ opposite them in degrees; its area, perimeter, and the radii of its circles. */
-    class Triangle(val sides: List<Expr>, val angles: List<Expr>, val area: Expr, val perimeter: Expr, val circumradius: Expr, val inradius: Expr)
+    class Triangle(val sides: List<Expr>, val angles: List<Expr>, val area: Expr, val perimeter: Expr, val circumradius: Expr, val inradius: Expr,
+        val case: Case = Case.SSS, val given: Set<Int> = emptySet())
+
+    /** What was given: three sides; two sides and the angle between them; two angles and a side; two sides and an angle opposite one. */
+    enum class Case { SSS, SAS, ASA, SSA }
 
     /** The letters a side or an angle is written with: a, b, c; α, β, γ or A, B, C. */
     val SIDES = listOf("a", "b", "c")
@@ -137,6 +141,12 @@ object Geometry {
             }
         }
         if (out.isEmpty()) throw CalcException(Failure.NO_TRIANGLE)
+        val case = when {
+            sides.size == 3 -> Case.SSS
+            angles.size == 2 -> Case.ASA
+            angles.keys.single() !in sides.keys -> Case.SAS
+            else -> Case.SSA
+        }
         return out.map { (s3, angle) ->
             // The laws of cosines and the sum of the angles, at the values.
             val v = s3.map { value(it) }
@@ -151,7 +161,7 @@ object Geometry {
             val perimeter = settle(add(s3))
             val circumradius = settle(s3[0] / mul(Expr.TWO, sin(angle[0])))
             val inradius = settle(mul(Expr.TWO, area) / perimeter)
-            Triangle(s3, angle, area, perimeter, circumradius, inradius)
+            Triangle(s3, angle, area, perimeter, circumradius, inradius, case, sides.keys + angles.keys.map { it + 3 })
         }
     }
 
@@ -176,7 +186,7 @@ object Geometry {
     private val Y = Expr.Sym("y")
 
     /** The coefficients A … F of Ax² + Bxy + Cy² + Dx + Ey + F, or null where f is no polynomial of degree 2 in x and y. */
-    private fun quadratic(f: Expr): List<Rational>? {
+    internal fun quadratic(f: Expr): List<Rational>? {
         val k = Algebra.Kernels()
         val p = Algebra.polynomial(Algebra.expand(f), k) ?: return null
         if (!k.isEmpty) return null
@@ -216,13 +226,14 @@ object Geometry {
                 val centre = Point(h, k)
                 val vx = Numeric.value(ax)!!
                 val vy = Numeric.value(by)!!
-                val standard = tidy(add(pow(add(x, neg(h)), Expr.TWO) / ax, pow(add(y, neg(k)), Expr.TWO) / by)) to Expr.ONE
+                val standard = add(pow(add(x, neg(h)), Expr.TWO) / ax, pow(add(y, neg(k)), Expr.TWO) / by) to Expr.ONE
                 if (discriminant.signum < 0) {
                     if (vx <= 0 || vy <= 0) return null
                     val sa = tidy(sqrt(ax))
                     val sb = tidy(sqrt(by))
                     if (q[0] == q[2]) {
-                        Conic(ConicKind.CIRCLE, centre, sa to sa, emptyList(), Expr.ZERO, emptyList(), null, null, null, sa, standard)
+                        Conic(ConicKind.CIRCLE, centre, sa to sa, emptyList(), Expr.ZERO, emptyList(), null, null, null, sa,
+                            add(pow(add(x, neg(h)), Expr.TWO), pow(add(y, neg(k)), Expr.TWO)) to ax)
                     } else {
                         val focal = tidy(sqrt(tidy(abs(ax, by))))
                         val alongX = vx > vy
@@ -240,8 +251,8 @@ object Geometry {
                     val foci = if (alongX) listOf(Point(tidy(h - focal), k), Point(tidy(h + focal), k)) else listOf(Point(h, tidy(k - focal)), Point(h, tidy(k + focal)))
                     val slope = if (alongX) tidy(sb / sa) else tidy(sa / sb)
                     val asymptotes = listOf(tidy(add(k, mul(slope, add(x, neg(h))))), tidy(add(k, neg(mul(slope, add(x, neg(h)))))))
-                    val std = if (alongX) tidy(add(pow(add(x, neg(h)), Expr.TWO) / aa, neg(pow(add(y, neg(k)), Expr.TWO) / bb)))
-                        else tidy(add(pow(add(y, neg(k)), Expr.TWO) / aa, neg(pow(add(x, neg(h)), Expr.TWO) / bb)))
+                    val std = if (alongX) add(pow(add(x, neg(h)), Expr.TWO) / aa, neg(pow(add(y, neg(k)), Expr.TWO) / bb))
+                        else add(pow(add(y, neg(k)), Expr.TWO) / aa, neg(pow(add(x, neg(h)), Expr.TWO) / bb))
                     Conic(ConicKind.HYPERBOLA, centre, if (alongX) sa to sb else sb to sa, foci, tidy(focal / sa), asymptotes, null, null, null, null, std to Expr.ONE)
                 }
             }
@@ -272,7 +283,7 @@ object Geometry {
             val k = tidy(neg(add(mul(a, pow(h, Expr.TWO)), mul(d, h), f)) / e)
             val p = tidy(neg(e) / mul(num(4), a))
             return Conic(ConicKind.PARABOLA, null, null, listOf(Point(h, tidy(k + p))), Expr.ONE, emptyList(), Point(h, k), "y" to tidy(k - p), null, null,
-                tidy(pow(add(x, neg(h)), Expr.TWO) - mul(num(4), p, add(y, neg(k)))) to Expr.ZERO)
+                pow(add(x, neg(h)), Expr.TWO) to mul(tidy(mul(num(4), p)), add(y, neg(k))))
         }
         if (q[3].signum == 0) return null
         val c = num(q[2]); val d = num(q[3]); val e = num(q[4]); val f = num(q[5])
@@ -280,7 +291,7 @@ object Geometry {
         val h = tidy(neg(add(mul(c, pow(k, Expr.TWO)), mul(e, k), f)) / d)
         val p = tidy(neg(d) / mul(num(4), c))
         return Conic(ConicKind.PARABOLA, null, null, listOf(Point(tidy(h + p), k)), Expr.ONE, emptyList(), Point(h, k), "x" to tidy(h - p), null, null,
-            tidy(pow(add(y, neg(k)), Expr.TWO) - mul(num(4), p, add(x, neg(h)))) to Expr.ZERO)
+            pow(add(y, neg(k)), Expr.TWO) to mul(tidy(mul(num(4), p)), add(x, neg(h))))
     }
 
     /** A turned conic (a term in xy): its kind, centre, the angle of its axes and its semi-axes from the eigenvalues. */

@@ -12,6 +12,21 @@ import kotlin.math.round
  * inequalities, the same value for expressions.
  */
 class StepsTest {
+    private val LATER = listOf(
+        "\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}" to null, "\\begin{pmatrix}2&1\\\\1&2\\end{pmatrix}" to Choice(Mode.EIGEN),
+        "\\begin{pmatrix}2&0&1\\\\1&3&2\\\\1&1&1\\end{pmatrix}" to null, "\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}" to Choice(Mode.INVERSE),
+        "\\begin{pmatrix}2&0&1\\\\1&3&2\\\\1&1&2\\end{pmatrix}" to Choice(Mode.INVERSE),
+        "\\begin{cases}a_{n+2}=a_{n+1}+a_{n}\\\\a_{0}=0\\\\a_{1}=1\\end{cases}" to null,
+        "\\begin{cases}a_{n}=3a_{n-1}+2^{n}\\\\a_{0}=1\\end{cases}" to null,
+        "3x\\equiv 2\\pmod{7}" to null, "\\begin{cases}x\\equiv 2\\pmod{3}\\\\x\\equiv 3\\pmod{5}\\end{cases}" to null,
+        "x^{2}\\equiv 1\\pmod{8}" to null, "3x+5y=7" to Choice(Mode.DIOPHANTINE), "x^{2}-2y^{2}=1" to Choice(Mode.DIOPHANTINE),
+        "\\begin{cases}a=3\\\\b=4\\\\c=5\\end{cases}" to null, "\\begin{cases}a=5\\\\b=7\\\\\\gamma=60\\end{cases}" to null,
+        "\\begin{cases}a=10\\\\\\alpha=30\\\\\\beta=45\\end{cases}" to null, "\\begin{cases}a=6\\\\b=8\\\\\\alpha=30\\end{cases}" to null,
+        "(2,4,4,4,5,5,7,9)" to null, "\\begin{pmatrix}1&2\\\\2&4\\\\3&5\\\\4&4\\\\5&5\\end{pmatrix}" to null,
+        "5" to Choice(Mode.UNITS, "km", "mi"), "20" to Choice(Mode.UNITS, "°C", "°F"),
+        "x^{2}+y^{2}-4x+6y=12" to null, "y^{2}=8x" to Choice(Mode.CONIC),
+    )
+
 
     private fun keys(latex: String, choice: Choice? = null): String =
         Steps.of(latex, choice)?.joinToString(",") { it.why.key.name } ?: "none"
@@ -275,8 +290,27 @@ class StepsTest {
         val chosen = listOf("2(x+1)=2x+2" to Choice(Mode.SOLVE, "x"), "ax+b=cx+d" to Choice(Mode.SOLVE, "x"),
             "2x^{2}+3x-2" to Choice(Mode.FACTOR), "x^{2}+1" to Choice(Mode.FACTOR), "360=" to Choice(Mode.FACTOR),
             "x+1=x+1" to Choice(Mode.COMPARE), "x+1=x+2" to Choice(Mode.COMPARE))
-        for ((latex, choice) in chosen) Steps.of(latex, choice)?.forEach { reached += it.why.key }
+        for ((latex, choice) in chosen + LATER) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
+    }
+
+    /** The later areas' steps: matrices, recurrences, congruences, whole numbers, triangles, statistics, units, conics. */
+    @Test
+    fun laterAreasHaveTheirSteps() {
+        val expected = listOf(
+            "START DET_2X2 RESULT", "START CHARACTERISTIC EIGENVALUES EIGENVECTOR EIGENVECTOR", "START DET_EXPAND RESULT",
+            "START INVERSE_2X2 RESULT INVERSE_CHECK", "START INVERSE_GAUSS_JORDAN RESULT INVERSE_CHECK",
+            "REC_CHARACTERISTIC REC_ROOTS REC_GENERAL REC_CONSTANTS RESULT", "REC_CHARACTERISTIC REC_ROOTS REC_GENERAL REC_PARTICULAR REC_CONSTANTS RESULT",
+            "START CONG_GCD CONG_LINE RESULT", "START CONG_GCD CONG_LINE START CONG_GCD CONG_LINE CRT", "START CONG_TRIED CONG_LINE RESULT",
+            "START DIO_GCD DIO_PARTICULAR DIO_FAMILY", "START PELL PELL_POWERS",
+            "START TRI_COSINES TRI_COSINES TRI_ANGLE_SUM TRI_AREA", "START TRI_COSINES TRI_COSINES TRI_ANGLE_SUM TRI_AREA",
+            "START TRI_ANGLE_SUM TRI_SINES TRI_SINES TRI_AREA",
+            "START TRI_SINES TRI_AMBIGUOUS TRI_ANGLE_SUM TRI_SINES TRI_AREA TRI_SINES TRI_AMBIGUOUS TRI_ANGLE_SUM TRI_SINES TRI_AREA",
+            "START STAT_MEAN STAT_SORTED STAT_MEDIAN STAT_VARIANCE STAT_SD", "REG_SUMS REG_SLOPE REG_INTERCEPT RESULT",
+            "UNIT_FACTOR RESULT", "UNIT_OFFSET RESULT", "START CONIC_COMPLETE CONIC_STANDARD", "START CONIC_STANDARD",
+        )
+        val got = LATER.map { (latex, choice) -> Steps.of(latex, choice)?.joinToString(" ") { it.why.key.name } ?: "none" }
+        assertEquals(expected.joinToString("\n"), got.joinToString("\n"))
     }
 
     /** The apps' sentences have a fixed number of formulas: each kind of step always brings the same number. */

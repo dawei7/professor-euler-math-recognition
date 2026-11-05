@@ -49,6 +49,14 @@ enum class StepKey {
     LIMIT_SUBSTITUTE, LIMIT_INDETERMINATE, LIMIT_CANCEL, LHOPITAL, LIMIT_HIGHEST_POWER,
     // Comparing sides.
     SIDES_EQUAL, SIDES_DIFFER,
+    // Matrices.
+    CHARACTERISTIC, EIGENVALUES, EIGENVECTOR, DET_2X2, DET_EXPAND, INVERSE_2X2, INVERSE_GAUSS_JORDAN, INVERSE_CHECK,
+    // Recurrences, congruences, whole numbers.
+    REC_CHARACTERISTIC, REC_ROOTS, REC_GENERAL, REC_PARTICULAR, REC_CONSTANTS, CONG_GCD, CONG_LINE, CONG_TRIED, CRT,
+    DIO_GCD, DIO_PARTICULAR, DIO_FAMILY, PELL, PELL_POWERS,
+    // Triangles, statistics, the regression line, units, conics.
+    TRI_COSINES, TRI_SINES, TRI_ANGLE_SUM, TRI_AMBIGUOUS, TRI_AREA, STAT_MEAN, STAT_SORTED, STAT_MEDIAN, STAT_VARIANCE, STAT_SD,
+    REG_SUMS, REG_SLOPE, REG_INTERCEPT, UNIT_FACTOR, UNIT_OFFSET, CONIC_COMPLETE, CONIC_STANDARD,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -74,6 +82,8 @@ object Steps {
     fun of(latex: String, choice: Choice? = null, assumptions: Assumptions = Assumptions()): List<Step>? {
         val c = MathCalc.calculate(latex, choice, assumptions = assumptions)
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
+        // The later areas, from what their outcomes hold.
+        MoreSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

@@ -293,8 +293,13 @@ object Discrete {
     // ---------------------------------------------------------------------------------------------------------------------
     // Congruences.
 
-    /** x ≡ r (mod [modulus]) for each of [residues]; none where there is no solution. */
-    class Congruences(val letter: String, val residues: List<BigInteger>, val modulus: BigInteger)
+    /**
+     * x ≡ r (mod [modulus]) for each of [residues]; none where there is no solution. [parts] are the lines on their own: each
+     * one's coefficients (lowest first) and modulus, and its solutions as residues of [Part.step].
+     */
+    class Congruences(val letter: String, val residues: List<BigInteger>, val modulus: BigInteger, val parts: List<Part> = emptyList()) {
+        class Part(val coefficients: List<BigInteger>, val m: BigInteger, val residues: List<BigInteger>, val step: BigInteger)
+    }
 
     /** The whole-number coefficients of f in x, lowest first, after multiplying by a denominator that is a unit mod m. */
     private fun integerCoefficients(f: Expr, x: Expr.Sym, m: BigInteger?): List<BigInteger>? {
@@ -332,9 +337,11 @@ object Discrete {
         val coefficients = lines.map { (f, m) -> (integerCoefficients(f, x, m) ?: return null) to m }
         var residues = listOf(ZERO)
         var modulus = ONE
+        val parts = ArrayList<Congruences.Part>()
         for ((c, m) in coefficients) {
             if (m < BigInteger.TWO) return null
             val (own, step) = one(c, m) ?: return null
+            parts += Congruences.Part(c, m, own, step)
             val combined = LinkedHashSet<BigInteger>()
             for (r in residues) for (s in own) {
                 Budget.check()
@@ -346,7 +353,7 @@ object Discrete {
             if (residues.isEmpty()) break
         }
         if (residues.any { r -> coefficients.any { (c, m) -> valueMod(c, r, m).signum() != 0 } }) return null
-        return Congruences(letter, residues, modulus)
+        return Congruences(letter, residues, modulus, parts)
     }
 
     // ---------------------------------------------------------------------------------------------------------------------
@@ -354,7 +361,8 @@ object Discrete {
 
     sealed class Integers {
         /** x = x₀ + sx·t, y = y₀ + sy·t for every whole t. */
-        class Linear(val x: String, val y: String, val x0: BigInteger, val y0: BigInteger, val sx: BigInteger, val sy: BigInteger) : Integers()
+        class Linear(val x: String, val y: String, val x0: BigInteger, val y0: BigInteger, val sx: BigInteger, val sy: BigInteger,
+            val a: BigInteger = ZERO, val b: BigInteger = ZERO, val c: BigInteger = ZERO) : Integers()
 
         /** x² − d·y² = 1: the smallest solution in whole numbers above 0; the others are (x₁ + y₁√d)ᵏ. */
         class Pell(val x: String, val y: String, val d: BigInteger, val x1: BigInteger, val y1: BigInteger) : Integers()
@@ -382,8 +390,8 @@ object Discrete {
             if (a.signum() == 0 && b.signum() == 0) return null
             val g = a.gcd(b)
             if (rhs.mod(g).signum() != 0) return Integers.None
-            if (a.signum() == 0) return Integers.Linear(xn, yn, ZERO, rhs / b, ONE, ZERO)
-            if (b.signum() == 0) return Integers.Linear(xn, yn, rhs / a, ZERO, ZERO, ONE)
+            if (a.signum() == 0) return Integers.Linear(xn, yn, ZERO, rhs / b, ONE, ZERO, a, b, rhs)
+            if (b.signum() == 0) return Integers.Linear(xn, yn, rhs / a, ZERO, ZERO, ONE, a, b, rhs)
             val (x0, y0, sx, sy) = NumberTheory.diophantine(a, b, rhs) ?: return Integers.None
             // The smallest x₀ ≥ 0 of the family.
             val t = x0.negate().let { n -> if (sx.signum() > 0) floorDiv(n, sx) else floorDiv(n.negate(), sx.negate()) }
@@ -392,7 +400,7 @@ object Discrete {
             if (nx.signum() < 0) { nx += sx.abs(); ny += if (sx.signum() > 0) sy else sy.negate() }
             val step = if (sx.signum() < 0) sx.negate() to sy.negate() else sx to sy
             if (a * nx + b * ny != rhs || a * step.first + b * step.second != ZERO) return null
-            return Integers.Linear(xn, yn, nx, ny, step.first, step.second)
+            return Integers.Linear(xn, yn, nx, ny, step.first, step.second, a, b, rhs)
         }
         if (degree == 2) {
             // x² − d·y² = 1 (or a multiple of it, either sign).
@@ -420,7 +428,10 @@ object Discrete {
     // Linear recurrences with constant coefficients.
 
     /** uₙ in closed form ([general] where no initial values fixed its constants C₁, C₂, …), and its first [terms] from the start. */
-    class Recurrence(val name: String, val closed: Expr, val general: Boolean, val start: Int, val terms: List<Expr>, val order: Int)
+    class Recurrence(val name: String, val closed: Expr, val general: Boolean, val start: Int, val terms: List<Expr>, val order: Int,
+        /** The characteristic polynomial in r, its roots with their multiplicities, the general solution in C₁, C₂, …, the particular one. */
+        val characteristic: Expr? = null, val roots: List<Pair<Expr, Int>> = emptyList(), val generalForm: Expr? = null,
+        val particular: Expr = Expr.ZERO, val constants: Map<String, Expr> = emptyMap())
 
     private val SHIFT = Regex("^([A-Za-z])_n([+-][0-9]+)?$")
     private val INITIAL = Regex("^([A-Za-z])_([0-9]+)$")
@@ -517,7 +528,7 @@ object Discrete {
                 val residual = tidy(add(c.mapIndexed { j, cj -> mul(cj, at(e, n + j)) }) - at(g, n))
                 if (!LinAlg.isNull(residual)) return null
             }
-            return Recurrence(name, general, true, 0, emptyList(), order)
+            return Recurrence(name, general, true, 0, emptyList(), order, shown(characteristic, r), roots, general, particular)
         }
         val equations = initial.map { (n, v) -> tidy(at(general, n) - v) }
         val solved = Solve.system(equations, constants.map { it.name })?.singleOrNull() ?: return null
@@ -547,8 +558,12 @@ object Discrete {
             }
             for (n in start until start + 8) terms += at(closed, n)
         }
-        return Recurrence(name, closed, false, start, terms, order)
+        return Recurrence(name, closed, false, start, terms, order, shown(characteristic, r), roots, general, particular,
+            constants.associate { it.name to solved.getValue(it.name) })
     }
+
+    /** The characteristic polynomial in the letter r, as the steps write it. */
+    private fun shown(p: Expr, r: Expr.Sym) = tidy(p.substitute(r, Expr.Sym("r")))
 
     /** The roots of p in r, each with its multiplicity (how many derivatives vanish there). */
     private fun rootsWithMultiplicity(p: Expr, r: Expr.Sym): List<Pair<Expr, Int>>? {
