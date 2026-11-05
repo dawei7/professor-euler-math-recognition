@@ -119,6 +119,33 @@ internal object TrigForms {
     }
 
     /** Powers of sin and cos brought down to double angles: sin²u = (1 − cos 2u)/2, cos²u = (1 + cos 2u)/2, sin u cos u = sin 2u / 2. */
+    /**
+     * Products of sines and cosines of any arguments as sums: sin a·cos b = (sin(a + b) + sin(a − b))/2, sin a·sin b =
+     * (cos(a − b) − cos(a + b))/2, cos a·cos b = (cos(a − b) + cos(a + b))/2; for integrating, not for showing.
+     */
+    fun productsToSums(e: Expr): Expr {
+        val inner = e.mapChildren { productsToSums(it) }
+        if (inner !is Expr.Mul) return inner
+        val trig = inner.factors.withIndex().filter { (_, f) -> f is Expr.Fn && (f.f == Func.SIN || f.f == Func.COS) && f.args.size == 1 }
+        if (trig.size < 2) return inner
+        val (i, p) = trig[0]
+        val (j, q) = trig[1]
+        p as Expr.Fn
+        q as Expr.Fn
+        val a = p.args[0]
+        val b = q.args[0]
+        val sum = add(a, b)
+        val difference = add(a, neg(b))
+        val pair = when {
+            p.f == Func.SIN && q.f == Func.COS -> add(fn(Func.SIN, sum), fn(Func.SIN, difference))
+            p.f == Func.COS && q.f == Func.SIN -> add(fn(Func.SIN, sum), neg(fn(Func.SIN, difference)))
+            p.f == Func.SIN -> add(fn(Func.COS, difference), neg(fn(Func.COS, sum)))
+            else -> add(fn(Func.COS, difference), fn(Func.COS, sum))
+        }
+        val rest = inner.factors.filterIndexed { k, _ -> k != i && k != j }
+        return productsToSums(Algebra.expand(mul(rest + listOf(Expr.HALF, pair))))
+    }
+
     fun linearize(e: Expr): Expr {
         val inner = e.mapChildren { linearize(it) }
         if (inner is Expr.Pow) {

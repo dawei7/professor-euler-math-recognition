@@ -13,6 +13,37 @@ internal object Format {
     /** An expression in LaTeX or in the sheets' math shorthand. */
     fun expr(e: Expr, c: Style, latex: Boolean): String = Write(c, latex).expr(e)
 
+    /** An expression's result: a series term by term in rising powers with + O(…), an antiderivative with + C. */
+    fun result(o: Outcome.Expression, c: Style, latex: Boolean): String {
+        val w = Write(c, latex)
+        val series = o.series
+        val body = if (series == null || series.isEmpty()) w.expr(o.result) else {
+            val out = StringBuilder()
+            val h = o.seriesIn ?: Expr.ZERO
+            // (x − a) as one letter while a term is written, then put in with its brackets: (1/2)(x − 1)².
+            val stand = Expr.Sym("ϰ")
+            val bracketed = if (latex) "\\left(" + w.expr(h) + "\\right)" else "(" + w.expr(h) + ")"
+            for ((k, pair) in series.withIndex()) {
+                val (coefficient, j) = pair
+                val negative = Write.isNegative(coefficient)
+                val size = if (negative) neg(coefficient) else coefficient
+                val text = if (h is Expr.Sym) w.expr(mul(size, pow(h, num(j.toLong()))))
+                else w.expr(mul(size, pow(stand, num(j.toLong())))).replace(name(stand.name, latex), bracketed)
+                when {
+                    k == 0 -> out.append(if (negative) "-$text" else text)
+                    else -> out.append(if (negative) " - " else " + ").append(text)
+                }
+            }
+            out.toString()
+        }
+        val tail = when {
+            o.remainder != null -> (if (latex) " + O\\left(" else " + O(") + w.expr(o.remainder) + (if (latex) "\\right)" else ")")
+            o.plusC -> " + C"
+            else -> ""
+        }
+        return body + tail
+    }
+
     /**
      * A value: a rational as numbers are written ([latex] of a [Num]), an exact form with its decimal beside it
      * (`√2 ≈ 1.414213562`), a numeric one as its decimal; a formula as it is.

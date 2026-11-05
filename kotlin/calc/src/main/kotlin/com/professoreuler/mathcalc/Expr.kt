@@ -483,6 +483,8 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             if (x is Expr.Real) return Expr.Real(kotlin.math.ln(x.value).also { if (!it.isFinite()) throw CalcException(Failure.UNDEFINED) })
             // ln of a whole power of a number: ln 8 = 3 ln 2 (the smallest base).
             rational(x)?.let { r -> perfectPower(r)?.let { (b, k) -> return mul(Expr.Num(Rational.of(k.toLong())), Expr.Fn(Func.LN, listOf(Expr.Num(b)))) } }
+            // ln of a power of one number with a root in it: ln √2 = ln(2)/2, ln(√2/2) = −ln(2)/2.
+            rootPowerOf(x)?.let { (b, k) -> return mul(Expr.Num(k), Expr.Fn(Func.LN, listOf(Expr.Num(Rational.of(b))))) }
         }
         Func.LOG -> {
             val base = args[0]
@@ -502,6 +504,13 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             if (x is Expr.Real) return Expr.Real(abs(x.value))
             if (x is Expr.Const && x.kind != Constant.I) return x
             if (x == Expr.I) return Expr.ONE
+            // Never negative for any real value of its letters (eˣ + 1, x² + 1): itself.
+            if (!Domain.isComplex && nonNegative(x)) return x
+            // A real number written with roots, π or functions: by its sign (|√2| is √2).
+            if (x.symbols().isEmpty() && !x.hasI() && !x.hasInfinity()) Numeric.value(x)?.let { v ->
+                if (v > 1e-9) return x
+                if (v < -1e-9) return neg(x)
+            }
             if (x is Expr.Fn && x.f == Func.ABS) return x
             if (x is Expr.Pow && integer(x.exp)?.testBit(0) == false && x.base.isReal()) return x
             val (k, rest) = splitCoefficient(x)
@@ -731,6 +740,68 @@ fun Expr.hasInfinity(): Boolean = when (this) {
     is Expr.Mul -> factors.any { it.hasInfinity() }
     is Expr.Pow -> base.hasInfinity() || exp.hasInfinity()
     is Expr.Fn -> args.any { it.hasInfinity() }
+    else -> false
+}
+
+/** [e] as b^k for one whole number b > 1, where it holds a root of b: (b, k); else null. */
+internal fun rootPowerOf(e: Expr): Pair<java.math.BigInteger, Rational>? {
+    val factors = if (e is Expr.Mul) e.factors else listOf(e)
+    var base: java.math.BigInteger? = null
+    var total = Rational.ZERO
+    var coefficient = Rational.ONE
+    var root = false
+    for (f in factors) {
+        when {
+            f is Expr.Num -> coefficient *= f.value
+            f is Expr.Pow && f.base is Expr.Num && f.exp is Expr.Num -> {
+                val b = (f.base as Expr.Num).value
+                if (!b.isInteger || b.num <= java.math.BigInteger.ONE) return null
+                val (smallest, k) = perfectPower(b)?.let { it.first.num to it.second } ?: (b.num to 1)
+                if (base != null && base != smallest) return null
+                base = smallest
+                total += Rational.of(k.toLong()) * (f.exp as Expr.Num).value
+                if (!(f.exp as Expr.Num).value.isInteger) root = true
+            }
+            else -> return null
+        }
+    }
+    val b = base ?: return null
+    if (!root) return null
+    // The number in front: a whole power of the same base (1/2 is 2⁻¹), or nothing.
+    var c = coefficient
+    var k = 0L
+    val big = Rational.of(b)
+    while (c.num.mod(b).signum() == 0 && c.num.signum() != 0) { c = c / big; k++ }
+    while (c.den.mod(b).signum() == 0) { c = c * big; k-- }
+    if (c != Rational.ONE) return null
+    return b to (total + Rational.of(k))
+}
+
+/** Never negative for any real value of its letters, as its form shows: eᵘ, x², |u|, sums and products of such. */
+internal fun nonNegative(e: Expr): Boolean = when (e) {
+    is Expr.Num -> e.value.signum >= 0
+    is Expr.Const -> e.kind == Constant.PI || e.kind == Constant.E
+    is Expr.Pow -> when {
+        e.base == Expr.E -> !e.exp.hasI()
+        e.base is Expr.Num && (e.base as Expr.Num).value.signum > 0 -> !e.exp.hasI()
+        integer(e.exp)?.let { !it.testBit(0) } == true -> !e.base.hasI()
+        // A square root and the like: never negative where it is defined.
+        rational(e.exp)?.let { !it.isInteger && !it.den.testBit(0) } == true -> !e.base.hasI()
+        else -> nonNegative(e.base) && !e.exp.hasI()
+    }
+    is Expr.Add -> e.terms.all { nonNegative(it) }
+    is Expr.Mul -> e.factors.all { nonNegative(it) }
+    is Expr.Fn -> e.f == Func.ABS || e.f == Func.COSH
+    else -> false
+}
+
+/** Whether [e] holds a decimal number: a value only approximated. */
+internal fun Expr.hasDecimal(): Boolean = when (this) {
+    is Expr.Real -> true
+    is Expr.Add -> terms.any { it.hasDecimal() }
+    is Expr.Mul -> factors.any { it.hasDecimal() }
+    is Expr.Pow -> base.hasDecimal() || exp.hasDecimal()
+    is Expr.Fn -> args.any { it.hasDecimal() }
     else -> false
 }
 

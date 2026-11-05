@@ -1,7 +1,11 @@
 package com.professoreuler.mathcalc
 
+import java.math.BigDecimal
 import java.math.BigInteger
+import java.math.MathContext
 import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.sign
 
@@ -136,10 +140,17 @@ object Calculus {
     /** The methods for a whole integrand: fractions, substitution, parts, trigonometric powers, multiplying out. */
     private fun integrateWhole(e: Expr, x: Expr.Sym, depth: Int): Expr? {
         rationalFunction(e, x)?.let { return it }
+        evenPowerTimesRoot(e, x, depth)?.let { return it }
+        rationalInExp(e, x, depth)?.let { return it }
         substitution(e, x, depth)?.let { return it }
         parts(e, x, depth)?.let { return it }
         expSinCos(e, x)?.let { return it }
         trigPowers(e, x, depth)?.let { return it }
+        // Products of sines and cosines as sums (x·sin x·cos x is x·sin 2x / 2), then integrated again.
+        if (TrigForms.has(e)) {
+            val linear = Algebra.expand(TrigForms.productsToSums(Algebra.expand(TrigForms.linearize(e))))
+            if (linear != e && linear != Algebra.expand(e)) integrate(linear, x, depth + 1)?.let { return it }
+        }
         val expanded = Algebra.expand(e)
         if (expanded != e && expanded is Expr.Add) return integrate(expanded, x, depth + 1)
         return null
@@ -165,10 +176,17 @@ object Calculus {
                 // 1/cos²u, 1/sin²u.
                 if (p == num(-2) && b is Expr.Fn && b.f == Func.COS) linear(b.args[0], x)?.let { (a, _) -> return fn(Func.TAN, b.args[0]) / a }
                 if (p == num(-2) && b is Expr.Fn && b.f == Func.SIN) linear(b.args[0], x)?.let { (a, _) -> return neg(fn(Func.COT, b.args[0])) / a }
-                // 1/(1+x²) (and a² + x²), 1/√(1−x²), 1/√(x²±a²).
+                // secⁿ u, cscⁿ u, 1/cosⁿ u and 1/sinⁿ u by the reduction formula.
+                reciprocalTrigPower(b, p, x)?.let { return it }
+                // 1/cos u, 1/sin u.
+                if (p == Expr.MINUS_ONE && b is Expr.Fn && b.f == Func.COS) linear(b.args[0], x)?.let { (a, _) -> return secant(b.args[0]) / a }
+                if (p == Expr.MINUS_ONE && b is Expr.Fn && b.f == Func.SIN) linear(b.args[0], x)?.let { (a, _) -> return cosecant(b.args[0]) / a }
+                // 1/(1+x²) (and a² + x²), 1/√(1−x²), 1/√(x²±a²), √(a² ± x²) and every half-integer power of a quadratic.
                 quadraticKernel(b, p, x)?.let { return it }
+                quadraticPower(b, p, x)?.let { return it }
             }
             if (!b.has(x)) linear(p, x)?.let { (a, _) -> return if (b == Expr.E) e / a else e / (a * ln(b)) }
+            if (!b.has(x)) gaussian(b, p, x)?.let { return it }
             return null
         }
         if (e is Expr.Fn) {
@@ -179,6 +197,8 @@ object Calculus {
                 Func.COS -> fn(Func.SIN, u) / a
                 Func.TAN -> neg(ln(fn(Func.ABS, fn(Func.COS, u)))) / a
                 Func.COT -> ln(fn(Func.ABS, fn(Func.SIN, u))) / a
+                Func.SEC -> secant(u) / a
+                Func.CSC -> cosecant(u) / a
                 Func.SINH -> fn(Func.COSH, u) / a
                 Func.COSH -> fn(Func.SINH, u) / a
                 Func.LN -> (u * ln(u) - u) / a
@@ -191,6 +211,186 @@ object Calculus {
             }
         }
         return null
+    }
+
+    /**
+     * ∫ cos⁻ⁿu = (sin u·cos^(1−n) u + (n − 2)·∫ cos^(2−n) u)/(n − 1), and the same for sin with −cos u, for a linear u and n ≥ 3;
+     * secⁿ and cscⁿ as such powers.
+     */
+    private fun reciprocalTrigPower(b: Expr, p: Expr, x: Expr.Sym): Expr? {
+        if (b !is Expr.Fn || b.args.size != 1) return null
+        val k = integer(p)?.toInt() ?: return null
+        val (f, n) = when {
+            b.f == Func.SEC && k >= 2 -> Func.COS to k
+            b.f == Func.CSC && k >= 2 -> Func.SIN to k
+            (b.f == Func.COS || b.f == Func.SIN) && k <= -3 -> b.f to -k
+            else -> return null
+        }
+        val u = b.args[0]
+        val (a, _) = linear(u, x) ?: return null
+        fun integral(m: Int): Expr? = when (m) {
+            0 -> u
+            1 -> if (f == Func.COS) secant(u) else cosecant(u)
+            2 -> if (f == Func.COS) fn(Func.TAN, u) else neg(fn(Func.COT, u))
+            else -> {
+                val lower = integral(m - 2) ?: null
+                if (lower == null) null else {
+                    val first = if (f == Func.COS) mul(fn(Func.SIN, u), pow(fn(Func.COS, u), num((1 - m).toLong())))
+                    else neg(mul(fn(Func.COS, u), pow(fn(Func.SIN, u), num((1 - m).toLong()))))
+                    mul(add(first, mul(num((m - 2).toLong()), lower)), num(Rational.ONE / Rational.of((m - 1).toLong())))
+                }
+            }
+        }
+        if (n > 12) return null
+        return integral(n)?.let { mul(it, pow(a, Expr.MINUS_ONE)) }
+    }
+
+    /** ∫ sec u du = ln|sec u + tan u|. */
+    private fun secant(u: Expr): Expr = ln(fn(Func.ABS, add(pow(fn(Func.COS, u), Expr.MINUS_ONE), fn(Func.TAN, u))))
+
+    /** ∫ csc u du = −ln|csc u + cot u|. */
+    private fun cosecant(u: Expr): Expr = neg(ln(fn(Func.ABS, add(pow(fn(Func.SIN, u), Expr.MINUS_ONE), fn(Func.COT, u)))))
+
+    /**
+     * ∫ b^(A x² + B x + C) dx with A·ln b < 0: the square completed, √π/(2s)·b^(C − B²/(4A))·erf(s(x + B/(2A))) where
+     * s = √(−A·ln b); e^(−x²) gives (√π/2)·erf x.
+     */
+    private fun gaussian(b: Expr, p: Expr, x: Expr.Sym): Expr? {
+        val c = Solve.coefficientsIn(Algebra.expand(p), x) ?: return null
+        if (c.size != 3 || c.any { it.has(x) }) return null
+        val lnB = if (b == Expr.E) Expr.ONE else ln(b)
+        val a = tidy(mul(c[2], lnB))
+        val av = Numeric.value(a) ?: return null
+        if (av >= 0) return null
+        val s = sqrt(neg(a))
+        val shift = tidy(c[1] / (Expr.TWO * c[2]))
+        val constant = tidy(mul(add(c[0], neg(c[1] * c[1] / (num(4) * c[2]))), lnB))
+        return mul(sqrt(Expr.PI) / (Expr.TWO * s), exp(constant), fn(Func.ERF, mul(s, add(x, shift))))
+    }
+
+    /**
+     * qʳ for a quadratic q = A x² + B x + C and r a half-integer other than ±1/2: by the reduction
+     * ∫ qʳ = (u·qʳ + 2r·D·∫ q^(r−1)) / (2r + 1) with u = x + B/(2A) and D = C − B²/(4A) (q = A u² + D), down to r = ±1/2;
+     * and √q itself. The square is completed first, so (x² + 2x + 5)^(1/2) works as u² + 4 does.
+     */
+    private fun quadraticPower(q: Expr, p: Expr, x: Expr.Sym): Expr? {
+        val r = rational(p) ?: return null
+        if (r.isInteger || r.den != java.math.BigInteger.TWO) return null
+        val c = Solve.coefficientsIn(Algebra.expand(q), x) ?: return null
+        if (c.size != 3 || c.any { it.has(x) } || isZero(c[2])) return null
+        val u = add(x, tidy(c[1] / (Expr.TWO * c[2])))
+        val d = tidy(add(c[0], neg(c[1] * c[1] / (num(4) * c[2]))))
+        if (isZero(d)) return null
+        val half = Rational.ONE / Rational.of(2)
+        // ∫ q^(±1/2): the kernels, in the completed square.
+        fun kernel(s: Rational): Expr? {
+            val v = Expr.Sym("u")
+            val inV = add(mul(c[2], pow(v, Expr.TWO)), d)
+            val k = if (s == half) rootKernel(c[2], d, v) else quadraticKernel(inV, num(s), v)
+            return k?.substitute(v, u)
+        }
+        fun integral(s: Rational, depth: Int): Expr? {
+            if (depth > 8) return null
+            if (s == half || s == -half) return kernel(s)
+            val two = Rational.of(2)
+            return if (s.signum > 0) {
+                // ∫ qˢ = (u qˢ + 2s D ∫ q^(s−1)) / (2s + 1)
+                val lower = integral(s - Rational.ONE, depth + 1) ?: return null
+                mul(add(mul(u, pow(q, num(s))), mul(num(two * s), d, lower)), num(Rational.ONE / (two * s + Rational.ONE)))
+            } else {
+                // ∫ qˢ from ∫ q^(s+1): ∫ qˢ = ((2t + 1)∫ qᵗ − u qᵗ) / (2t D) with t = s + 1.
+                val t = s + Rational.ONE
+                val upper = integral(t, depth + 1) ?: return null
+                mul(add(mul(num(two * t + Rational.ONE), upper), neg(mul(u, pow(q, num(t))))), pow(mul(num(two * t), d), Expr.MINUS_ONE))
+            }
+        }
+        return integral(r, 0)
+    }
+
+    /** ∫ √(A v² + D) dv: (v/2)√(A v² + D) + (D/(2√−A))·arcsin(v√−A/√D) where A < 0 < D, + (D/(2√A))·ln|v√A + √(A v² + D)| where A > 0. */
+    private fun rootKernel(a: Expr, d: Expr, v: Expr.Sym): Expr? {
+        val av = Numeric.value(a) ?: return null
+        val dv = Numeric.value(d) ?: return null
+        val q = add(mul(a, pow(v, Expr.TWO)), d)
+        val first = mul(Expr.HALF, v, sqrt(q))
+        return when {
+            av < 0 && dv > 0 -> add(first, mul(d, pow(mul(Expr.TWO, sqrt(neg(a))), Expr.MINUS_ONE), fn(Func.ASIN, mul(v, sqrt(neg(a)), pow(sqrt(d), Expr.MINUS_ONE)))))
+            av > 0 -> add(first, mul(d, pow(mul(Expr.TWO, sqrt(a)), Expr.MINUS_ONE), ln(fn(Func.ABS, add(mul(v, sqrt(a)), sqrt(q))))))
+            else -> null
+        }
+    }
+
+    /**
+     * x^(2n)·qʳ with q = A x² + C and r a half-integer (x²/√(1 − x²)): x² put as (q − C)/A, so each term is a lower power of x
+     * times a power of q, down to qʳ alone.
+     */
+    private fun evenPowerTimesRoot(e: Expr, x: Expr.Sym, depth: Int): Expr? {
+        if (e !is Expr.Mul) return null
+        var m = 0
+        var q: Expr? = null
+        var r: Rational? = null
+        val others = ArrayList<Expr>()
+        for (f in e.factors) {
+            val k = (f as? Expr.Pow)?.let { rational(it.exp) }
+            when {
+                f is Expr.Pow && f.base == x && k != null && k.isInteger && k.signum > 0 -> m += k.num.toInt()
+                f is Expr.Pow && f.base.has(x) && k != null && k.den == java.math.BigInteger.TWO && q == null -> { q = f.base; r = k }
+                !f.has(x) -> others += f
+                else -> return null
+            }
+        }
+        if (q == null || r == null || m < 2 || m % 2 != 0) return null
+        val c = Solve.coefficientsIn(Algebra.expand(q), x) ?: return null
+        if (c.size != 3 || !isZero(c[1]) || c.any { it.has(x) }) return null
+        // x^m qʳ = x^(m−2) (q^(r+1) − C qʳ)/A.
+        val lower = if (m == 2) Expr.ONE else pow(x, num((m - 2).toLong()))
+        val rewritten = mul(mul(others), pow(c[2], Expr.MINUS_ONE),
+            add(mul(lower, pow(q, num(r + Rational.ONE))), neg(mul(c[0], lower, pow(q, num(r))))))
+        return integrate(rewritten, x, depth + 1)
+    }
+
+    /**
+     * A rational function of e^(a x) (1/(1 + eˣ), (e^(2x) − 1)/(eˣ + 1)): with u = e^(a x), dx = du/(a u), a rational
+     * function of u, integrated, and u put back.
+     */
+    private fun rationalInExp(e: Expr, x: Expr.Sym, depth: Int): Expr? {
+        val exponents = ArrayList<Rational>()
+        fun collect(t: Expr): Boolean = when {
+            !t.has(x) -> true
+            t is Expr.Pow && t.base == Expr.E && t.exp.has(x) -> {
+                val c = linear(t.exp, x)
+                val k = c?.let { (a, b) -> if (isZero(b)) rational(a) else null }
+                if (k != null) { exponents += k; true } else false
+            }
+            t is Expr.Add -> t.terms.all(::collect)
+            t is Expr.Mul -> t.factors.all(::collect)
+            t is Expr.Pow -> rational(t.exp)?.isInteger == true && collect(t.base)
+            else -> false
+        }
+        if (!collect(e) || exponents.isEmpty()) return null
+        // The step a: the greatest common divisor of the exponents' coefficients (fractions too).
+        var a = exponents[0].abs()
+        for (k in exponents) a = gcdRational(a, k.abs())
+        if (a.signum == 0) return null
+        val u = Expr.Sym("w")
+        fun replace(t: Expr): Expr = when {
+            !t.has(x) -> t
+            t is Expr.Pow && t.base == Expr.E && t.exp.has(x) -> {
+                val k = rational(linear(t.exp, x)!!.first)!!
+                pow(u, num(k / a))
+            }
+            else -> t.mapChildren(::replace)
+        }
+        val inU = tidy(mul(replace(e), pow(mul(num(a), u), Expr.MINUS_ONE)))
+        if (inU.has(x)) return null
+        val f = rationalFunction(inU, u) ?: return null
+        return f.substitute(u, exp(mul(num(a), x)))
+    }
+
+    private fun gcdRational(p: Rational, q: Rational): Rational {
+        // gcd(a/b, c/d) = gcd(a d, c b) / (b d).
+        val n = (p.num * q.den).gcd(q.num * p.den)
+        return Rational.of(n, p.den * q.den)
     }
 
     /** 1/(c + d x²) as arctan, 1/√(c − d x²) as arcsin, 1/√(d x² ± c) as a logarithm. */
@@ -513,23 +713,79 @@ object Calculus {
     fun definite(e: Expr, x: Expr.Sym, a: Expr, b: Expr): Definite {
         val av = boundValue(a)
         val bv = boundValue(b)
-        val f = antiderivative(e, x)
-        if (f != null && av.isFinite() && bv.isFinite() && continuous(e, x, av, bv)) {
-            val exact = tidy(f.substitute(x, b) - f.substitute(x, a))
-            return Definite(exact, Numeric.value(exact), f)
-        }
-        if (f != null && (av.isInfinite() || bv.isInfinite()) && continuous(e, x, if (av.isFinite()) av else -1e6, if (bv.isFinite()) bv else 1e6)) {
-            val upper = if (bv.isInfinite()) limit(f, x, b, null) else f.substitute(x, b)
-            val lower = if (av.isInfinite()) limit(f, x, a, null) else f.substitute(x, a)
-            if (upper != null && lower != null && !upper.hasInfinity() && !lower.hasInfinity()) {
-                val exact = tidy(upper - lower)
-                return Definite(exact, Numeric.value(exact), f)
-            }
-            if (upper != null && lower != null) return Definite(null, null, f, diverges = true)
-        }
         val numeric = Quadrature.integrate({ t -> Numeric.eval(e, mapOf(x.name to t)) }, av, bv)
-        return Definite(null, numeric, f, diverges = numeric == null)
+        val f = antiderivative(e, x)
+        if (f != null && !av.isNaN() && !bv.isNaN() && av != bv) {
+            val pieces = try { piecewise(e, f, x, a, b, av, bv) } catch (c: CalcException) {
+                if (c.failure == Failure.TOO_LONG) throw c
+                null
+            }
+            if (pieces != null) {
+                val (exact, diverges) = pieces
+                // An improper integral converges only where every end of every piece has a finite limit.
+                if (diverges) return Definite(null, null, f, diverges = true)
+                val value = Numeric.value(exact)
+                // Checked by quadrature where that has a value: an antiderivative with a jump its domain did not show fails here.
+                val agrees = numeric == null || value == null || abs(value - numeric) <= 1e-6 * max(1.0, abs(value))
+                if (agrees && !exact.hasDecimal()) return Definite(exact, value, f)
+                if (agrees && value != null) return Definite(null, value, f)
+            }
+        }
+        return Definite(null, numeric, f)
     }
+
+    /**
+     * ∫ from a to b as F's differences over the pieces between a, the points inside where the integrand is not defined (1/x² at
+     * 0, tan x at π/2) and b, each end of a piece as the one-sided limit from inside where F is not defined there: the sum and
+     * false; true where a piece diverges; null where it cannot be said.
+     */
+    private fun piecewise(e: Expr, f: Expr, x: Expr.Sym, a: Expr, b: Expr, av: Double, bv: Double): Pair<Expr, Boolean>? {
+        val up = bv > av
+        val lo = minOf(av, bv)
+        val hi = maxOf(av, bv)
+        val gaps = Analysis.gapsIn(e, x, lo, hi) ?: if (lo.isFinite() && hi.isFinite() && continuous(e, x, lo, hi)) emptyList() else return null
+        val ends = listOf(a) + (if (up) gaps else gaps.reversed()) + listOf(b)
+        var total: Expr = Expr.ZERO
+        for (i in 0 until ends.size - 1) {
+            Budget.check()
+            val p = ends[i]
+            val q = ends[i + 1]
+            val pv = boundValue(p)
+            val qv = boundValue(q)
+            if (pv.isNaN() || qv.isNaN()) return null
+            // F itself defined all through the piece.
+            val pl = minOf(pv, qv)
+            val ph = maxOf(pv, qv)
+            when (Analysis.gapsIn(f, x, pl, ph)?.isEmpty()) {
+                true -> {}
+                false -> return null
+                null -> if (!pl.isFinite() || !ph.isFinite() || !continuous(f, x, pl, ph)) return null
+            }
+            val inward = if (qv > pv) 1 else -1
+            val lower = (if (i == 0) endValue(f, x, p, pv, inward) else limit(f, x, p, inward)) ?: return null
+            val upper = (if (i == ends.size - 2) endValue(f, x, q, qv, -inward) else limit(f, x, q, -inward)) ?: return null
+            if (lower.hasInfinity() || upper.hasInfinity()) return Expr.ZERO to true
+            total = total + upper - lower
+        }
+        return tidy(total) to false
+    }
+
+    /** F at an end of the interval: put in where it is defined there, else its limit from inside ([side]); ±∞ at ±∞. */
+    private fun endValue(f: Expr, x: Expr.Sym, end: Expr, value: Double, side: Int): Expr? {
+        if (value.isFinite()) {
+            try {
+                val v = tidy(f.substitute(x, end))
+                if (!v.hasInfinity() && Numeric.value(v)?.isFinite() == true) return v
+            } catch (c: CalcException) {
+                if (c.failure == Failure.TOO_LONG) throw c
+            }
+            return limit(f, x, end, side)
+        }
+        return limit(f, x, end, null)
+    }
+
+
+    private val BOUNDED_AT_INFINITY = setOf(Func.ATAN, Func.TANH, Func.ERF, Func.ERFC)
 
     /** A definite integral: exact where it could be, its value, the antiderivative used. */
     class Definite(val exact: Expr?, val value: Double?, val antiderivative: Expr?, val diverges: Boolean = false)
@@ -565,15 +821,24 @@ object Calculus {
      * L'Hôpital or the leading terms give it; ±∞; null where it does not exist or Calculate cannot find it.
      */
     fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?): Expr? {
-        val exact = exactLimit(e, x, a, side, 0)
         val numeric = numericLimit(e, x, a, side)
-        if (exact != null) {
-            // The exact value must agree with values near the point, where those settle.
+        // An exact value must agree with values near the point, where those settle.
+        fun agrees(exact: Expr): Boolean {
             val ev = if (exact == Expr.INF) Double.POSITIVE_INFINITY else if (exact == neg(Expr.INF)) Double.NEGATIVE_INFINITY else Numeric.value(exact)
-            if (numeric == null || ev == null || (ev.isInfinite() && numeric.isInfinite() && ev.sign == numeric.sign) ||
-                (ev.isFinite() && numeric.isFinite() && abs(ev - numeric) <= 1e-4 * max(1.0, abs(ev)))) return exact
-            return null
+            return numeric == null || ev == null || (ev.isInfinite() && numeric.isInfinite() && ev.sign == numeric.sign) ||
+                (ev.isFinite() && numeric.isFinite() && abs(ev - numeric) <= 1e-4 * max(1.0, abs(ev)))
         }
+        var disagreed = false
+        exactLimit(e, x, a, side, 0)?.let { if (agrees(it)) return it else disagreed = true }
+        // The leading term of a series: x^x and x^(1/x) → 1, 1/sin²x − 1/x² → 1/3, x·ln x → 0 at 0⁺.
+        val series = try {
+            Series.limit(e, x, a, side)
+        } catch (c: CalcException) {
+            if (c.failure == Failure.TOO_LONG) throw c
+            null
+        }
+        series?.let { if (agrees(it)) return it else disagreed = true }
+        if (disagreed) return null
         return numeric?.let { if (it.isInfinite()) (if (it > 0) Expr.INF else neg(Expr.INF)) else Expr.Real(it) }
     }
 
@@ -594,6 +859,8 @@ object Calculus {
                     if (!isZero(db)) exactLimit(tidy(dt / db), x, a, side, depth + 1)?.let { return it }
                 }
             }
+            // A constant times powers of x, of ln x and exponentials: the fastest growth decides (x¹⁰⁰/eˣ → 0).
+            growthAtInfinity(if (a == Expr.INF) e else tidy(e.substitute(x, neg(x))), x)?.let { return it }
             // x → ±∞ as t → 0⁺ with x = ±1/t.
             val sign = if (a == Expr.INF) 1 else -1
             val t = Expr.Sym("\u0001t")
@@ -625,6 +892,31 @@ object Calculus {
                 isZero(inner) -> neg(Expr.INF)
                 inner.hasInfinity() -> null
                 else -> tidy(ln(inner)).takeIf { Numeric.value(it)?.isFinite() == true }
+            }
+        }
+        // Functions with a limit as their argument grows: arctan → ±π/2, tanh and erf → ±1, erfc → 0 or 2.
+        if (e is Expr.Fn && e.args.size == 1 && e.f in BOUNDED_AT_INFINITY) {
+            val inner = exactLimit(e.args[0], x, a, side, depth + 1)
+            if (inner == Expr.INF || inner == neg(Expr.INF)) {
+                val up = inner == Expr.INF
+                return when (e.f) {
+                    Func.ATAN -> if (up) Expr.PI / Expr.TWO else neg(Expr.PI / Expr.TWO)
+                    Func.ERFC -> if (up) Expr.ZERO else Expr.TWO
+                    else -> if (up) Expr.ONE else Expr.MINUS_ONE
+                }
+            }
+        }
+        // A sum or a product whose parts all have finite limits: the sum or the product of them ((√π/2)·erf x at ∞).
+        if (e is Expr.Add || e is Expr.Mul) {
+            val parts = if (e is Expr.Add) e.terms else (e as Expr.Mul).factors
+            if (parts.size <= 6) {
+                val limits = ArrayList<Expr>()
+                for (p in parts) {
+                    val l = exactLimit(p, x, a, side, depth + 1)
+                    if (l == null || l.hasInfinity()) break
+                    limits += l
+                }
+                if (limits.size == parts.size) return tidy(if (e is Expr.Add) add(limits) else mul(limits))
             }
         }
         if (e is Expr.Pow && !e.base.has(x) && e.exp.has(x)) {
@@ -672,6 +964,69 @@ object Calculus {
             return if (s > 0) Expr.INF else neg(Expr.INF)
         }
         return null
+    }
+
+    /**
+     * The limit as x → ∞ of c·x^p·(ln x)^q·e^u with u a sum of terms d·x^r: the term of u with the largest r > 0 decides (e^(−x)
+     * → 0 against any power), then p, then q. Null where e is not such a product or all three are level (a constant).
+     */
+    private fun growthAtInfinity(e: Expr, x: Expr.Sym): Expr? {
+        val factors = if (e is Expr.Mul) e.factors else listOf(e)
+        var constant: Expr = Expr.ONE
+        var power = Rational.ZERO
+        var logs = Rational.ZERO
+        val exponent = ArrayList<Expr>()
+        val lnX = fn(Func.LN, x)
+        for (f in factors) {
+            val r = (f as? Expr.Pow)?.let { rational(it.exp) }
+            when {
+                !f.has(x) -> constant = mul(constant, f)
+                f == x -> power += Rational.ONE
+                f is Expr.Pow && f.base == x && r != null -> power += r
+                f == lnX -> logs += Rational.ONE
+                f is Expr.Pow && f.base == lnX && r != null -> logs += r
+                f is Expr.Pow && !f.base.has(x) && f.exp.has(x) -> exponent += if (f.base == Expr.E) f.exp else mul(f.exp, ln(f.base))
+                else -> return null
+            }
+        }
+        val c = Numeric.value(constant) ?: return null
+        if (c == 0.0) return null
+        val grows = if (c > 0) Expr.INF else neg(Expr.INF)
+        if (exponent.isNotEmpty()) {
+            val u = Algebra.expand(add(exponent))
+            var best: Rational? = null
+            var coefficient = 0.0
+            for (t in if (u is Expr.Add) u.terms else listOf(u)) {
+                val (d, rr) = monomialIn(t, x) ?: return null
+                if (rr.signum <= 0) continue
+                when {
+                    best == null || rr > best -> { best = rr; coefficient = d }
+                    rr == best -> coefficient += d
+                }
+            }
+            if (best != null && abs(coefficient) > 1e-12) return if (coefficient < 0) Expr.ZERO else grows
+            if (best != null) return null
+        }
+        if (power.signum != 0) return if (power.signum < 0) Expr.ZERO else grows
+        if (logs.signum != 0) return if (logs.signum < 0) Expr.ZERO else grows
+        return null
+    }
+
+    /** t as d·x^r with d a number: (d, r), or null. */
+    private fun monomialIn(t: Expr, x: Expr.Sym): Pair<Double, Rational>? {
+        val factors = if (t is Expr.Mul) t.factors else listOf(t)
+        var d = 1.0
+        var r = Rational.ZERO
+        for (f in factors) {
+            val q = (f as? Expr.Pow)?.let { rational(it.exp) }
+            when {
+                !f.has(x) -> d *= Numeric.value(f) ?: return null
+                f == x -> r += Rational.ONE
+                f is Expr.Pow && f.base == x && q != null -> r += q
+                else -> return null
+            }
+        }
+        return d to r
     }
 
     /** The value [e] tends to as x → a: exactly 0 where a put in gives 0, ±∞ where it divides by 0, else from values near a. */
@@ -814,7 +1169,16 @@ object Calculus {
             if (qv == 1.0) return tidy(coefficient * (b - a + Expr.ONE))
             return tidy(coefficient * (pow(q, a) - pow(q, b + Expr.ONE)) / (Expr.ONE - q))
         }
-        if (b == Expr.INF && av == 1L) known(e, k)?.let { return it }
+        if (b == Expr.INF && av != null) known(e, k, av)?.let { return it }
+        // A hypergeometric term (k·2ᵏ, 1/(k(k + 1)), binomials): Gosper's antidifference T, then T(b + 1) − T(a).
+        Sums.antidifference(e, k)?.let { t ->
+            if (b == Expr.INF) {
+                val end = limit(t, k, Expr.INF, null) ?: return null
+                if (end.hasInfinity()) return null
+                return tidy(end - t.substitute(k, a))
+            }
+            return tidy(t.substitute(k, b + Expr.ONE) - t.substitute(k, a))
+        }
         return null
     }
 
@@ -829,15 +1193,37 @@ object Calculus {
         return mul(mul(without), pow(p.base, b)) to pow(p.base, a)
     }
 
-    /** Series from k = 1 a learner meets: Σ 1/k² = π²/6, Σ 1/k⁴ = π⁴/90, Σ (−1)^(k+1)/k = ln 2, Σ 1/k! = e − 1. */
-    private fun known(e: Expr, k: Expr.Sym): Expr? {
-        val table = listOf(
-            pow(k, num(-2)) to pow(Expr.PI, num(2)) / num(6),
-            pow(k, num(-4)) to pow(Expr.PI, num(4)) / num(90),
-            mul(pow(Expr.MINUS_ONE, k + Expr.ONE), pow(k, Expr.MINUS_ONE)) to ln(Expr.TWO),
-            pow(fn(Func.FACTORIAL, k), Expr.MINUS_ONE) to Expr.E - Expr.ONE,
-        )
-        for ((term, value) in table) if (Verify.same(term, e)) return value
+    /**
+     * Series a learner meets, from the start they are written with: Σ 1/k² = π²/6, Σ 1/k⁴ = π⁴/90, Σ (−1)^(k+1)/k = ln 2 (and
+     * its negative), Σ 1/k! = e − 1 (from 1) or e (from 0), and the series of eˣ, sin x and cos x for every x.
+     */
+    private fun known(e: Expr, k: Expr.Sym, start: Long): Expr? {
+        val factorial = { u: Expr -> fn(Func.FACTORIAL, u) }
+        val letter = (e.symbols() - k.name).singleOrNull()
+        val x = letter?.let { Expr.Sym(it) }
+        val table = ArrayList<Triple<Long, Expr, Expr>>()
+        table += Triple(1L, pow(k, num(-2)), pow(Expr.PI, num(2)) / num(6))
+        table += Triple(1L, pow(k, num(-4)), pow(Expr.PI, num(4)) / num(90))
+        table += Triple(1L, mul(pow(Expr.MINUS_ONE, k + Expr.ONE), pow(k, Expr.MINUS_ONE)), ln(Expr.TWO))
+        table += Triple(1L, mul(pow(Expr.MINUS_ONE, k), pow(k, Expr.MINUS_ONE)), neg(ln(Expr.TWO)))
+        table += Triple(1L, pow(factorial(k), Expr.MINUS_ONE), Expr.E - Expr.ONE)
+        table += Triple(0L, pow(factorial(k), Expr.MINUS_ONE), Expr.E)
+        if (x != null) {
+            table += Triple(0L, mul(pow(x, k), pow(factorial(k), Expr.MINUS_ONE)), exp(x))
+            table += Triple(0L, mul(pow(Expr.MINUS_ONE, k), pow(x, mul(Expr.TWO, k) + Expr.ONE), pow(factorial(mul(Expr.TWO, k) + Expr.ONE), Expr.MINUS_ONE)), fn(Func.SIN, x))
+            table += Triple(0L, mul(pow(Expr.MINUS_ONE, k), pow(x, mul(Expr.TWO, k)), pow(factorial(mul(Expr.TWO, k)), Expr.MINUS_ONE)), fn(Func.COS, x))
+        }
+        for ((from, term, value) in table) {
+            if (from != start) continue
+            // The same term at whole numbers k (with a value of the other letter): Verify's random reals would not do for k!.
+            if ((0..6).all { j ->
+                    val kk = num(start + j)
+                    val env = if (x != null) mapOf(x.name to 0.7) else emptyMap()
+                    val a = Numeric.eval(term.substitute(k, kk), env)
+                    val b = Numeric.eval(e.substitute(k, kk), env)
+                    a.isFinite() && b.isFinite() && abs(a - b) <= 1e-12 * max(1.0, abs(a))
+                }) return value
+        }
         return null
     }
 
@@ -877,11 +1263,24 @@ object Calculus {
             OpKind.DERIVATIVE -> derivative(body, e.variable, integer(e.a ?: Expr.ONE)?.toInt() ?: 1)
             OpKind.INTEGRAL -> if (e.a == null || e.b == null) antiderivative(body, e.variable) ?: throw CalcException(Failure.NO_ANTIDERIVATIVE)
                 else definite(body, e.variable, evaluate(e.a), evaluate(e.b)).let { d ->
-                    d.exact ?: d.value?.let { Expr.Real(it) } ?: throw CalcException(Failure.DIVERGES)
+                    d.exact ?: d.value?.let { Expr.Real(it) } ?: throw CalcException(if (d.diverges) Failure.DIVERGES else Failure.UNSOLVED)
                 }
             OpKind.LIMIT -> limit(body, e.variable, evaluate(e.a ?: Expr.ZERO), e.b?.let { rational(it)?.signum })
                 ?: throw CalcException(Failure.NO_LIMIT)
-            OpKind.SUM -> sum(body, e.variable, evaluate(e.a ?: Expr.ONE), evaluate(e.b ?: Expr.INF)) ?: throw CalcException(Failure.DIVERGES)
+            OpKind.SUM -> {
+                val from = evaluate(e.a ?: Expr.ONE)
+                val to = evaluate(e.b ?: Expr.INF)
+                sum(body, e.variable, from, to) ?: if (to == Expr.INF) {
+                    // No closed form: divergent only where a test shows it; a value only where a test bounds its error.
+                    when (val v = Sums.verdict(body, e.variable, from)) {
+                        Sums.Verdict.Diverges -> throw CalcException(Failure.DIVERGES)
+                        is Sums.Verdict.Converges -> Expr.Real(v.value)
+                        Sums.Verdict.Unknown -> throw CalcException(Failure.UNSOLVED)
+                    }
+                } else {
+                    throw CalcException(Failure.UNSOLVED)
+                }
+            }
             OpKind.PRODUCT -> product(body, e.variable, evaluate(e.a ?: Expr.ONE), evaluate(e.b ?: Expr.INF)) ?: throw CalcException(Failure.UNREADABLE)
         }
     }
@@ -910,6 +1309,7 @@ internal object Quadrature {
             else -> { g = f; lo = a; hi = b }
         }
         var evaluations = 0
+        var error = 0.0
         fun piece(x0: Double, x1: Double, depth: Int): Double? {
             Budget.check()
             val c = (x0 + x1) / 2
@@ -926,15 +1326,34 @@ internal object Quadrature {
             kronrod *= h
             gauss *= h
             if (!kronrod.isFinite()) return null
-            if (abs(kronrod - gauss) <= 1e-10 * max(1.0, abs(kronrod)) || depth > 40 || evaluations > 200_000) {
-                return if (depth > 40 && abs(kronrod - gauss) > 1e-4 * max(1.0, abs(kronrod))) null else kronrod
+            val err = abs(kronrod - gauss)
+            if (err <= 1e-10 * max(1.0, abs(kronrod))) {
+                error += err
+                return kronrod
+            }
+            // Out of depth or of evaluations: a piece whose estimate is still poor makes the whole unknown.
+            if (depth > 40 || evaluations > 200_000) {
+                if (err > 1e-4 * max(1.0, abs(kronrod))) return null
+                error += err
+                return kronrod
             }
             val left = piece(x0, c, depth + 1) ?: return null
             val right = piece(c, x1, depth + 1) ?: return null
             return left + right
         }
-        // Avoid the open ends exactly where the mapping has its poles.
+        // Avoid the open ends exactly where the mapping has its poles; what lies beyond (x past 10¹²) is estimated as the size
+        // of x·f(x) out there, which is small only where f falls off faster than 1/x (not for 1/(x ln²x), nor sin x).
         val eps = if (a.isInfinite() || b.isInfinite()) 1e-12 else 0.0
-        return piece(lo + eps, hi - eps, 0)
+        val value = piece(lo + eps, hi - eps, 0) ?: return null
+        if (a.isInfinite() || b.isInfinite()) {
+            for (far in listOf(1e9, 3.7e10, 1e12)) {
+                if (b.isInfinite()) error += abs(far * f((if (a.isFinite()) a else 0.0) + far))
+                if (a.isInfinite()) error += abs(far * f((if (b.isFinite()) b else 0.0) - far))
+            }
+        }
+        if (!error.isFinite() || error > 1e-6 * max(1.0, abs(value))) return null
+        // As many digits as the error estimate leaves certain, at most 15.
+        val digits = if (error == 0.0 || value == 0.0) 15 else floor(-log10(error / abs(value))).toInt().coerceIn(6, 15)
+        return BigDecimal(value).round(MathContext(digits)).toDouble()
     }
 }

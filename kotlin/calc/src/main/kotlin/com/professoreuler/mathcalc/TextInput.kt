@@ -106,6 +106,25 @@ object TextInput {
             Command.SIMPLIFY -> return Typed(latex(main), Choice(Mode.SIMPLIFY))
             Command.CALCULATE -> return Typed(latex(main), Choice(Mode.CALCULATE))
             Command.PARTIAL_FRACTIONS -> return Typed(latex(main), Choice(Mode.PARTIAL_FRACTIONS))
+            Command.SERIES -> {
+                // "taylor series of sin x at x = 1", "Taylorreihe von e^x um 0": the point after "at" or "um", 0 where none is.
+                val approach = (slots[Slot.AS] ?: slots[Slot.FOR])?.let { a -> vocabularies.fold(a) { t, v -> v.arrowed(t) } }
+                var letter: String? = null
+                var point: String? = null
+                if (approach != null) {
+                    val at = ARROW.find(approach) ?: Regex("=").find(approach)
+                    if (at != null) {
+                        letter = letterOf(approach.substring(0, at.range.first).trim())
+                        point = approach.substring(at.range.last + 1).trim()
+                    } else if (letterOf(approach) != null) {
+                        letter = letterOf(approach)
+                    } else {
+                        point = approach.trim()
+                    }
+                }
+                val bodyLatex = latex(main)
+                return Typed(bodyLatex, Choice(Mode.SERIES, letter ?: mainLetterOf(bodyLatex), point = point?.let { latex(it) } ?: "0"))
+            }
             Command.PLOT -> return Typed(latex(main), Choice(Mode.GRAPH, letterOf(slots[Slot.FOR] ?: slots[Slot.RESPECT])))
             Command.DERIVATIVE -> {
                 val (body, dLetter) = stripDifferential(main)
@@ -554,7 +573,7 @@ object TextInput {
 }
 
 /** What the words in front of a formula ask for. */
-enum class Command { SOLVE, FACTOR, EXPAND, SIMPLIFY, DERIVATIVE, INTEGRAL, LIMIT, SUM, PLOT, CALCULATE, PARTIAL_FRACTIONS }
+enum class Command { SOLVE, FACTOR, EXPAND, SIMPLIFY, DERIVATIVE, INTEGRAL, LIMIT, SUM, PLOT, CALCULATE, PARTIAL_FRACTIONS, SERIES }
 
 /**
  * The command words of one language and the words that join a command's parts ("from … to", "for", "with respect to"),
@@ -751,14 +770,15 @@ class Vocabulary internal constructor(
 
         private fun scriptOf(c: Char): Any = when (val s = Character.UnicodeScript.of(c.code)) {
             Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA -> "CJK"
-            else -> s
+            // The long-vowel mark of katakana (テイラー) belongs to no script of its own.
+            else -> if (c == 'ー' || c == 'ｰ') "CJK" else s
         }
 
         /** Scripts written without spaces between words, as far as the math is concerned: Chinese, Japanese, Korean particles, Thai. */
         private fun unspaced(c: Char): Boolean = when (Character.UnicodeScript.of(c.code)) {
             Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA,
             Character.UnicodeScript.HANGUL, Character.UnicodeScript.THAI -> true
-            else -> false
+            else -> c == 'ー' || c == 'ｰ'
         }
 
         private fun rightToLeft(c: Char): Boolean = when (Character.UnicodeScript.of(c.code)) {
@@ -833,13 +853,14 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("plot", "graph of", "graph", "draw"),
                 Command.CALCULATE to listOf("calculate", "compute", "evaluate", "find", "determine", "what is"),
                 Command.PARTIAL_FRACTIONS to listOf("partial fractions of", "partial fractions", "partial fraction decomposition of", "partial fraction decomposition", "apart"),
+                Command.SERIES to listOf("taylor series of", "taylor series", "taylor polynomial of", "taylor polynomial", "maclaurin series of", "maclaurin series", "series expansion of", "series expansion", "power series of", "series of", "series", "taylor", "maclaurin"),
             ),
             of = setOf("of"),
             from = words("from"),
             to = words("to"),
             forWords = words("for"),
             respect = words("with respect to", "wrt"),
-            approach = words("as", "when"),
+            approach = words("as", "when", "at", "around", "about"),
             articles = setOf("the"),
             nouns = words("equation", "function", "expression"),
             arrows = listOf("approaches", "tends to", "goes to"),
@@ -860,13 +881,14 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("zeichne", "plotte", "graphen von", "graph von", "graphen", "graph"),
                 Command.CALCULATE to listOf("berechne", "rechne", "bestimme", "ermittle", "was ist"),
                 Command.PARTIAL_FRACTIONS to listOf("partialbruchzerlegung von", "partialbruchzerlegung", "partialbrüche von", "partialbrüche"),
+                Command.SERIES to listOf("taylorreihe von", "taylorreihe", "taylorpolynom von", "taylorpolynom", "taylorentwicklung von", "taylorentwicklung", "taylor-entwicklung von", "reihenentwicklung von", "reihenentwicklung", "potenzreihe von", "potenzreihe", "maclaurin-reihe von", "maclaurinreihe von", "maclaurinreihe"),
             ),
             of = setOf("von"),
             from = words("von"),
             to = words("bis", "gegen"),
             forWords = words("für"),
             respect = words("nach"),
-            approach = words("wenn"),
+            approach = words("wenn", "um", "an der stelle", "bei"),
             articles = setOf("die", "der", "das", "den", "dem"),
             nouns = words("gleichung", "funktion", "term"),
             between = listOf("zwischen" to "und"),
@@ -886,6 +908,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("grafica", "graficar", "gráfica de", "gráfica", "dibuja", "dibujar", "representa gráficamente", "representa"),
                 Command.CALCULATE to listOf("calcula", "calcular", "evalúa", "evaluar", "halla", "hallar", "encuentra", "determina", "cuánto es", "cuanto es"),
                 Command.PARTIAL_FRACTIONS to listOf("fracciones parciales de", "fracciones parciales", "descompón en fracciones parciales", "descomposición en fracciones simples de", "descomposición en fracciones simples", "descomposición en fracciones parciales de", "descomposición en fracciones parciales", "descompón en fracciones simples", "descomponer en fracciones simples", "descomponer en fracciones parciales", "fracciones simples de", "fracciones simples"),
+                Command.SERIES to listOf("serie de taylor de", "serie de taylor", "polinomio de taylor de", "polinomio de taylor", "serie de maclaurin de", "serie de maclaurin", "desarrollo en serie de", "desarrollo de taylor de"),
             ),
             of = setOf("de"),
             from = words("de", "desde"),
@@ -913,6 +936,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("trace", "tracer", "tracez", "dessine", "graphe de", "courbe de"),
                 Command.CALCULATE to listOf("calcule", "calculer", "calculez", "évalue", "détermine", "déterminer", "trouve", "combien fait"),
                 Command.PARTIAL_FRACTIONS to listOf("décompose en éléments simples", "décomposition en éléments simples de", "décomposition en éléments simples", "éléments simples de", "éléments simples", "décomposer en éléments simples", "décomposez en éléments simples"),
+                Command.SERIES to listOf("série de taylor de", "série de taylor", "serie de taylor de", "développement limité de", "développement limité", "developpement limite de", "développement en série de", "polynôme de taylor de", "polynôme de taylor", "série de maclaurin de"),
             ),
             of = setOf("de", "du"),
             from = words("de"),
@@ -941,6 +965,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("gambarkan grafik", "gambarkan", "grafik dari", "grafik", "gambar"),
                 Command.CALCULATE to listOf("hitunglah", "hitung", "tentukan", "carilah", "cari", "berapa"),
                 Command.PARTIAL_FRACTIONS to listOf("pecahan parsial dari", "pecahan parsial", "uraikan menjadi pecahan parsial", "dekomposisi pecahan parsial dari", "dekomposisi pecahan parsial"),
+                Command.SERIES to listOf("deret taylor dari", "deret taylor", "deret maclaurin dari", "deret maclaurin", "polinomial taylor dari", "polinom taylor dari", "ekspansi deret dari"),
             ),
             of = setOf("dari"),
             from = words("dari"),
@@ -967,6 +992,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("disegna", "traccia", "grafico di", "grafico"),
                 Command.CALCULATE to listOf("calcola", "calcolare", "trova", "determina", "quanto fa"),
                 Command.PARTIAL_FRACTIONS to listOf("fratti semplici di", "fratti semplici", "scomponi in fratti semplici", "decomposizione in fratti semplici di", "decomposizione in fratti semplici", "scomporre in fratti semplici"),
+                Command.SERIES to listOf("serie di taylor di", "serie di taylor", "sviluppo di taylor di", "sviluppo di taylor", "polinomio di taylor di", "polinomio di taylor", "serie di maclaurin di", "sviluppo in serie di", "sviluppo di maclaurin di"),
             ),
             of = setOf("di", "del", "della"),
             from = words("da"),
@@ -996,6 +1022,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("teken", "plot", "grafiek van", "grafiek"),
                 Command.CALCULATE to listOf("bereken", "reken uit", "bepaal", "wat is"),
                 Command.PARTIAL_FRACTIONS to listOf("breuksplitsen", "splits in breuken", "splits in partiële breuken", "partiële breuken van", "partiële breuken", "breuksplitsing van", "breuksplitsing"),
+                Command.SERIES to listOf("taylorreeks van", "taylorreeks", "taylorpolynoom van", "taylorpolynoom", "maclaurinreeks van", "maclaurinreeks", "reeksontwikkeling van", "taylorontwikkeling van"),
             ),
             of = setOf("van"),
             from = words("van"),
@@ -1025,6 +1052,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("narysuj wykres", "narysuj", "wykres funkcji", "wykres"),
                 Command.CALCULATE to listOf("oblicz", "wyznacz", "znajdź", "ile wynosi", "ile to"),
                 Command.PARTIAL_FRACTIONS to listOf("rozłóż na ułamki proste", "ułamki proste", "rozkład na ułamki proste", "rozloz na ulamki proste", "rozklad na ulamki proste", "ulamki proste"),
+                Command.SERIES to listOf("rozwiń w szereg taylora", "rozwinięcie w szereg taylora", "szereg taylora funkcji", "szereg taylora", "szereg maclaurina", "wielomian taylora", "rozwin w szereg taylora", "szereg potęgowy"),
             ),
             of = setOf("z"),
             from = words("od"),
@@ -1052,6 +1080,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("plote", "desenhe", "esboce", "gráfico de", "gráfico", "grafico de"),
                 Command.CALCULATE to listOf("calcule", "calcular", "determine", "encontre", "ache", "quanto é", "quanto e"),
                 Command.PARTIAL_FRACTIONS to listOf("frações parciais de", "frações parciais", "decomponha em frações parciais", "decomposição em frações parciais de", "decomposição em frações parciais", "decompor em frações parciais", "decomponha em fracoes parciais", "fracoes parciais de", "fracoes parciais"),
+                Command.SERIES to listOf("série de taylor de", "série de taylor", "serie de taylor de", "polinômio de taylor de", "polinômio de taylor", "série de maclaurin de", "série de maclaurin", "expansão em série de"),
             ),
             of = setOf("de", "da", "do"),
             from = words("de"),
@@ -1079,6 +1108,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("grafiğini çiz", "grafiğini", "çizin", "çiz", "ciz", "grafiği", "grafik"),
                 Command.CALCULATE to listOf("hesaplayın", "hesapla", "bulun", "bul", "kaç eder", "kac eder"),
                 Command.PARTIAL_FRACTIONS to listOf("basit kesirlere ayır", "basit kesirler", "basit kesirlerine ayırınız", "basit kesirlerine ayırın", "basit kesirlerine ayır", "basit kesirlere ayırınız", "basit kesirlere ayırın", "basit kesirlere ayir", "basit kesirlerine ayir"),
+                Command.SERIES to listOf("taylor serisine açınız", "taylor serisine açın", "taylor serisine aç", "taylor serisi", "taylor açılımı", "maclaurin serisi", "taylor polinomu", "taylor serisini bulun", "taylor serisini bul"),
             ),
             of = emptySet(),
             from = words("'dan", "'den", "'tan", "'ten"),
@@ -1107,6 +1137,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("vẽ đồ thị", "vẽ", "đồ thị của", "đồ thị", "ve do thi"),
                 Command.CALCULATE to listOf("tính giá trị", "tính", "tinh", "tìm"),
                 Command.PARTIAL_FRACTIONS to listOf("phân tích thành phân thức đơn giản", "phân thức đơn giản", "phân tích thành tổng các phân thức đơn giản", "phân tích thành các phân thức đơn giản"),
+                Command.SERIES to listOf("chuỗi taylor của", "chuỗi taylor", "khai triển taylor của", "khai triển taylor", "chuỗi maclaurin của", "chuỗi maclaurin", "đa thức taylor của", "khai triển thành chuỗi taylor"),
             ),
             of = setOf("của"),
             from = words("từ"),
@@ -1132,6 +1163,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("построй график", "постройте график", "построй", "постройте", "нарисуй", "график"),
                 Command.CALCULATE to listOf("вычисли", "вычислите", "вычислить", "посчитай", "найди значение", "найдите значение", "сколько будет"),
                 Command.PARTIAL_FRACTIONS to listOf("разложи на простейшие дроби", "разложите на простейшие дроби", "простейшие дроби", "разложить на простейшие дроби", "разложение на простейшие дроби"),
+                Command.SERIES to listOf("разложи в ряд тейлора", "разложите в ряд тейлора", "разложить в ряд тейлора", "разложение в ряд тейлора", "ряд тейлора", "ряд маклорена", "многочлен тейлора", "разложи в ряд маклорена", "разложите в ряд маклорена"),
             ),
             of = setOf("от"),
             from = words("от"),
@@ -1157,6 +1189,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("побудуй графік", "побудуйте графік", "побудуй", "побудуйте", "намалюй", "графік"),
                 Command.CALCULATE to listOf("обчисли", "обчисліть", "порахуй", "скільки буде"),
                 Command.PARTIAL_FRACTIONS to listOf("розклади на найпростіші дроби", "розкладіть на найпростіші дроби", "найпростіші дроби", "розкласти на найпростіші дроби", "розклад на найпростіші дроби"),
+                Command.SERIES to listOf("розклади в ряд тейлора", "розкладіть в ряд тейлора", "розкласти в ряд тейлора", "розклад у ряд тейлора", "ряд тейлора", "ряд маклорена", "многочлен тейлора"),
             ),
             of = setOf("від"),
             from = words("від"),
@@ -1182,6 +1215,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("ارسم", "مثل بيانيا", "التمثيل البياني"),
                 Command.CALCULATE to listOf("احسب", "كم يساوي"),
                 Command.PARTIAL_FRACTIONS to listOf("الكسور الجزئية", "كسور جزئية", "حلل إلى كسور جزئية", "حلل الى كسور جزئية", "حللوا إلى كسور جزئية", "حللوا الى كسور جزئية"),
+                Command.SERIES to listOf("متسلسلة تايلور", "متسلسلة ماكلورين", "مفكوك تايلور", "سلسلة تايلور", "منشور تايلور"),
             ),
             of = emptySet(),
             from = words("من"),
@@ -1205,6 +1239,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("שרטט", "שרטטו", "שרטטי", "צייר", "ציירו", "ציירי", "גרף של", "גרף"),
                 Command.CALCULATE to listOf("חשב", "חשבי", "חשבו", "כמה זה"),
                 Command.PARTIAL_FRACTIONS to listOf("פירוק לשברים חלקיים", "שברים חלקיים", "פרק לשברים חלקיים", "פרקו לשברים חלקיים", "פרקי לשברים חלקיים"),
+                Command.SERIES to listOf("טור טיילור של", "טור טיילור", "פולינום טיילור של", "פולינום טיילור", "טור מקלורן של", "טור מקלורן"),
             ),
             of = setOf("של"),
             from = words("מ", "החל מ"),
@@ -1230,6 +1265,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("ग्राफ़", "ग्राफ", "आलेख"),
                 Command.CALCULATE to listOf("गणना", "परिकलन", "कितना है"),
                 Command.PARTIAL_FRACTIONS to listOf("आंशिक भिन्न", "आंशिक भिन्नों में", "आंशिक भिन्नों"),
+                Command.SERIES to listOf("टेलर श्रेणी", "मैक्लॉरिन श्रेणी", "टेलर प्रसार", "टेलर श्रेणी ज्ञात कीजिए"),
             ),
             of = setOf("का", "की", "के"),
             from = words("से"),
@@ -1261,6 +1297,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("グラフを描いて", "グラフを描く", "グラフを描け", "グラフをかいて", "グラフをかく", "グラフをかけ", "グラフ"),
                 Command.CALCULATE to listOf("計算", "の値"),
                 Command.PARTIAL_FRACTIONS to listOf("部分分数分解", "部分分数に分解"),
+                Command.SERIES to listOf("テイラー展開", "マクローリン展開", "テイラー級数", "マクローリン級数"),
             ),
             of = setOf("の"),
             from = words("から"),
@@ -1291,6 +1328,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("그래프를 그리시오", "그래프를 그려라", "그래프를 그려", "그래프 그리기", "그래프"),
                 Command.CALCULATE to listOf("계산", "값 구하기", "의 값"),
                 Command.PARTIAL_FRACTIONS to listOf("부분분수로 분해", "부분분수", "부분분수분해", "부분분수 분해"),
+                Command.SERIES to listOf("테일러 급수", "테일러 전개", "테일러급수", "테일러전개", "매클로린 급수", "매클로린급수", "테일러 다항식"),
             ),
             of = setOf("의"),
             from = words("부터", "에서"),
@@ -1320,6 +1358,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("วาดกราฟ", "เขียนกราฟ", "กราฟของ", "กราฟ", "พล็อต"),
                 Command.CALCULATE to listOf("คำนวณ", "หาค่า"),
                 Command.PARTIAL_FRACTIONS to listOf("แยกเศษส่วนย่อย", "เศษส่วนย่อย", "แยกเป็นเศษส่วนย่อย"),
+                Command.SERIES to listOf("อนุกรมเทย์เลอร์ของ", "อนุกรมเทย์เลอร์", "อนุกรมแมคลอรินของ", "อนุกรมแมคลอริน", "พหุนามเทย์เลอร์"),
             ),
             of = setOf("ของ"),
             from = words("จาก"),
@@ -1346,6 +1385,7 @@ class Vocabulary internal constructor(
                 Command.PLOT to listOf("画出", "畫出", "画图", "畫圖", "作图", "作圖", "绘制", "繪製", "图像", "圖像", "图形", "圖形"),
                 Command.CALCULATE to listOf("计算", "計算", "求值", "等于多少", "等於多少"),
                 Command.PARTIAL_FRACTIONS to listOf("部分分式分解", "部分分式", "分解为部分分式", "分解成部分分式", "化为部分分式", "分解為部分分式", "化為部分分式", "化成部分分式"),
+                Command.SERIES to listOf("泰勒级数", "泰勒展开式", "泰勒展开", "麦克劳林级数", "麦克劳林展开", "泰勒級數", "泰勒展開式", "泰勒展開", "麥克勞林級數", "泰勒多项式", "泰勒多項式"),
             ),
             of = setOf("的"),
             from = words("从", "從"),

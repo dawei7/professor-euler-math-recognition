@@ -77,10 +77,15 @@ enum class Mode {
     GRAPH,
     /** A fraction of polynomials as its partial fractions: 1/(x² − 1) = 1/(2(x − 1)) − 1/(2(x + 1)). */
     PARTIAL_FRACTIONS,
+    /** The Taylor (or Laurent) series at a point: sin x = x − x³/6 + x⁵/120 + O(x⁷). */
+    SERIES,
 }
 
-/** A mode, and for Solve, Derivative and Integral the letter it is for. */
-data class Choice(val mode: Mode, val letter: String? = null)
+/**
+ * A mode, and for Solve, Derivative, Integral and Series the letter it is for; for Series also the point (in LaTeX, 0 where
+ * none is given) and the highest power shown ([order], 6 where none is given).
+ */
+data class Choice(val mode: Mode, val letter: String? = null, val point: String? = null, val order: Int? = null)
 
 /** How the formula wrote its numbers, so answers are written alike: a decimal comma, decimals, fractions. */
 interface Style {
@@ -114,7 +119,9 @@ sealed class Outcome {
      * its value where it is a number.
      */
     data class Expression(val result: Expr, val steps: List<Boolean> = emptyList(), val excluded: List<Pair<String, Expr>> = emptyList(),
-        val plusC: Boolean = false, val approx: Double? = null) : Outcome()
+        val plusC: Boolean = false, val approx: Double? = null,
+        /** A series: its coefficients and powers of [seriesIn] (x, or x − a) in rising powers, and its remainder's power (O(x⁷)). */
+        val series: List<Pair<Expr, Int>>? = null, val seriesIn: Expr? = null, val remainder: Expr? = null) : Outcome()
 
     /**
      * A product of factors; [complete] where none can be taken apart further, [trivial] where nothing came out. [overReals] and
@@ -188,6 +195,11 @@ class Calculation(val outcome: Outcome, override val decimalComma: Boolean, over
     /** An expression in the sheets' math shorthand: `x^2 + 4x + 4`, `(5/6)x`, `√2`. */
     fun text(e: Expr): String = Format.expr(e, this, latex = false)
 
+    /** An expression's result as it is shown: a series in rising powers with its O(…), an antiderivative with + C. */
+    fun latexResult(o: Outcome.Expression): String = Format.result(o, this, latex = true)
+
+    fun textResult(o: Outcome.Expression): String = Format.result(o, this, latex = false)
+
     /** Primes in LaTeX: `2^{3} \cdot 3^{2} \cdot 5`. */
     fun latex(p: Outcome.Primes): String = Format.primes(p, latex = true)
 
@@ -240,7 +252,13 @@ object MathCalc {
             Budget.within(millis) {
                 val plan = plan(statements, others, style, flags.degrees)
                 choices = plan.choices
-                val chosen = choice?.takeIf { it in plan.choices } ?: plan.likeliest
+                // A series asked for at a point or to a power of its own: the plan's series in that letter, so taken.
+                val chosen = choice?.takeIf { it in plan.choices }
+                    ?: choice?.takeIf { it.mode == Mode.SERIES }?.let { want ->
+                        plan.choices.firstOrNull { it.mode == Mode.SERIES && (want.letter == null || it.letter == want.letter) }
+                            ?.let { it.copy(point = want.point ?: it.point, order = want.order ?: it.order) }
+                    }
+                    ?: plan.likeliest
                 shown = chosen
                 plan.outcome(chosen)
             }
@@ -332,6 +350,9 @@ object MathCalc {
                 null
             }
             if (partial != null) choices += Choice(Mode.PARTIAL_FRACTIONS)
+            // A function that is no polynomial, in one letter: its series at 0, else at 1 (ln x), where it has one.
+            val seriesAt = if (letters.size == 1 && !isPolynomialIn(last)) seriesPoint(last, x) else null
+            if (seriesAt != null) choices += Choice(Mode.SERIES, variable, point = seriesAt)
             letters.forEach { choices += Choice(Mode.DERIVATIVE, it) }
             letters.forEach { choices += Choice(Mode.INTEGRAL, it) }
             // A graph in its main letter, the others as sliders (a x² + b x + c).
@@ -359,6 +380,7 @@ object MathCalc {
                         ?: throw CalcException(Failure.NO_ANTIDERIVATIVE), plusC = true)
                     Mode.GRAPH -> Outcome.Graph(variable, listOf(last), parameters = letters - variable)
                     Mode.PARTIAL_FRACTIONS -> Outcome.Expression(partial ?: throw CalcException(Failure.UNREADABLE), steps)
+                    Mode.SERIES -> series(last, Expr.Sym(c.letter ?: variable), c.point ?: seriesAt ?: "0", c.order)
                     else -> throw CalcException(Failure.UNREADABLE)
                 }
             }
@@ -481,6 +503,43 @@ object MathCalc {
     }
 
     /** An exact form worth showing: roots, π, e, logarithms of numbers; not sin(47°), whose decimal says more. */
+    private fun isPolynomialIn(e: Expr): Boolean = Algebra.Kernels().let { k -> Algebra.polynomial(e, k) != null && k.isEmpty }
+
+    /** Where a series is offered: at 0, else at 1 (ln x, √x), as LaTeX; null where it has neither. */
+    private fun seriesPoint(e: Expr, x: Expr.Sym): String? = try {
+        when {
+            Series.taylor(e, x, Expr.ZERO, 4) != null -> "0"
+            Series.taylor(e, x, Expr.ONE, 4) != null -> "1"
+            else -> null
+        }
+    } catch (z: CalcException) {
+        if (z.failure == Failure.TOO_LONG) throw z
+        null
+    }
+
+    /**
+     * The series of [e] at [point] up to the power [order] (6 where none is asked for), in rising powers with its remainder;
+     * shown only where it matches e near the point from both sides, the difference shrinking as that power says.
+     */
+    private fun series(e: Expr, x: Expr.Sym, point: String, order: Int?): Outcome {
+        val a = pointOf(point) ?: throw CalcException(Failure.UNREADABLE)
+        val n = (order ?: 6).coerceIn(1, 24)
+        val terms = Series.taylorTerms(e, x, a, n) ?: throw CalcException(Failure.UNSOLVED)
+        val h = if (isZero(a)) x else add(x, neg(a))
+        val t = if (terms.isEmpty()) Expr.ZERO else add(terms.map { (c, j) -> mul(c, pow(h, num(j.toLong()))) })
+        if (!Series.matches(e, t, x, a, n)) throw CalcException(Failure.UNSOLVED)
+        return Outcome.Expression(t, series = terms, seriesIn = h, remainder = pow(h, num((n + 1).toLong())))
+    }
+
+    /** A point written in LaTeX ("0", "1", "\\pi"), read as a number. */
+    private fun pointOf(latex: String): Expr? = try {
+        val tokens = TOKEN.findAll(latex).map { it.value }.toList()
+        val st = Parser(tokens, Flags(Assumptions())).statements()
+        st.singleOrNull()?.sides?.filterNotNull()?.singleOrNull()?.let { Calculus.evaluate(it) }?.takeIf { it.symbols().isEmpty() && !it.hasInfinity() }
+    } catch (z: CalcException) {
+        null
+    }
+
     internal fun niceExact(e: Expr): Boolean {
         // Long enough for Cardano's two cube roots, not for a formula nobody reads.
         if (e is Expr.Real || e.size() > 36) return false

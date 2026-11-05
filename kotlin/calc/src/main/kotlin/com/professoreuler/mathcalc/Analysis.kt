@@ -240,6 +240,43 @@ object Analysis {
         class NonZero(val u: Expr) : Condition()
     }
 
+    /**
+     * The points strictly between [lo] and [hi] (either may be infinite) where [f] is not defined, in order, where those are
+     * single points (1/x at 0, tan x at π/2 + kπ); null where its domain cannot be said (Γ, ζ, a calculus sign) or leaves out a
+     * whole stretch there (ln x on (−1, 1)). Periodic exclusions are looked for with k from −2000 to 2000.
+     */
+    internal fun gapsIn(f: Expr, x: Expr.Sym, lo: Double, hi: Double): List<Expr>? {
+        val (spans, families) = try { domainOf(f, x) } catch (e: CalcException) {
+            if (e.failure == Failure.TOO_LONG) throw e
+            null
+        } ?: return null
+        val a = minOf(lo, hi)
+        val b = maxOf(lo, hi)
+        // The spans that meet (a, b), in order: they must cover it but for single points between them.
+        val meeting = spans.filter { it.b > a && it.a < b && !near(it.b, a) && !near(it.a, b) }.sortedBy { it.a }
+        if (meeting.isEmpty()) return null
+        if (meeting.first().a > a && !near(meeting.first().a, a)) return null
+        if (meeting.last().b < b && !near(meeting.last().b, b)) return null
+        val points = ArrayList<Pair<Double, Expr>>()
+        for (i in 1 until meeting.size) {
+            val p = meeting[i - 1]
+            val q = meeting[i]
+            if (!near(p.b, q.a)) return null
+            points += p.b to (p.hi ?: return null)
+        }
+        for (family in families) {
+            for (k in -2000..2000) {
+                val t = Numeric.eval(family, mapOf(K.name to k.toDouble()))
+                if (!t.isFinite()) return null
+                if (t > a && t < b && !near(t, a) && !near(t, b)) points += t to Calculus.tidy(family.substitute(K, num(k.toLong())))
+            }
+        }
+        if (points.size > 40) return null
+        val out = ArrayList<Pair<Double, Expr>>()
+        for (p in points.sortedBy { it.first }) if (out.isEmpty() || !near(out.last().first, p.first)) out += p
+        return out.map { it.second }
+    }
+
     private fun domainOf(f: Expr, x: Expr.Sym): Pair<List<Span>, List<Expr>>? {
         val conditions = ArrayList<Condition>()
         if (!collect(f, x, conditions)) return null
