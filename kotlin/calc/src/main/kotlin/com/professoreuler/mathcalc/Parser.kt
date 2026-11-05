@@ -358,11 +358,18 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         return open == "[" || commas >= 2 || notBetweenDigits
     }
 
-    /** After the first entry of (…) or […]: a comma makes it a vector, (1, 2, 3). */
+    /**
+     * After the first entry of (…) or […]: a comma makes it a vector, (1, 2, 3); vectors of one length in it are the rows of a
+     * matrix, [[1, 2], [3, 4]] (as the Calculator's keys write it).
+     */
     private fun vectorRest(first: Expr, close: String): Expr {
         val entries = arrayListOf(first)
         while (peek() == ",") { i++; entries += expression() }
         expect(close)
+        if (entries.all { it is Expr.Mat && LinAlg.isVector(it) && it.size == (entries[0] as Expr.Mat).size }) {
+            return LinAlg.matrix(entries.map { v -> (v as Expr.Mat).rows.map { it[0] } })
+        }
+        if (entries.any { it is Expr.Mat }) throw CalcException(Failure.SIZES)
         return LinAlg.column(entries)
     }
 

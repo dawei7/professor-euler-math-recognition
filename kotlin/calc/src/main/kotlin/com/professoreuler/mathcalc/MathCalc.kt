@@ -360,8 +360,11 @@ object MathCalc {
         if (!equation && lastSide is Expr.Mat) {
             val text = s.texts.lastOrNull { it.isNotBlank() }.orEmpty()
             // Written as it is: one matrix and nothing after its \end (no power, no transpose).
-            val literal = text.split("\\begin").size == 2 && text.trim().startsWith("\\begin") &&
-                Regex("""\\end\{[a-zA-Z]+\}\s*$""").containsMatchIn(text)
+            val bare = text.replace("\\left", "").replace("\\right", "").replace(" ", "")
+            val literal = (text.split("\\begin").size == 2 && text.trim().startsWith("\\begin") &&
+                Regex("""\\end\{[a-zA-Z]+\}\s*$""").containsMatchIn(text)) ||
+                // [[1, 2], [3, 4]] as the keys write it: one bracket of brackets, nothing after it.
+                (bare.startsWith("[[") && closingAt(bare, 0) == bare.length - 1)
             return matrixPlan(lastSide, literal)
         }
 
@@ -564,8 +567,18 @@ object MathCalc {
         return Outcome.Value(Num.Approx(d), steps, exact = shown.takeIf { niceExact(it) }, others = others)
     }
 
-    /** An exact form worth showing: roots, π, e, logarithms of numbers; not sin(47°), whose decimal says more. */
+    /** The letters of a function of several variables whose critical points and surface are offered. */
     private val COORDINATES = setOf("x", "y", "z")
+
+    /** Where the bracket opened at [at] closes in [s], or −1. */
+    private fun closingAt(s: String, at: Int): Int {
+        var depth = 0
+        for (k in at until s.length) {
+            if (s[k] == '[' || s[k] == '(' || s[k] == '{') depth++
+            if (s[k] == ']' || s[k] == ')' || s[k] == '}') { depth--; if (depth == 0) return k }
+        }
+        return -1
+    }
 
     /**
      * A matrix: for a square one its determinant (the likeliest where it was written as it is), inverse and eigenvalues; for any
@@ -701,6 +714,7 @@ object MathCalc {
         null
     }
 
+    /** An exact form worth showing: roots, π, e, logarithms of numbers; not sin(47°), whose decimal says more. */
     internal fun niceExact(e: Expr): Boolean {
         // Long enough for Cardano's two cube roots, not for a formula nobody reads.
         if (e is Expr.Real || e.size() > 36) return false

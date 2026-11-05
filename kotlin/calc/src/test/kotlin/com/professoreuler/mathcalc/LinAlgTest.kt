@@ -98,6 +98,9 @@ class LinAlgTest {
         ("[1,2]+[3,4]" to null) to "(4, 6)",
         // One comma between digits in round brackets is still a decimal comma.
         ("(1,5)\\cdot2" to null) to "3",
+        // Vectors of one length in brackets are a matrix's rows, as the keys write it.
+        ("\\left[\\left[1,2\\right],\\left[3,4\\right]\\right]" to null) to "-2",
+        ("[[1,2],[3,4,5]]" to null) to "SIZES",
     )
 
     /** A linear system with a parameter, case by case: one solution for most values, none or a family where its determinant is 0. */
