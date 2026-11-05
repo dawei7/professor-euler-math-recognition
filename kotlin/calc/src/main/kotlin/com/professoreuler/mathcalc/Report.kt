@@ -72,14 +72,17 @@ object Reports {
         panels += Panel(PanelKind.RESULT, result.choice)
         if (constant != null) panels += Panel(PanelKind.DIGITS)
         val others = result.choices.filter { it != result.choice }
-        // A graph is worth seeing early, as Wolfram Alpha shows its plots; a function's curve sketch beside it.
+        // A graph is worth seeing early, as Wolfram Alpha shows its plots (a surface first); a function's curve sketch beside it.
+        others.filter { it.mode == Mode.SURFACE }.forEach { panels += Panel(PanelKind.CHOICE, it) }
         others.filter { it.mode == Mode.GRAPH }.forEach { panels += Panel(PanelKind.CHOICE, it) }
         result.choices.firstOrNull { it.mode == Mode.GRAPH }?.let { graph ->
             // Only of an expression in one letter: an equation's graph has two sides, and no curve sketch.
             val function = try { inDomain(complex) { expressionOf(latex, assumptions) } } catch (e: CalcException) { null }
             if (function != null && function.symbols().size == 1 && !function.hasOp()) panels += Panel(PanelKind.FUNCTION, graph)
         }
-        others.filter { it.mode != Mode.GRAPH }.forEach { panels += Panel(PanelKind.CHOICE, it) }
+        // A function of several letters: its critical points next, then the rest.
+        others.filter { it.mode == Mode.EXTREMA }.forEach { panels += Panel(PanelKind.CHOICE, it) }
+        others.filter { it.mode != Mode.GRAPH && it.mode != Mode.SURFACE && it.mode != Mode.EXTREMA }.forEach { panels += Panel(PanelKind.CHOICE, it) }
         return Report(latex, complex, result, panels, constant, fractions, assumptions)
     }
 
