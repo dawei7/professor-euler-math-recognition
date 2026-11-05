@@ -97,4 +97,40 @@ class DifferentialTest {
         }
         assertEquals("", wrong.joinToString("\n"))
     }
+
+
+    /** The milestone-6 review's phrasings: inverse transforms, methods joined by hyphens and middle dots, intervals after words in any script. */
+    @Test fun reviewedPhrasings() {
+        val cases = listOf(
+            ("biến đổi laplace của t^2" to "vi") to "2/s^3",
+            ("biến đổi laplace ngược của 1/(s^2+1)" to "vi") to "sin(t)",
+            ("拉普拉斯轉換 t^2" to "zh-Hant") to "2/s^3",
+            ("拉普拉斯逆轉換 1/(s^2+1)" to "zh-Hant") to "sin(t)",
+            ("метод Ньютона для x^2-2 от 1" to "ru") to "newton 7 rows → 1.4142135624",
+            ("метод деления пополам для x^3-x-1 на [1,2]" to "ru") to "bisection 34 rows → 1.3247179572",
+            ("ルンゲ・クッタ法 y'=y; y(0)=1" to "ja") to "runge_kutta 11 rows → 2.7182797441",
+            ("龙格-库塔法 y'=y; y(0)=1" to "zh-Hans") to "runge_kutta 11 rows → 2.7182797441",
+            ("룽게-쿠타 방법 y'=y; y(0)=1" to "ko") to "runge_kutta 11 rows → 2.7182797441",
+            ("transformata Laplace'a t^2" to "pl") to "2/s^3",
+            ("Bisektion x^3-x-1 im Intervall [1,2]" to "de") to "bisection 34 rows → 1.3247179572",
+            ("二分法 x^3-x-1 在 [1,2] 上" to "zh-Hans") to "bisection 34 rows → 1.3247179572",
+            ("phương pháp chia đôi x^3-x-1 trên [1,2]" to "vi") to "bisection 34 rows → 1.3247179572",
+            ("x^3-x-1 [1,2] で二分法" to "ja") to "bisection 34 rows → 1.3247179572",
+            ("newton-raphson x^2-2 from 1" to "en") to "newton 7 rows → 1.4142135624",
+            ("método de Newton-Raphson x^2-2" to "es") to "newton 7 rows → 1.4142135624",
+            ("transformée de laplace inverse de 1/(s^2+1)" to "fr") to "sin(t)",
+            ("y'=y; y(0)=1 के लिए ऑयलर विधि" to "hi") to "euler 11 rows → 2.5937424601",
+            ("y'=y; y(0)=1 için Euler yöntemi" to "tr") to "euler 11 rows → 2.5937424601",
+            ("newton x^2-2 from 1" to "en") to "newton 7 rows → 1.4142135624",
+            ("bisection x^3-x-1 on [1,2]" to "en") to "bisection 34 rows → 1.3247179572",
+            ("simpson x^2 from 0 to 1" to "en") to "simpson 6 rows → 0.3333333333",
+            ("x'in türevi" to "tr") to "1",
+            ("x^2-1'i çarpanlarına ayır" to "tr") to "(x - 1)(x + 1)",
+        )
+        val wrong = cases.mapNotNull { (input, expected) ->
+            val got = answerOf(Reports.of(TextInput.read(input.first, input.second)).result)
+            if (got != expected) "${input.first}: $got, not $expected" else null
+        }
+        assertEquals("", wrong.joinToString("\n"))
+    }
 }
