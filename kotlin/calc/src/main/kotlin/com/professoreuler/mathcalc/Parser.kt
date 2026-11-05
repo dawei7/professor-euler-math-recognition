@@ -266,6 +266,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             }
             tok == "\\pi" -> { i++; Expr.PI }
             tok == "\\infty" -> { i++; Expr.INF }
+            // Γ(x), ζ(s) and ψ(x) with a bracket are the functions; alone, the letters.
+            tok in GREEK_FUNCTIONS && peek(1) == "(" -> { i++; call(tok.drop(1)) }
             tok in GREEK -> { i++; Expr.Sym(tok) }
             tok in FUNCTION_COMMANDS -> { i++; call(tok.drop(1)) }
             tok == "\\int" -> integral()
@@ -455,6 +457,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     }
 
     private fun call(name: String): Expr {
+        if (name == "besselj" || name == "J") return bessel(name)
         val base = if (name == "log" && peek() == "_") { i++; group() } else null
         // sin^2 x is (sin x)²; sin^{-1} x is arcsin x.
         var power: Expr? = null
@@ -480,6 +483,14 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             "ln" -> Func.LN
             "lg", "log" -> Func.LOG
             "exp" -> null
+            "arccot" -> Func.ACOT
+            "sgn" -> Func.SIGN
+            "erf" -> Func.ERF
+            "erfc" -> Func.ERFC
+            "gamma", "Gamma" -> Func.GAMMA
+            "digamma", "psi" -> Func.DIGAMMA
+            "zeta" -> Func.ZETA
+            "lambertw", "W" -> Func.LAMBERTW
             else -> throw unreadable()
         }
         val value = when {
@@ -488,6 +499,38 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             else -> fn(f, arg)
         }
         return if (power != null && !inverse) pow(value, power) else value
+    }
+
+    /**
+     * Bessel's J: `\operatorname{J}_{n}(x)` (the order as a subscript, the way the calculator writes it) or `besselj(n; x)`
+     * (the order first, then `;` or `,`).
+     */
+    private fun bessel(name: String): Expr {
+        val order: Expr
+        val arg: Expr
+        if (name == "J") {
+            expect("_")
+            order = group()
+            arg = argument()
+        } else {
+            if (peek() != "(") throw unreadable()
+            val start = i + 1
+            var depth = 0
+            var end = -1
+            for (k in i until t.size) {
+                if (t[k] == "(" || t[k] == "{" || t[k] == "[") depth++
+                if (t[k] == ")" || t[k] == "}" || t[k] == "]") depth--
+                if (depth == 0) { end = k; break }
+            }
+            if (end < 0) throw unreadable()
+            val inside = t.subList(start, end)
+            val separator = if (inside.contains(";")) ";" else ","
+            val cut = inside.indexOf(separator).takeIf { it > 0 } ?: throw unreadable()
+            order = parseAll(inside.subList(0, cut))
+            arg = parseAll(inside.subList(cut + 1, inside.size))
+            i = end + 1
+        }
+        return fn(Func.BESSELJ, order, arg)
     }
 
     /** A function's argument: a bracket, or else the numbers, letters and powers right after its name. */
@@ -507,7 +550,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     private fun lettersFrom(k: Int): String {
         val run = StringBuilder()
-        while (run.length < 6 && isLetter(t.getOrNull(k + run.length))) run.append(t[k + run.length])
+        while (run.length < 8 && isLetter(t.getOrNull(k + run.length))) run.append(t[k + run.length])
         return run.toString()
     }
 
@@ -558,10 +601,16 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         private val TIMES = setOf("\\cdot", "\\times", "*", "\\ast", "\\bullet")
         private val DIVIDE = setOf(":", "\\div", "/")
         /** Longest first, so `arcsin` is not read as `a r c sin` and `sinh` not as `sin h`. */
-        private val FUNCTIONS = listOf("arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "sin", "cos", "tan", "cot", "sec", "csc",
-            "exp", "log", "ln", "lg")
+        private val FUNCTIONS = listOf("lambertw", "besselj", "digamma", "arcsin", "arccos", "arctan", "arccot", "gamma",
+            "sinh", "cosh", "tanh", "erfc", "zeta", "sin", "cos", "tan", "cot", "sec", "csc", "exp", "log", "erf", "sgn", "ln", "lg")
         private val INVERSES = setOf("sin", "cos", "tan", "cot")
-        private val FUNCTION_COMMANDS = FUNCTIONS.map { "\\$it" }.toSet()
+        /** Names written only as commands: `\operatorname{J}_{n}` (Bessel) and `\operatorname{W}` (Lambert). */
+        private val COMMAND_NAMES = setOf("J", "W")
+        private val FUNCTION_COMMANDS = FUNCTIONS.map { "\\$it" }.toSet() + COMMAND_NAMES.map { "\\$it" }
+        /** Greek letters that are functions when a bracket follows: Γ(x), ζ(s), ψ(x). */
+        private val GREEK_FUNCTIONS = setOf("\\Gamma", "\\zeta", "\\psi")
+        /** Commands whose braced letters are a name: `\operatorname{erf}`, `\mathrm{d}`. */
+        private val NAMING = setOf("\\operatorname", "\\mathrm", "\\textrm", "\\text")
         /** Letters a learner names functions with: f(x) = … defines f. */
         private val FUNCTION_LETTERS = setOf("f", "g", "h", "F", "G", "H")
         private val GREEK = setOf("\\alpha", "\\beta", "\\gamma", "\\delta", "\\epsilon", "\\varepsilon", "\\zeta", "\\eta", "\\theta",
@@ -578,6 +627,18 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             while (k < tokens.size) {
                 val s = tokens[k]
                 when {
+                    // \operatorname{erf} is the command \erf; \mathrm{d} is the letter d.
+                    s in NAMING && tokens.getOrNull(k + 1) == "{" -> {
+                        val close = (k + 2 until tokens.size).firstOrNull { tokens[it] == "}" }
+                        val inside = if (close != null) tokens.subList(k + 2, close) else null
+                        if (close == null || inside!!.isEmpty() || inside.any { it.length != 1 || !it[0].isLetter() }) {
+                            out += s
+                        } else {
+                            val name = inside.joinToString("")
+                            if (name in FUNCTIONS || name in COMMAND_NAMES) out += "\\$name" else out.addAll(inside)
+                            k = close
+                        }
+                    }
                     s == "\\right" -> if (tokens.getOrNull(k + 1) == ".") k++
                     s !in IGNORED -> out += s
                 }

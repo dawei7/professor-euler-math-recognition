@@ -80,6 +80,21 @@ object Calculus {
                 Func.ABS -> u / fn(Func.ABS, u)
                 Func.SIGN, Func.FLOOR, Func.CEIL -> Expr.ZERO
                 Func.FACTORIAL -> throw CalcException(Failure.UNDEFINED)
+                // Γ′ = Γ·ψ
+                Func.GAMMA -> mul(fn(Func.GAMMA, u), fn(Func.DIGAMMA, u))
+                // erf′ = 2/√π · e^(−u²)
+                Func.ERF -> mul(Expr.TWO, pow(Expr.PI, num(Rational.of(-1) / Rational.of(2))), exp(neg(u * u)))
+                Func.ERFC -> neg(mul(Expr.TWO, pow(Expr.PI, num(Rational.of(-1) / Rational.of(2))), exp(neg(u * u))))
+                // J_n′ = (J_(n−1) − J_(n+1)) / 2
+                Func.BESSELJ -> {
+                    val n = e.args[0]
+                    if (n.has(x)) throw CalcException(Failure.UNDEFINED)
+                    mul(Expr.HALF, add(fn(Func.BESSELJ, n - Expr.ONE, u), neg(fn(Func.BESSELJ, n + Expr.ONE, u))))
+                }
+                // W′ = e^(−W) / (1 + W)
+                Func.LAMBERTW -> mul(exp(neg(fn(Func.LAMBERTW, u))), pow(Expr.ONE + fn(Func.LAMBERTW, u), Expr.MINUS_ONE))
+                // ψ′ and ζ′ have no form with the functions here.
+                Func.DIGAMMA, Func.ZETA -> throw CalcException(Failure.UNDEFINED)
             }
             mul(outer, du)
         }

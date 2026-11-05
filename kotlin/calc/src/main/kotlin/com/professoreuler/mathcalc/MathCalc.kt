@@ -203,17 +203,22 @@ class Calculation(val outcome: Outcome, override val decimalComma: Boolean, over
  */
 object MathCalc {
 
-    /** [choice] as the learner picked it; null, or one that does not fit the formula, for the likeliest. */
-    fun calculate(latex: String, choice: Choice? = null): Calculation {
+    /**
+     * [choice] as the learner picked it; null, or one that does not fit the formula, for the likeliest. [millis] is how long
+     * it may take (the Calculator's "Try longer" gives more). [fractions] where the answer is to be written with exact
+     * fractions although the formula wrote none with a bar: a line typed on a keyboard, whose `/` is its fraction bar.
+     */
+    fun calculate(latex: String, choice: Choice? = null, millis: Long = LIMIT_MS, fractions: Boolean = false): Calculation {
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags()
         var choices = emptyList<Choice>()
         var shown: Choice? = null
         val outcome = try {
             val statements = Parser(tokens, flags).statements()
+            if (fractions) flags.fractions = true
             val others = if (flags.plusMinus) Parser(tokens, Flags().also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
-            Budget.within(LIMIT_MS) {
+            Budget.within(millis) {
                 val plan = plan(statements, others, style, flags.degrees)
                 choices = plan.choices
                 val chosen = choice?.takeIf { it in plan.choices } ?: plan.likeliest
@@ -242,9 +247,9 @@ object MathCalc {
     }
 
     /** How long one calculation may take. */
-    private const val LIMIT_MS = 3000L
+    const val LIMIT_MS = 3000L
 
-    private val TOKEN = Regex("""\\[a-zA-Z]+|\\.|\S""")
+    internal val TOKEN = Regex("""\\[a-zA-Z]+|\\.|\S""")
 
     private val TWO = BigInteger.valueOf(2)
 

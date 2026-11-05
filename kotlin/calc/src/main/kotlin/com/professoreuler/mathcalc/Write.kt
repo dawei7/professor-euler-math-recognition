@@ -301,6 +301,10 @@ internal class Write(private val style: Style, private val latex: Boolean) {
                 val base = expr(f.args[0])
                 if (latex) "\\log_{$base}\\left($arg\\right)" else "log_${if (simple(f.args[0])) base else "($base)"}($arg)"
             }
+            Func.BESSELJ -> {
+                val order = expr(f.args[0])
+                if (latex) "\\operatorname{J}_{$order}\\left($arg\\right)" else "besselj($order; $arg)"
+            }
             else -> if (latex) "${f.f.latex}\\left($arg\\right)" else "${f.f.text}($arg)"
         }
     }

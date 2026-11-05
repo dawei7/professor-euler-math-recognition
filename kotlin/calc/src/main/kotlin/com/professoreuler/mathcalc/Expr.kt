@@ -13,6 +13,15 @@ enum class Func(val latex: String, val text: String) {
     /** log to a base: args are (base, x). */
     LOG("\\log", "log"),
     ABS("", "abs"), FLOOR("", "floor"), CEIL("", "ceil"), FACTORIAL("", "!"), SIGN("\\operatorname{sgn}", "sgn"),
+    /** Γ, and its logarithmic derivative ψ (digamma). */
+    GAMMA("\\Gamma", "gamma"), DIGAMMA("\\psi", "digamma"),
+    ERF("\\operatorname{erf}", "erf"), ERFC("\\operatorname{erfc}", "erfc"),
+    /** Riemann's ζ. */
+    ZETA("\\zeta", "zeta"),
+    /** Bessel's J of a whole order: args are (order, x). */
+    BESSELJ("\\operatorname{J}", "besselj"),
+    /** Lambert's W, its principal branch W₀. */
+    LAMBERTW("\\operatorname{W}", "lambertw"),
 }
 
 /** π, e, the imaginary unit, and ∞ (only as a bound or a limit's point or value). */
@@ -459,6 +468,8 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             if (isNumber(x) && x is Expr.Real) return Expr.Real(Numeric.eval(Expr.Fn(f, args), emptyMap()))
         }
         Func.ASIN, Func.ACOS, Func.ATAN, Func.ACOT -> {
+            // Beyond ±1 arcsin and arccos are complex: left as they are where complex values are wanted.
+            if (Domain.isComplex && (f == Func.ASIN || f == Func.ACOS) && rational(x)?.let { it.abs() > Rational.ONE } == true) return null
             Trig.inverse(f, x)?.let { return it }
             if (x is Expr.Real) return Expr.Real(Numeric.eval(Expr.Fn(f, args), emptyMap()))
         }
@@ -466,6 +477,8 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             if (isOne(x)) return Expr.ZERO
             if (x == Expr.E) return Expr.ONE
             if (x is Expr.Pow && x.base == Expr.E) return x.exp
+            // Where complex values are wanted, ln(−r) = ln r + iπ.
+            if (Domain.isComplex) rational(x)?.let { if (it.signum < 0) return add(fn(Func.LN, num(-it)), mul(Expr.I, Expr.PI)) }
             rational(x)?.let { if (it.signum <= 0) throw CalcException(Failure.UNDEFINED) }
             if (x is Expr.Real) return Expr.Real(kotlin.math.ln(x.value).also { if (!it.isFinite()) throw CalcException(Failure.UNDEFINED) })
             // ln of a whole power of a number: ln 8 = 3 ln 2 (the smallest base).
@@ -477,6 +490,7 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             if (isOne(arg)) return Expr.ZERO
             if (arg == base) return Expr.ONE
             rational(base)?.let { if (it.signum <= 0 || it == Rational.ONE) throw CalcException(Failure.UNDEFINED) }
+            if (Domain.isComplex) rational(arg)?.let { if (it.signum < 0) return null }
             rational(arg)?.let { if (it.signum <= 0) throw CalcException(Failure.UNDEFINED) }
             if (arg is Expr.Pow && arg.base == base) return arg.exp
             val b = rational(base)
@@ -505,8 +519,110 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             return Expr.Num(Rational.of(p))
         }
         Func.SINH, Func.COSH, Func.TANH -> if (isZero(x)) return if (f == Func.COSH) Expr.ONE else Expr.ZERO
+        Func.GAMMA, Func.DIGAMMA, Func.ERF, Func.ERFC, Func.ZETA, Func.BESSELJ, Func.LAMBERTW -> return SpecialValues.known(f, args)
     }
     return null
+}
+
+/**
+ * Whether complex values are wanted while expressions are built on this thread: then ln(−2) is ln 2 + iπ and arcsin 2 stays
+ * as it is, where otherwise both are [Failure.UNDEFINED] at once (the school's real numbers, Calculate's default).
+ */
+object Domain {
+    private val complex = ThreadLocal<Boolean>()
+
+    val isComplex: Boolean get() = complex.get() == true
+
+    fun <T> complex(block: () -> T): T {
+        val before = complex.get()
+        complex.set(true)
+        try {
+            return block()
+        } finally {
+            complex.set(before)
+        }
+    }
+}
+
+/** The exact values of the special functions where there are simple ones: Γ(5) = 24, Γ(½) = √π, ζ(2) = π²/6, erf 0 = 0. */
+internal object SpecialValues {
+    fun known(f: Func, args: List<Expr>): Expr? {
+        val x = args.last()
+        if (x is Expr.Real && (f != Func.BESSELJ || args[0] is Expr.Num)) {
+            val v = Numeric.eval(Expr.Fn(f, args), emptyMap())
+            if (!v.isFinite()) throw CalcException(Failure.UNDEFINED)
+            return Expr.Real(v)
+        }
+        val r = rational(x)
+        when (f) {
+            Func.GAMMA -> if (r != null) {
+                if (r.isInteger) {
+                    if (r.signum <= 0) throw CalcException(Failure.UNDEFINED)
+                    if (r.num > BigInteger.valueOf(Limits.MAX_FACTORIAL.toLong() + 1)) throw CalcException(Failure.TOO_LARGE)
+                    return Expr.Num(Rational.of(Special.factorial(r.num.toLong() - 1)))
+                }
+                if (r.den == BigInteger.valueOf(2) && r.num.abs() < BigInteger.valueOf(2L * Limits.MAX_FACTORIAL)) {
+                    // Γ(n + ½) = (2n)! / (4ⁿ n!) · √π, Γ(½ − m) = (−4)^m m! / (2m)! · √π
+                    val n = (r - Rational.of(1) / Rational.of(2)).num.toLong()
+                    val c = if (n >= 0) {
+                        Rational.of(Special.factorial(2 * n), BigInteger.valueOf(4).pow(n.toInt()) * Special.factorial(n))
+                    } else {
+                        val m = -n
+                        Rational.of(BigInteger.valueOf(-4).pow(m.toInt()) * Special.factorial(m), Special.factorial(2 * m))
+                    }
+                    return mul(num(c), sqrt(Expr.PI))
+                }
+            }
+            Func.ERF -> {
+                if (isZero(x)) return Expr.ZERO
+                val (k, rest) = splitCoefficient(x)
+                if (k is Expr.Num && k.value.signum < 0) return neg(fn(Func.ERF, mul(Expr.Num(-k.value), rest)))
+            }
+            Func.ERFC -> {
+                if (isZero(x)) return Expr.ONE
+                val (k, rest) = splitCoefficient(x)
+                if (k is Expr.Num && k.value.signum < 0) return add(Expr.TWO, neg(fn(Func.ERFC, mul(Expr.Num(-k.value), rest))))
+            }
+            Func.ZETA -> if (r != null && r.isInteger && r.num.bitLength() < 16) {
+                val n = r.num.toInt()
+                when {
+                    n == 1 -> throw CalcException(Failure.UNDEFINED)
+                    n == 0 -> return num(Rational.of(-1) / Rational.of(2))
+                    n < 0 && n % 2 == 0 -> return Expr.ZERO
+                    // ζ(−m) = −B_(m+1)/(m + 1)
+                    n < 0 -> return num(-Bernoulli.b2k((1 - n) / 2) / Rational.of(1L - n))
+                    // ζ(2k) = (−1)^(k+1) B_2k 2^(2k−1) π^(2k) / (2k)!
+                    n % 2 == 0 && n <= 200 -> {
+                        val k = n / 2
+                        val b = Bernoulli.b2k(k)
+                        val c = b * Rational.of(BigInteger.ONE.shiftLeft(n - 1), Special.factorial(n.toLong()))
+                        return mul(num(if (k % 2 == 1) c else -c), pow(Expr.PI, num(n.toLong())))
+                    }
+                }
+            }
+            Func.BESSELJ -> {
+                val order = rational(args[0]) ?: return null
+                if (!order.isInteger) throw CalcException(Failure.UNDEFINED)
+                if (isZero(x)) return if (order.signum == 0) Expr.ONE else Expr.ZERO
+                if (order.signum < 0) {
+                    val j = fn(Func.BESSELJ, num(-order), x)
+                    return if (order.num.testBit(0)) neg(j) else j
+                }
+            }
+            Func.LAMBERTW -> {
+                if (isZero(x)) return Expr.ZERO
+                if (x == Expr.E) return Expr.ONE
+                if (x == neg(pow(Expr.E, Expr.MINUS_ONE))) return Expr.MINUS_ONE
+                // W(a·e^a) = a for a ≥ −1
+                if (x is Expr.Mul && x.factors.size == 2) {
+                    val (a, b) = x.factors
+                    if (b is Expr.Pow && b.base == Expr.E && b.exp == a && rational(a)?.let { it >= Rational.of(-1) } == true) return a
+                }
+            }
+            else -> {}
+        }
+        return null
+    }
 }
 
 private fun floorOf(r: Rational): BigInteger {
@@ -784,7 +900,8 @@ object Numeric {
             Func.ASIN -> kotlin.math.asin(x)
             Func.ACOS -> kotlin.math.acos(x)
             Func.ATAN -> kotlin.math.atan(x)
-            Func.ACOT -> kotlin.math.atan(1 / x)
+            // In (0, π), as the exact values (Trig.inverse) have it; atan(1/x) jumped below 0 for negative x.
+            Func.ACOT -> PI / 2 - kotlin.math.atan(x)
             Func.SINH -> kotlin.math.sinh(x)
             Func.COSH -> kotlin.math.cosh(x)
             Func.TANH -> kotlin.math.tanh(x)
@@ -795,6 +912,30 @@ object Numeric {
             Func.CEIL -> kotlin.math.ceil(x)
             Func.SIGN -> kotlin.math.sign(x)
             Func.FACTORIAL -> if (x >= 0 && x == kotlin.math.floor(x) && x <= 170) (2..x.toInt()).fold(1.0) { p, k -> p * k } else Double.NaN
+            Func.GAMMA -> special(x) { Special.gamma(it, SPECIAL_BITS) }
+            Func.DIGAMMA -> special(x) { Special.digamma(it, SPECIAL_BITS) }
+            Func.ERF -> special(x) { Special.erf(it, SPECIAL_BITS) }
+            Func.ERFC -> special(x) { Special.erfc(it, SPECIAL_BITS) }
+            Func.ZETA -> special(x) { Special.zeta(it, SPECIAL_BITS) }
+            Func.LAMBERTW -> special(x) { Special.lambertW(it, SPECIAL_BITS) }
+            Func.BESSELJ -> {
+                val v = a[1]
+                if (x != kotlin.math.floor(x) || kotlin.math.abs(x) > 1000) Double.NaN else special(v) { Special.besselJ(x.toLong(), it, SPECIAL_BITS) }
+            }
+        }
+    }
+
+    /** Doubles of the special functions come from their balls at a few bits more than a double has. */
+    private const val SPECIAL_BITS = 64
+
+    private inline fun special(x: Double, f: (Ball) -> Ball): Double {
+        if (!x.isFinite()) return Double.NaN
+        return try {
+            f(Ball(BigFloat.of(x))).toDouble()
+        } catch (e: CalcException) {
+            Double.NaN
+        } catch (e: Imprecise) {
+            Double.NaN
         }
     }
 
