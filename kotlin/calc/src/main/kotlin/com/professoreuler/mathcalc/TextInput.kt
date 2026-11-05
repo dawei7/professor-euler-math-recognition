@@ -599,11 +599,39 @@ class Vocabulary internal constructor(
 
     /** The command a line starts with, and the rest of the line. */
     internal fun command(line: String): Pair<Command, String>? {
+        wrapped(withoutPrefix(line))?.let { return it }
         val (command, rest) = startCommand(withoutPrefix(line)) ?: return null
         val (c, after) = refined(command, rest)
         // "画出 x^2 的图像": a language that puts its verb last may name the command at both ends.
         if (commandLast) endCommand(after)?.let { (inner, before) -> if (inner == c) return c to before }
         return c to after
+    }
+
+    /**
+     * A command phrase written around its formula, as textbooks put it: "rozłóż 1/(x^2-1) na ułamki proste", "scomponi … in
+     * fratti semplici", "פרק את … לשברים חלקיים". The longest phrase whose first words begin the line and whose last words end
+     * it; a last part that is only "of" does not count ("derivative … of").
+     */
+    private fun wrapped(text: String): Pair<Command, String>? {
+        val lower = lower(text)
+        val end = lower.trimEnd().trimEnd('.', '。', '!', '！', '?', '？').trimEnd().length
+        val line = lower.substring(0, end)
+        for ((phrase, command) in phrases) {
+            val words = phrase.split(' ').filter { it.isNotEmpty() }
+            if (words.size < 2) continue
+            for (cut in 1 until words.size) {
+                val head = words.take(cut).joinToString(" ")
+                val tail = words.drop(cut).joinToString(" ")
+                if (tail in of) continue
+                if (!line.startsWith("$head ") || !line.endsWith(" $tail")) continue
+                if (head.length + tail.length + 2 > line.length) continue
+                val middle = text.substring(head.length, end - tail.length).trim()
+                if (middle.isEmpty()) continue
+                val afterArticle = dropArticle(middle)
+                return command to dropTrailingNoun(dropNoun(afterArticle) ?: afterArticle)
+            }
+        }
+        return null
     }
 
     private fun startCommand(text: String): Pair<Command, String>? {
@@ -857,7 +885,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("suma de", "suma", "sumatoria de", "sumatoria"),
                 Command.PLOT to listOf("grafica", "graficar", "gráfica de", "gráfica", "dibuja", "dibujar", "representa gráficamente", "representa"),
                 Command.CALCULATE to listOf("calcula", "calcular", "evalúa", "evaluar", "halla", "hallar", "encuentra", "determina", "cuánto es", "cuanto es"),
-                Command.PARTIAL_FRACTIONS to listOf("fracciones parciales de", "fracciones parciales", "descompón en fracciones parciales"),
+                Command.PARTIAL_FRACTIONS to listOf("fracciones parciales de", "fracciones parciales", "descompón en fracciones parciales", "descomposición en fracciones simples de", "descomposición en fracciones simples", "descomposición en fracciones parciales de", "descomposición en fracciones parciales", "descompón en fracciones simples", "descomponer en fracciones simples", "descomponer en fracciones parciales", "fracciones simples de", "fracciones simples"),
             ),
             of = setOf("de"),
             from = words("de", "desde"),
@@ -884,7 +912,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("somme de", "somme"),
                 Command.PLOT to listOf("trace", "tracer", "tracez", "dessine", "graphe de", "courbe de"),
                 Command.CALCULATE to listOf("calcule", "calculer", "calculez", "évalue", "détermine", "déterminer", "trouve", "combien fait"),
-                Command.PARTIAL_FRACTIONS to listOf("décompose en éléments simples", "décomposition en éléments simples de", "décomposition en éléments simples", "éléments simples de", "éléments simples"),
+                Command.PARTIAL_FRACTIONS to listOf("décompose en éléments simples", "décomposition en éléments simples de", "décomposition en éléments simples", "éléments simples de", "éléments simples", "décomposer en éléments simples", "décomposez en éléments simples"),
             ),
             of = setOf("de", "du"),
             from = words("de"),
@@ -912,7 +940,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("jumlah dari", "jumlah", "jumlahkan"),
                 Command.PLOT to listOf("gambarkan grafik", "gambarkan", "grafik dari", "grafik", "gambar"),
                 Command.CALCULATE to listOf("hitunglah", "hitung", "tentukan", "carilah", "cari", "berapa"),
-                Command.PARTIAL_FRACTIONS to listOf("pecahan parsial dari", "pecahan parsial"),
+                Command.PARTIAL_FRACTIONS to listOf("pecahan parsial dari", "pecahan parsial", "uraikan menjadi pecahan parsial", "dekomposisi pecahan parsial dari", "dekomposisi pecahan parsial"),
             ),
             of = setOf("dari"),
             from = words("dari"),
@@ -938,7 +966,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("somma di", "somma", "sommatoria di", "sommatoria"),
                 Command.PLOT to listOf("disegna", "traccia", "grafico di", "grafico"),
                 Command.CALCULATE to listOf("calcola", "calcolare", "trova", "determina", "quanto fa"),
-                Command.PARTIAL_FRACTIONS to listOf("fratti semplici di", "fratti semplici", "scomponi in fratti semplici"),
+                Command.PARTIAL_FRACTIONS to listOf("fratti semplici di", "fratti semplici", "scomponi in fratti semplici", "decomposizione in fratti semplici di", "decomposizione in fratti semplici", "scomporre in fratti semplici"),
             ),
             of = setOf("di", "del", "della"),
             from = words("da"),
@@ -967,7 +995,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("som van", "som"),
                 Command.PLOT to listOf("teken", "plot", "grafiek van", "grafiek"),
                 Command.CALCULATE to listOf("bereken", "reken uit", "bepaal", "wat is"),
-                Command.PARTIAL_FRACTIONS to listOf("breuksplitsen", "splits in breuken"),
+                Command.PARTIAL_FRACTIONS to listOf("breuksplitsen", "splits in breuken", "splits in partiële breuken", "partiële breuken van", "partiële breuken", "breuksplitsing van", "breuksplitsing"),
             ),
             of = setOf("van"),
             from = words("van"),
@@ -996,7 +1024,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("suma"),
                 Command.PLOT to listOf("narysuj wykres", "narysuj", "wykres funkcji", "wykres"),
                 Command.CALCULATE to listOf("oblicz", "wyznacz", "znajdź", "ile wynosi", "ile to"),
-                Command.PARTIAL_FRACTIONS to listOf("rozłóż na ułamki proste", "ułamki proste"),
+                Command.PARTIAL_FRACTIONS to listOf("rozłóż na ułamki proste", "ułamki proste", "rozkład na ułamki proste", "rozloz na ulamki proste", "rozklad na ulamki proste", "ulamki proste"),
             ),
             of = setOf("z"),
             from = words("od"),
@@ -1023,7 +1051,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("soma de", "soma", "somatório de", "somatório"),
                 Command.PLOT to listOf("plote", "desenhe", "esboce", "gráfico de", "gráfico", "grafico de"),
                 Command.CALCULATE to listOf("calcule", "calcular", "determine", "encontre", "ache", "quanto é", "quanto e"),
-                Command.PARTIAL_FRACTIONS to listOf("frações parciais de", "frações parciais", "decomponha em frações parciais"),
+                Command.PARTIAL_FRACTIONS to listOf("frações parciais de", "frações parciais", "decomponha em frações parciais", "decomposição em frações parciais de", "decomposição em frações parciais", "decompor em frações parciais", "decomponha em fracoes parciais", "fracoes parciais de", "fracoes parciais"),
             ),
             of = setOf("de", "da", "do"),
             from = words("de"),
@@ -1050,7 +1078,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("toplamı", "toplam"),
                 Command.PLOT to listOf("grafiğini çiz", "grafiğini", "çizin", "çiz", "ciz", "grafiği", "grafik"),
                 Command.CALCULATE to listOf("hesaplayın", "hesapla", "bulun", "bul", "kaç eder", "kac eder"),
-                Command.PARTIAL_FRACTIONS to listOf("basit kesirlere ayır", "basit kesirler"),
+                Command.PARTIAL_FRACTIONS to listOf("basit kesirlere ayır", "basit kesirler", "basit kesirlerine ayırınız", "basit kesirlerine ayırın", "basit kesirlerine ayır", "basit kesirlere ayırınız", "basit kesirlere ayırın", "basit kesirlere ayir", "basit kesirlerine ayir"),
             ),
             of = emptySet(),
             from = words("'dan", "'den", "'tan", "'ten"),
@@ -1078,7 +1106,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("tổng của", "tổng", "tong"),
                 Command.PLOT to listOf("vẽ đồ thị", "vẽ", "đồ thị của", "đồ thị", "ve do thi"),
                 Command.CALCULATE to listOf("tính giá trị", "tính", "tinh", "tìm"),
-                Command.PARTIAL_FRACTIONS to listOf("phân tích thành phân thức đơn giản", "phân thức đơn giản"),
+                Command.PARTIAL_FRACTIONS to listOf("phân tích thành phân thức đơn giản", "phân thức đơn giản", "phân tích thành tổng các phân thức đơn giản", "phân tích thành các phân thức đơn giản"),
             ),
             of = setOf("của"),
             from = words("từ"),
@@ -1103,7 +1131,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("сумма"),
                 Command.PLOT to listOf("построй график", "постройте график", "построй", "постройте", "нарисуй", "график"),
                 Command.CALCULATE to listOf("вычисли", "вычислите", "вычислить", "посчитай", "найди значение", "найдите значение", "сколько будет"),
-                Command.PARTIAL_FRACTIONS to listOf("разложи на простейшие дроби", "разложите на простейшие дроби", "простейшие дроби"),
+                Command.PARTIAL_FRACTIONS to listOf("разложи на простейшие дроби", "разложите на простейшие дроби", "простейшие дроби", "разложить на простейшие дроби", "разложение на простейшие дроби"),
             ),
             of = setOf("от"),
             from = words("от"),
@@ -1128,7 +1156,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("сума"),
                 Command.PLOT to listOf("побудуй графік", "побудуйте графік", "побудуй", "побудуйте", "намалюй", "графік"),
                 Command.CALCULATE to listOf("обчисли", "обчисліть", "порахуй", "скільки буде"),
-                Command.PARTIAL_FRACTIONS to listOf("розклади на найпростіші дроби", "розкладіть на найпростіші дроби", "найпростіші дроби"),
+                Command.PARTIAL_FRACTIONS to listOf("розклади на найпростіші дроби", "розкладіть на найпростіші дроби", "найпростіші дроби", "розкласти на найпростіші дроби", "розклад на найпростіші дроби"),
             ),
             of = setOf("від"),
             from = words("від"),
@@ -1153,7 +1181,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("مجموع", "المجموع"),
                 Command.PLOT to listOf("ارسم", "مثل بيانيا", "التمثيل البياني"),
                 Command.CALCULATE to listOf("احسب", "كم يساوي"),
-                Command.PARTIAL_FRACTIONS to listOf("الكسور الجزئية", "كسور جزئية"),
+                Command.PARTIAL_FRACTIONS to listOf("الكسور الجزئية", "كسور جزئية", "حلل إلى كسور جزئية", "حلل الى كسور جزئية", "حللوا إلى كسور جزئية", "حللوا الى كسور جزئية"),
             ),
             of = emptySet(),
             from = words("من"),
@@ -1176,7 +1204,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("הסכום של", "סכום של", "סכום"),
                 Command.PLOT to listOf("שרטט", "שרטטו", "שרטטי", "צייר", "ציירו", "ציירי", "גרף של", "גרף"),
                 Command.CALCULATE to listOf("חשב", "חשבי", "חשבו", "כמה זה"),
-                Command.PARTIAL_FRACTIONS to listOf("פירוק לשברים חלקיים", "שברים חלקיים"),
+                Command.PARTIAL_FRACTIONS to listOf("פירוק לשברים חלקיים", "שברים חלקיים", "פרק לשברים חלקיים", "פרקו לשברים חלקיים", "פרקי לשברים חלקיים"),
             ),
             of = setOf("של"),
             from = words("מ", "החל מ"),
@@ -1201,7 +1229,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("योगफल", "योग"),
                 Command.PLOT to listOf("ग्राफ़", "ग्राफ", "आलेख"),
                 Command.CALCULATE to listOf("गणना", "परिकलन", "कितना है"),
-                Command.PARTIAL_FRACTIONS to listOf("आंशिक भिन्न"),
+                Command.PARTIAL_FRACTIONS to listOf("आंशिक भिन्न", "आंशिक भिन्नों में", "आंशिक भिन्नों"),
             ),
             of = setOf("का", "की", "के"),
             from = words("से"),
@@ -1262,7 +1290,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("합"),
                 Command.PLOT to listOf("그래프를 그리시오", "그래프를 그려라", "그래프를 그려", "그래프 그리기", "그래프"),
                 Command.CALCULATE to listOf("계산", "값 구하기", "의 값"),
-                Command.PARTIAL_FRACTIONS to listOf("부분분수로 분해", "부분분수"),
+                Command.PARTIAL_FRACTIONS to listOf("부분분수로 분해", "부분분수", "부분분수분해", "부분분수 분해"),
             ),
             of = setOf("의"),
             from = words("부터", "에서"),
@@ -1291,7 +1319,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("ผลรวมของ", "ผลรวม"),
                 Command.PLOT to listOf("วาดกราฟ", "เขียนกราฟ", "กราฟของ", "กราฟ", "พล็อต"),
                 Command.CALCULATE to listOf("คำนวณ", "หาค่า"),
-                Command.PARTIAL_FRACTIONS to listOf("แยกเศษส่วนย่อย", "เศษส่วนย่อย"),
+                Command.PARTIAL_FRACTIONS to listOf("แยกเศษส่วนย่อย", "เศษส่วนย่อย", "แยกเป็นเศษส่วนย่อย"),
             ),
             of = setOf("ของ"),
             from = words("จาก"),
@@ -1317,7 +1345,7 @@ class Vocabulary internal constructor(
                 Command.SUM to listOf("求和"),
                 Command.PLOT to listOf("画出", "畫出", "画图", "畫圖", "作图", "作圖", "绘制", "繪製", "图像", "圖像", "图形", "圖形"),
                 Command.CALCULATE to listOf("计算", "計算", "求值", "等于多少", "等於多少"),
-                Command.PARTIAL_FRACTIONS to listOf("部分分式分解", "部分分式"),
+                Command.PARTIAL_FRACTIONS to listOf("部分分式分解", "部分分式", "分解为部分分式", "分解成部分分式", "化为部分分式", "分解為部分分式", "化為部分分式", "化成部分分式"),
             ),
             of = setOf("的"),
             from = words("从", "從"),

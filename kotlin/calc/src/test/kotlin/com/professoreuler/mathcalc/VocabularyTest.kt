@@ -213,6 +213,38 @@ class VocabularyTest {
             "จงเขียนกราฟของ x^2" to graph)
     }
 
+    /**
+     * Partial fractions as textbooks ask for them, the formula often between the two halves of the command ("rozłóż … na
+     * ułamki proste", "פרק את … לשברים חלקיים") and the verb often the factor command's own.
+     */
+    @Test fun partialFractionsAsTextbooksWriteThem() {
+        val expected = TextInput.read("partial fractions of 1/(x^2-1)")
+        val cases = mapOf(
+            "es" to listOf("descompón 1/(x^2-1) en fracciones simples", "descomposición en fracciones parciales de 1/(x^2-1)", "fracciones simples de 1/(x^2-1)"),
+            "fr" to listOf("décomposer en éléments simples 1/(x^2-1)", "décomposez 1/(x^2-1) en éléments simples"),
+            "it" to listOf("scomponi 1/(x^2-1) in fratti semplici", "decomposizione in fratti semplici di 1/(x^2-1)"),
+            "pt" to listOf("decomponha 1/(x^2-1) em frações parciais", "decomposição em frações parciais de 1/(x^2-1)", "fracoes parciais de 1/(x^2-1)"),
+            "nl" to listOf("splits 1/(x^2-1) in partiële breuken", "breuksplitsing van 1/(x^2-1)"),
+            "pl" to listOf("rozłóż 1/(x^2-1) na ułamki proste", "rozkład na ułamki proste 1/(x^2-1)", "rozloz 1/(x^2-1) na ulamki proste"),
+            "in" to listOf("uraikan 1/(x^2-1) menjadi pecahan parsial", "dekomposisi pecahan parsial dari 1/(x^2-1)"),
+            "vi" to listOf("phân tích 1/(x^2-1) thành tổng các phân thức đơn giản", "phân tích 1/(x^2-1) thành các phân thức đơn giản"),
+            "tr" to listOf("1/(x^2-1) ifadesini basit kesirlerine ayırınız", "1/(x^2-1)'i basit kesirlere ayırın"),
+            "ru" to listOf("разложи 1/(x^2-1) на простейшие дроби", "разложение на простейшие дроби 1/(x^2-1)"),
+            "uk" to listOf("розкладіть 1/(x^2-1) на найпростіші дроби", "розклад на найпростіші дроби 1/(x^2-1)"),
+            "ar" to listOf("حلل 1/(x^2-1) إلى كسور جزئية", "حلل الى كسور جزئية 1/(x^2-1)"),
+            "iw" to listOf("פרק את 1/(x^2-1) לשברים חלקיים", "פרקו לשברים חלקיים 1/(x^2-1)"),
+            "hi" to listOf("1/(x^2-1) को आंशिक भिन्नों में"),
+            "ko" to listOf("1/(x^2-1)을 부분분수분해", "1/(x^2-1) 부분분수 분해"),
+            "th" to listOf("จงแยกเป็นเศษส่วนย่อย 1/(x^2-1)"),
+            "zh-Hans" to listOf("把1/(x^2-1)分解为部分分式", "将 1/(x^2-1) 化为部分分式"),
+            "zh-Hant" to listOf("把1/(x^2-1)分解為部分分式"),
+        )
+        val wrong = cases.flatMap { (language, lines) ->
+            lines.mapNotNull { line -> TextInput.read(line, language).takeIf { it != expected }?.let { "$language: $line → $it" } }
+        }
+        assertEquals("", wrong.joinToString("\n"))
+    }
+
     /** A line whose words cannot be made sense of is never a failure of reading: it is the math it holds. */
     @Test fun readingNeverFails() {
         for (line in listOf("integrate x^2+ from 0 to 1", "求 x^2 从 0 到 3 的积", "x^2을 0부터 3까지 적분 +", "derivative of )(", "lim x->")) {
