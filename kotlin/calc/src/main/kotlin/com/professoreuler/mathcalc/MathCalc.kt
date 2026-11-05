@@ -99,6 +99,22 @@ enum class Mode {
     TRANSPOSE,
     /** A linear system with a letter in it, solved for each value of that letter: where it has one solution, none, or many. */
     CASES,
+    /** A matrix as P·A = L·U, A = Q·R and, where it is symmetric positive definite, A = L·Lᵀ. */
+    DECOMPOSE,
+    /** e^A of a square matrix. */
+    MATRIX_EXP,
+    /** ∇f of a function of x, y (and z). */
+    GRADIENT,
+    /** div F of a vector field in x, y (and z). */
+    DIVERGENCE,
+    /** curl F of a vector field (in the plane its one component). */
+    CURL,
+    /** The Jacobian matrix of a vector field. */
+    JACOBIAN,
+    /** Δf of a function of x, y (and z). */
+    LAPLACIAN,
+    /** The x that makes |A·x − b| least, for a linear system with more equations than unknowns and no solution. */
+    LEAST_SQUARES,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -189,7 +205,18 @@ sealed class Outcome {
     data class Critical(val letters: List<String>, val gradient: List<Expr>, val hessian: List<List<Expr>>, val points: List<CriticalPoint>) : Outcome()
 
     /** A matrix in reduced row echelon [form], its [rank], the row [operations] that made it and a basis of its [nullSpace]. */
-    data class RowReduced(val form: Expr.Mat, val rank: Int, val operations: List<LinAlg.RowOp>, val nullSpace: List<Expr.Mat>) : Outcome()
+    data class RowReduced(val form: Expr.Mat, val rank: Int, val operations: List<LinAlg.RowOp>, val nullSpace: List<Expr.Mat>,
+        /** The original columns at the pivots: a basis of the column space. */
+        val columnSpace: List<Expr.Mat> = emptyList()) : Outcome()
+
+    /** A matrix's decompositions, those that exist: P·A = L·U, A = Q·R, A = L·Lᵀ. */
+    data class Decompositions(val lu: Triple<Expr.Mat, Expr.Mat, Expr.Mat>?, val qr: Pair<Expr.Mat, Expr.Mat>?, val cholesky: Expr.Mat?) : Outcome()
+
+    /** f's candidates for an extremum under [constraints] (Lagrange), each with its value; the largest and smallest marked. */
+    data class Constrained(val letters: List<String>, val constraints: List<Expr>, val candidates: List<LinAlg.Candidate>) : Outcome()
+
+    /** A system with no solution, solved in the least squares: its [solution] and the [residual] |A·x − b|. */
+    data class LeastSquares(val letters: List<String>, val solution: Map<String, Expr>, val residual: Expr) : Outcome()
 
     /** A square matrix's [characteristic] polynomial det(λI − A) and its eigenvalues, each with its eigenvectors. */
     data class Eigenvalues(val characteristic: Expr, val values: List<LinAlg.Eigen>,
@@ -414,7 +441,11 @@ object MathCalc {
             if (seriesAt != null) choices += Choice(Mode.SERIES, variable, point = seriesAt)
             // A function of the coordinates x, y (and z): its critical points, and of x and y its surface.
             val coordinates = letters.size in 2..3 && letters.all { it in COORDINATES }
-            if (coordinates) choices += Choice(Mode.EXTREMA)
+            if (coordinates) {
+                choices += Choice(Mode.EXTREMA)
+                choices += Choice(Mode.GRADIENT)
+                choices += Choice(Mode.LAPLACIAN)
+            }
             if (letters.toSet() == setOf("x", "y")) choices += Choice(Mode.SURFACE)
             letters.forEach { choices += Choice(Mode.DERIVATIVE, it) }
             letters.forEach { choices += Choice(Mode.INTEGRAL, it) }
@@ -445,6 +476,8 @@ object MathCalc {
                     Mode.PARTIAL_FRACTIONS -> Outcome.Expression(partial ?: throw CalcException(Failure.UNREADABLE), steps)
                     Mode.SERIES -> series(last, Expr.Sym(c.letter ?: variable), c.point ?: seriesAt ?: "0", c.order)
                     Mode.EXTREMA -> critical(last, letters)
+                    Mode.GRADIENT -> Outcome.Expression(LinAlg.gradient(last, letters))
+                    Mode.LAPLACIAN -> Outcome.Expression(LinAlg.laplacian(last, letters))
                     Mode.SURFACE -> Outcome.Surface(last, "x", "y")
                     else -> throw CalcException(Failure.UNREADABLE)
                 }
@@ -595,6 +628,16 @@ object MathCalc {
             choices += Choice(Mode.EIGEN)
         }
         if (!vector) choices += Choice(Mode.ROW_REDUCE)
+        if (!vector && m.size >= m.columns && m.size <= 6) choices += Choice(Mode.DECOMPOSE)
+        if (square && m.size <= 4) choices += Choice(Mode.MATRIX_EXP)
+        // A vector field: as many entries as coordinates, in x, y (and z).
+        val coordinates = listOf("x", "y", "z").take(m.size)
+        val field = vector && m.size in 2..3 && m.symbols().isNotEmpty() && m.symbols().all { it in coordinates }
+        if (field) {
+            choices += Choice(Mode.DIVERGENCE)
+            choices += Choice(Mode.CURL)
+            choices += Choice(Mode.JACOBIAN)
+        }
         choices += Choice(Mode.TRANSPOSE)
         val likeliest = when {
             !literal || vector -> Choice(Mode.CALCULATE)
@@ -607,7 +650,16 @@ object MathCalc {
                 Mode.DETERMINANT -> LinAlg.det(m).let { d -> if (d.symbols().isEmpty()) value(d, emptyList(), emptyList()) else Outcome.Expression(d) }
                 Mode.INVERSE -> Outcome.Expression(LinAlg.inverse(m))
                 Mode.TRANSPOSE -> Outcome.Expression(LinAlg.transpose(m))
-                Mode.ROW_REDUCE -> LinAlg.echelon(m).let { e -> Outcome.RowReduced(e.form, e.rank, e.ops, LinAlg.nullSpace(m)) }
+                Mode.ROW_REDUCE -> LinAlg.echelon(m).let { e -> Outcome.RowReduced(e.form, e.rank, e.ops, LinAlg.nullSpace(m), LinAlg.columnSpace(m)) }
+                Mode.DECOMPOSE -> {
+                    val d = Outcome.Decompositions(LinAlg.lu(m), LinAlg.qr(m), LinAlg.cholesky(m))
+                    if (d.lu == null && d.qr == null && d.cholesky == null) throw CalcException(Failure.UNSOLVED)
+                    d
+                }
+                Mode.MATRIX_EXP -> Outcome.Expression(LinAlg.exp(m) ?: throw CalcException(Failure.UNSOLVED))
+                Mode.DIVERGENCE -> Outcome.Expression(LinAlg.divergence(m, coordinates))
+                Mode.CURL -> Outcome.Expression(LinAlg.curl(m, coordinates))
+                Mode.JACOBIAN -> Outcome.Expression(LinAlg.jacobian(m, coordinates))
                 Mode.EIGEN -> {
                     val eigen = LinAlg.eigen(m) ?: throw CalcException(Failure.UNSOLVED)
                     Outcome.Eigenvalues(LinAlg.characteristic(m), eigen, LinAlg.diagonalization(m, eigen))
@@ -830,6 +882,7 @@ object MathCalc {
     }
 
     private fun systemPlan(statements: List<Statement>): Plan {
+        constrainedPlan(statements)?.let { return it }
         val equations = statements.map { s ->
             val sides = s.sides.filterNotNull()
             if (sides.size != 2 || s.relations.size != 1 || s.relations[0] != Rel.EQ) throw CalcException(Failure.UNREADABLE)
@@ -862,10 +915,64 @@ object MathCalc {
                 }
             }
         }
+        // More linear equations than unknowns and no solution: the least squares.
+        if (statements.size > letters.size && letters.isNotEmpty()) {
+            val squares = leastSquares(equations, letters)
+            if (squares != null) {
+                val choice2 = Choice(Mode.LEAST_SQUARES)
+                return Plan(listOf(choice2, choice), choice2) { c ->
+                    if (c.mode == Mode.LEAST_SQUARES) squares
+                    else Outcome.SystemSolved(letters, Solve.system(equations, letters) ?: emptyList())
+                }
+            }
+        }
         return Plan(listOf(choice), choice) {
             val solutions = Solve.system(equations, letters) ?: throw CalcException(Failure.UNSOLVED)
             Outcome.SystemSolved(letters, solutions)
         }
+    }
+
+    /**
+     * One line a function and the others equations in the same coordinates (x·y with x + y = 10): the extremum under those
+     * constraints, by Lagrange's multipliers.
+     */
+    private fun constrainedPlan(statements: List<Statement>): Plan? {
+        val expressions = statements.filter { s -> s.relations.isEmpty() && s.sides.filterNotNull().size == 1 }
+        if (expressions.size != 1 || statements.size < 2) return null
+        val f = Calculus.evaluate(expressions[0].sides.filterNotNull()[0])
+        val constraints = (statements - expressions[0]).map { s ->
+            val sides = s.sides.filterNotNull()
+            if (sides.size != 2 || s.relations != listOf(Rel.EQ)) return null
+            Calculus.evaluate(sides[0]) - Calculus.evaluate(sides[1])
+        }
+        val names = (f.symbols() + constraints.flatMap { it.symbols() }).toSortedSet().toList()
+        if (names.isEmpty() || names.size > 3 || !names.all { it in COORDINATES }) return null
+        val choice = Choice(Mode.EXTREMA)
+        return Plan(listOf(choice), choice) {
+            Outcome.Constrained(names, constraints, LinAlg.lagrange(f, constraints, names) ?: throw CalcException(Failure.UNSOLVED))
+        }
+    }
+
+    /** A linear system with more equations than unknowns and no solution: its least-squares solution, or null. */
+    private fun leastSquares(equations: List<Expr>, letters: List<String>): Outcome.LeastSquares? {
+        val xs = letters.map { Expr.Sym(it) }
+        val rows = ArrayList<List<Expr>>()
+        val rhs = ArrayList<Expr>()
+        for (e in equations) {
+            val row = xs.map { x -> Calculus.tidy(Calculus.derivative(e, x)) }
+            if (row.any { c -> c.symbols().isNotEmpty() }) return null
+            rows += row
+            rhs += Calculus.tidy(neg(xs.fold(e) { acc, x -> acc.substitute(x, Expr.ZERO) }))
+        }
+        if (rhs.any { it.symbols().isNotEmpty() }) return null
+        val a = Expr.Mat(rows)
+        val b = LinAlg.column(rhs)
+        // Only where the system itself has no solution.
+        val augmented = Expr.Mat(rows.mapIndexed { i, r -> r + rhs[i] })
+        if (letters.size !in LinAlg.echelon(augmented).pivots) return null
+        val x = LinAlg.leastSquares(a, b) ?: return null
+        val r = LinAlg.plus(LinAlg.times(a, x), LinAlg.scale(b, Expr.MINUS_ONE)) as Expr.Mat
+        return Outcome.LeastSquares(letters, letters.indices.associate { letters[it] to x.rows[it][0] }, LinAlg.norm(r))
     }
 
     /** The letters a system is solved for; the others in it are its parameters. */

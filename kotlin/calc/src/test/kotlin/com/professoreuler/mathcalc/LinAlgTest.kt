@@ -114,4 +114,60 @@ class LinAlgTest {
         // Without a parameter it is solved as before.
         ("\\begin{cases}x+y=3\\\\x-y=1\\end{cases}" to null) to "x = 2, y = 1",
     )
+
+    /** P·A = L·U, A = Q·R and A = L·Lᵀ, each checked by multiplying back; Cholesky only for a symmetric positive definite matrix. */
+    @Test fun decompositions() = check(
+        ("\\begin{pmatrix}4&3\\\\6&3\\end{pmatrix}" to Mode.DECOMPOSE) to
+            "P=[[1, 0], [0, 1]] L=[[1, 0], [3/2, 1]] U=[[4, 3], [0, -3/2]] | Q=[[2√13/13, 3√13/13], [3√13/13, -2√13/13]] R=[[2√13, 15√13/13], [0, 3√13/13]]",
+        ("\\begin{pmatrix}0&1\\\\1&1\\end{pmatrix}" to Mode.DECOMPOSE) to "P=[[0, 1], [1, 0]] L=[[1, 0], [0, 1]] U=[[1, 1], [0, 1]] | Q=[[0, 1], [1, 0]] R=[[1, 1], [0, 1]]",
+        ("\\begin{pmatrix}4&2\\\\2&3\\end{pmatrix}" to Mode.DECOMPOSE) to
+            "P=[[1, 0], [0, 1]] L=[[1, 0], [1/2, 1]] U=[[4, 2], [0, 2]] | Q=[[2√5/5, -√5/5], [√5/5, 2√5/5]] R=[[2√5, 7√5/5], [0, 4√5/5]] | C=[[2, 0], [1, √2]]",
+        ("\\begin{pmatrix}1&1\\\\1&0\\\\0&1\\end{pmatrix}" to Mode.DECOMPOSE) to "Q=[[√2/2, √6/6], [√2/2, -√6/6], [0, √6/3]] R=[[√2, √2/2], [0, √6/2]]",
+    )
+
+    /** e^A, real where the eigenvalues are complex, checked against the series. */
+    @Test fun matrixExponential() = check(
+        ("\\begin{pmatrix}0&1\\\\-1&0\\end{pmatrix}" to Mode.MATRIX_EXP) to "[[cos(1), sin(1)], [-sin(1), cos(1)]]",
+        ("\\begin{pmatrix}2&1\\\\1&2\\end{pmatrix}" to Mode.MATRIX_EXP) to "[[e/2 + e^3/2, e^3/2 - e/2], [e^3/2 - e/2, e/2 + e^3/2]]",
+        ("\\begin{pmatrix}1&1\\\\0&1\\end{pmatrix}" to Mode.MATRIX_EXP) to "[[e, e], [0, e]]",
+        ("e^{\\begin{pmatrix}0&0\\\\0&1\\end{pmatrix}}" to null) to "[[1, 0], [0, e]]",
+    )
+
+    /** Gradient, divergence, curl, Jacobian and Laplacian of fields in x, y and z. */
+    @Test fun vectorCalculus() = check(
+        ("(x^{2}y,yz,xz)" to Mode.DIVERGENCE) to "2xy + x + z",
+        ("(x^{2}y,yz,xz)" to Mode.CURL) to "(-y, -z, -x^2)",
+        ("(x^{2}y,yz,xz)" to Mode.JACOBIAN) to "[[2xy, x^2, 0], [0, z, y], [z, 0, x]]",
+        ("(-y,x)" to Mode.CURL) to "2",
+        ("x^{2}y+y^{3}" to Mode.GRADIENT) to "(2xy, x^2 + 3y^2)",
+        ("x^{2}+y^{2}+z^{2}" to Mode.LAPLACIAN) to "6",
+    )
+
+    /** Extrema under constraints by Lagrange's multipliers, and least squares for a system with no solution. */
+    @Test fun lagrangeAndLeastSquares() = check(
+        ("\\begin{cases}xy\\\\x+y=10\\end{cases}" to null) to "(5, 5) 25",
+        ("\\begin{cases}x+y\\\\x^{2}+y^{2}=1\\end{cases}" to null) to "(-√2/2, -√2/2) -√2 ≈ -1.414213562; (√2/2, √2/2) √2 ≈ 1.414213562",
+        ("\\begin{cases}x^{2}+y^{2}+z^{2}\\\\x+y+z=1\\end{cases}" to null) to "(1/3, 1/3, 1/3) 1/3 ≈ 0.3333333333",
+        ("\\begin{cases}x+y=1\\\\x-y=1\\\\x+2y=3\\end{cases}" to null) to "x = 9/7, y = 4/7 residual 2√14/7 ≈ 1.069044968",
+    )
+
+    /** Typed: a system with ";", "subject to", and the words for the new modes. */
+    @Test fun typedFields() {
+        val cases = listOf(
+            ("maximize x*y subject to x+y=10" to "en") to "(5, 5) 25",
+            ("x*y; x+y=10" to "en") to "(5, 5) 25",
+            ("Extrema von x*y unter der Nebenbedingung x+y=10" to "de") to "(5, 5) 25",
+            ("divergence of (x^2 y, y z, x z)" to "en") to "2xy + x + z",
+            ("Rotation von (x^2 y, y z, x z)" to "de") to "(-y, -z, -x^2)",
+            ("gradient of x^2 y + y^3" to "en") to "(2xy, x^2 + 3y^2)",
+            ("x+y=1; x-y=1; x+2y=3" to "en") to "x = 9/7, y = 4/7 residual 2√14/7 ≈ 1.069044968",
+            ("lu decomposition of [[4,3],[6,3]]" to "en") to
+                "P=[[1, 0], [0, 1]] L=[[1, 0], [3/2, 1]] U=[[4, 3], [0, -3/2]] | Q=[[2√13/13, 3√13/13], [3√13/13, -2√13/13]] R=[[2√13, 15√13/13], [0, 3√13/13]]",
+        )
+        val wrong = cases.mapNotNull { (input, expected) ->
+            val got = answerOf(Reports.of(TextInput.read(input.first, input.second)).result)
+            if (got != expected) "${input.first}: $got, not $expected" else null
+        }
+        assertEquals("", wrong.joinToString("\n"))
+    }
 }

@@ -31,6 +31,13 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
         "(" + o.letters.joinToString(", ") { c.text(p.at.getValue(it)) } + ") " + p.kind.name.lowercase() + " " + c.textValue(p.value)
     }
     is Outcome.Surface -> "surface " + c.text(o.function)
+    is Outcome.Decompositions -> listOfNotNull(
+        o.lu?.let { (p, l, u) -> "P=" + c.text(p) + " L=" + c.text(l) + " U=" + c.text(u) },
+        o.qr?.let { (q, r) -> "Q=" + c.text(q) + " R=" + c.text(r) },
+        o.cholesky?.let { "C=" + c.text(it) },
+    ).joinToString(" | ")
+    is Outcome.Constrained -> o.candidates.joinToString("; ") { k -> "(" + o.letters.joinToString(", ") { c.text(k.at.getValue(it)) } + ") " + c.textValue(k.value) }
+    is Outcome.LeastSquares -> o.letters.joinToString(", ") { "$it = " + c.text(o.solution.getValue(it)) } + " residual " + c.textValue(o.residual)
     is Outcome.SystemCases -> {
         val k = o.cases
         val generic = k.generic?.let { g -> k.unknowns.joinToString(", ") { "$it = " + c.text(g.getValue(it)) } }

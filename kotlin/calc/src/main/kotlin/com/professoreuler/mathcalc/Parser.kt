@@ -283,6 +283,13 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             repeat(primes) { e = derivativeOf(e) }
             return e
         }
+        // e^A of a matrix.
+        if (base == Expr.E) {
+            val save = i
+            val exponent = group()
+            if (exponent is Expr.Mat) return LinAlg.exp(exponent) ?: throw CalcException(Failure.UNSOLVED)
+            i = save
+        }
         // A matrix: Aᵀ, A⁻¹, Aⁿ.
         if (base is Expr.Mat) {
             if (peek() == "T" || peek() == "\\top" || (peek() == "{" && (peek(1) == "T" || peek(1) == "\\top") && peek(2) == "}")) {
