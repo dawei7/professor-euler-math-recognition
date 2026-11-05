@@ -24,6 +24,14 @@ internal class Write(private val style: Style, private val latex: Boolean) {
         }
         is Expr.Fn -> function(e)
         is Expr.Op -> operation(e)
+        is Expr.Mat -> matrix(e)
+    }
+
+    /** A matrix as LaTeX writes it (pmatrix); in the shorthand a vector as (1, 2, 3) and a matrix as [[1, 2], [3, 4]]. */
+    private fun matrix(m: Expr.Mat): String = when {
+        latex -> "\\begin{pmatrix}" + m.rows.joinToString(" \\\\ ") { r -> r.joinToString(" & ") { expr(it) } } + "\\end{pmatrix}"
+        m.columns == 1 -> "(" + m.rows.joinToString(", ") { expr(it[0]) } + ")"
+        else -> "[" + m.rows.joinToString(", ") { r -> "[" + r.joinToString(", ") { expr(it) } + "]" } + "]"
     }
 
     /** Calculus as written: d/dx (…), ∫ with its bounds and dx, lim with its point, Σ and Π with their bounds. */

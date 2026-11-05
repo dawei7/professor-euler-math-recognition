@@ -207,7 +207,7 @@ object Plot {
                 }
             } else { x, y -> Numeric.function(f, args.map { it(x, y) }) }
         }
-        is Expr.Op -> { _, _ -> Double.NaN }
+        is Expr.Op, is Expr.Mat -> { _, _ -> Double.NaN }
     }
 
     private fun power(p: Expr.Pow, a: String, b: String?): (Double, Double) -> Double {

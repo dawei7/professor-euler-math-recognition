@@ -139,7 +139,7 @@ object Reports {
                 null
             } else {
                 Budget.within(MathCalc.LIMIT_MS) { Calculus.evaluate(sides.last()) }
-                    .takeIf { it.symbols().isEmpty() && !it.hasOp() && !it.hasInfinity() && !hasReal(it) }
+                    .takeIf { it !is Expr.Mat && it.symbols().isEmpty() && !it.hasOp() && !it.hasInfinity() && !hasReal(it) }
             }
         }
     } catch (e: CalcException) {

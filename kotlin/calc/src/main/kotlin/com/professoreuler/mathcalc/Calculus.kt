@@ -103,6 +103,7 @@ object Calculus {
             mul(outer, du)
         }
         e is Expr.Op -> diff(evaluate(e), x)
+        e is Expr.Mat -> Expr.Mat(e.rows.map { r -> r.map { diff(it, x) } })
         else -> Expr.ZERO
     }
 

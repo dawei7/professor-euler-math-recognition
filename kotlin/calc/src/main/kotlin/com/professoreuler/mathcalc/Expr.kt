@@ -79,6 +79,18 @@ sealed class Expr {
         override fun hashCode() = listOf(kind, body, variable, a, b).hashCode() * 31 + 5
     }
 
+    /**
+     * A matrix (a vector is one column), its entries row by row. Worked out as a whole by [LinAlg] where the formula is read,
+     * never inside a sum or a product of the usual algebra, whose order of factors does not matter.
+     */
+    class Mat internal constructor(val rows: List<List<Expr>>) : Expr() {
+        /** How many rows. */
+        val size: Int get() = rows.size
+        val columns: Int get() = rows[0].size
+        override fun equals(other: Any?) = other is Mat && rows == other.rows
+        override fun hashCode() = rows.hashCode() * 31 + 6
+    }
+
     operator fun plus(o: Expr) = add(this, o)
     operator fun minus(o: Expr) = add(this, neg(o))
     operator fun times(o: Expr) = mul(this, o)
@@ -137,6 +149,9 @@ internal object Order : Comparator<Expr> {
             u is Expr.Mul && v is Expr.Mul -> lastFirst(u.factors, v.factors)
             u is Expr.Pow && v is Expr.Pow -> compare(u.base, v.base).let { if (it != 0) it else compare(u.exp, v.exp) }
             u is Expr.Fn && v is Expr.Fn -> if (u.f != v.f) u.f.compareTo(v.f) else lastFirst(u.args, v.args, fromEnd = false)
+            u is Expr.Mat && v is Expr.Mat -> u.rows.toString().compareTo(v.rows.toString())
+            u is Expr.Mat -> 1
+            v is Expr.Mat -> -1
             u is Expr.Op && v is Expr.Op -> if (u.kind != v.kind) u.kind.compareTo(v.kind) else compare(u.body, v.body)
             u is Expr.Op -> 1
             v is Expr.Op -> -1
@@ -672,6 +687,7 @@ fun Expr.has(s: Expr.Sym): Boolean = when (this) {
     is Expr.Pow -> base.has(s) || exp.has(s)
     is Expr.Fn -> args.any { it.has(s) }
     is Expr.Op -> (body.has(s) && variable != s) || (a?.has(s) ?: false) || (b?.has(s) ?: false)
+    is Expr.Mat -> rows.any { r -> r.any { it.has(s) } }
     else -> false
 }
 
@@ -695,6 +711,7 @@ fun Expr.symbols(): Set<String> {
             is Expr.Mul -> e.factors.forEach(::walk)
             is Expr.Pow -> { walk(e.base); walk(e.exp) }
             is Expr.Fn -> e.args.forEach(::walk)
+            is Expr.Mat -> e.rows.forEach { r -> r.forEach(::walk) }
             is Expr.Op -> {
                 // The variable of an integral, a sum or a limit is bound: it is not one of the formula's own letters.
                 val inner = e.body.symbols() - e.variable.name
@@ -712,6 +729,7 @@ fun Expr.symbols(): Set<String> {
 /** Whether [e] holds calculus still to be worked out. */
 fun Expr.hasOp(): Boolean = when (this) {
     is Expr.Op -> true
+    is Expr.Mat -> rows.any { r -> r.any { it.hasOp() } }
     is Expr.Add -> terms.any { it.hasOp() }
     is Expr.Mul -> factors.any { it.hasOp() }
     is Expr.Pow -> base.hasOp() || exp.hasOp()
@@ -730,6 +748,7 @@ fun Expr.hasI(): Boolean = when (this) {
     is Expr.Pow -> base.hasI() || exp.hasI()
     is Expr.Fn -> args.any { it.hasI() }
     is Expr.Op -> body.hasI()
+    is Expr.Mat -> rows.any { r -> r.any { it.hasI() } }
     else -> false
 }
 
@@ -817,6 +836,7 @@ fun Expr.substitute(s: Expr.Sym, value: Expr): Expr = when (this) {
     is Expr.Fn -> fn(f, args.map { it.substitute(s, value) })
     is Expr.Op -> if (variable == s) Expr.Op(kind, body, variable, a?.substitute(s, value), b?.substitute(s, value))
         else Expr.Op(kind, body.substitute(s, value), variable, a?.substitute(s, value), b?.substitute(s, value))
+    is Expr.Mat -> Expr.Mat(rows.map { r -> r.map { it.substitute(s, value) } })
     else -> this
 }
 
@@ -827,6 +847,7 @@ fun Expr.size(): Int = when (this) {
     is Expr.Pow -> 1 + base.size() + exp.size() + (if (exp == Expr.HALF) -1 else 0)
     is Expr.Fn -> 1 + args.sumOf { it.size() }
     is Expr.Op -> 2 + body.size()
+    is Expr.Mat -> 1 + rows.sumOf { r -> r.sumOf { it.size() } }
     is Expr.Num -> if (value.isInteger) 1 else 2
     else -> 1
 }
@@ -837,6 +858,7 @@ fun Expr.mapChildren(f: (Expr) -> Expr): Expr = when (this) {
     is Expr.Mul -> mul(factors.map(f))
     is Expr.Pow -> pow(f(base), f(exp))
     is Expr.Fn -> fn(this.f, args.map(f))
+    is Expr.Mat -> Expr.Mat(rows.map { r -> r.map(f) })
     else -> this
 }
 
@@ -952,7 +974,7 @@ object Numeric {
             Constant.I -> Double.NaN
             Constant.INF -> Double.POSITIVE_INFINITY
         }
-        is Expr.Op -> Double.NaN
+        is Expr.Op, is Expr.Mat -> Double.NaN
         is Expr.Add -> e.terms.sumOf { eval(it, env) }
         is Expr.Mul -> e.factors.fold(1.0) { acc, f -> acc * eval(f, env) }
         is Expr.Pow -> power(eval(e.base, env), e.exp, env)

@@ -85,7 +85,7 @@ object Algebra {
         }
         is Expr.Const -> if (e.kind == Constant.INF) null else Polynomial.variable(kernels.name(e))
         is Expr.Fn -> Polynomial.variable(kernels.name(e))
-        is Expr.Op -> null
+        is Expr.Op, is Expr.Mat -> null
     }
 
     /** The polynomial as an expression again, its kernels put back. */

@@ -106,6 +106,11 @@ object TextInput {
             Command.SIMPLIFY -> return Typed(latex(main), Choice(Mode.SIMPLIFY))
             Command.CALCULATE -> return Typed(latex(main), Choice(Mode.CALCULATE))
             Command.PARTIAL_FRACTIONS -> return Typed(latex(main), Choice(Mode.PARTIAL_FRACTIONS))
+            Command.DETERMINANT -> return Typed(latex(main), Choice(Mode.DETERMINANT))
+            Command.INVERSE -> return Typed(latex(main), Choice(Mode.INVERSE))
+            Command.EIGEN -> return Typed(latex(main), Choice(Mode.EIGEN))
+            Command.ROW_REDUCE -> return Typed(latex(main), Choice(Mode.ROW_REDUCE))
+            Command.TRANSPOSE -> return Typed(latex(main), Choice(Mode.TRANSPOSE))
             Command.SERIES -> {
                 // "taylor series of sin x at x = 1", "Taylorreihe von e^x um 0": the point after "at" or "um", 0 where none is.
                 val approach = (slots[Slot.AS] ?: slots[Slot.FOR])?.let { a -> vocabularies.fold(a) { t, v -> v.arrowed(t) } }
@@ -336,7 +341,76 @@ object TextInput {
     // Math typed in a line, to LaTeX.
 
     /** Math typed in a line as the LaTeX the calculator reads: `x^2` → `x^{2}`, `sqrt(2)` → `\sqrt{2}`, `pi` → `\pi`. */
+    /**
+     * [[1, 2], [3, 4]] (and Wolfram's {{1, 2}, {3, 4}}) as \\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}, each entry read as typed math;
+     * anything else as it is.
+     */
+    internal fun matrices(text: String): String {
+        val out = StringBuilder()
+        var k = 0
+        while (k < text.length) {
+            val open = text[k]
+            if ((open == '[' || open == '{') && text.getOrNull(k + 1)?.let { it == open || it.isWhitespace() && text.substring(k + 1).trimStart().startsWith(open) } == true) {
+                val close = if (open == '[') ']' else '}'
+                val end = closing(text, k, open, close)
+                if (end != null) {
+                    val rows = parts(text.substring(k + 1, end), ',').map { it.trim() }
+                    if (rows.all { it.startsWith(open) && it.endsWith(close) }) {
+                        val cells = rows.map { r -> parts(r.substring(1, r.length - 1), ',').map { latex(it.trim()) } }
+                        if (cells.isNotEmpty() && cells.all { it.size == cells[0].size && it.all(String::isNotEmpty) }) {
+                            out.append("\\begin{pmatrix}").append(cells.joinToString("\\\\") { it.joinToString("&") }).append("\\end{pmatrix}")
+                            k = end + 1
+                            continue
+                        }
+                    }
+                }
+            }
+            out.append(open)
+            k++
+        }
+        return out.toString()
+    }
+
+    private fun closing(s: String, at: Int, open: Char, close: Char): Int? {
+        var depth = 0
+        for (j in at until s.length) {
+            if (s[j] == open) depth++
+            if (s[j] == close) { depth--; if (depth == 0) return j }
+        }
+        return null
+    }
+
+    /** [s] split at [separator] outside every bracket. */
+    private fun parts(s: String, separator: Char): List<String> {
+        val out = ArrayList<String>()
+        var depth = 0
+        var start = 0
+        for ((j, c) in s.withIndex()) {
+            if (c == '(' || c == '[' || c == '{') depth++
+            if (c == ')' || c == ']' || c == '}') depth--
+            if (c == separator && depth == 0) { out += s.substring(start, j); start = j + 1 }
+        }
+        out += s.substring(start)
+        return out
+    }
+
     fun latex(math: String): String {
+        if ("[[" in math.replace(" ", "") || "{{" in math.replace(" ", "")) {
+            val withMatrices = matrices(math)
+            if (withMatrices != math) return withMatrices.split("\\begin{pmatrix}").let { pieces ->
+                // The pieces between matrices are typed math as well: [[1,2],[3,4]]^2, 2[[1,0],[0,1]].
+                pieces.mapIndexed { n, piece ->
+                    if (n == 0) latexPlain(piece) else {
+                        val endAt = piece.indexOf("\\end{pmatrix}") + "\\end{pmatrix}".length
+                        "\\begin{pmatrix}" + piece.substring(0, endAt) + latexPlain(piece.substring(endAt))
+                    }
+                }.joinToString("")
+            }
+        }
+        return latexPlain(math)
+    }
+
+    private fun latexPlain(math: String): String {
         val s = symbols(math)
         val out = StringBuilder()
         var i = 0
@@ -573,7 +647,10 @@ object TextInput {
 }
 
 /** What the words in front of a formula ask for. */
-enum class Command { SOLVE, FACTOR, EXPAND, SIMPLIFY, DERIVATIVE, INTEGRAL, LIMIT, SUM, PLOT, CALCULATE, PARTIAL_FRACTIONS, SERIES }
+enum class Command {
+    SOLVE, FACTOR, EXPAND, SIMPLIFY, DERIVATIVE, INTEGRAL, LIMIT, SUM, PLOT, CALCULATE, PARTIAL_FRACTIONS, SERIES,
+    DETERMINANT, INVERSE, EIGEN, ROW_REDUCE, TRANSPOSE,
+}
 
 /**
  * The command words of one language and the words that join a command's parts ("from … to", "for", "with respect to"),
@@ -854,6 +931,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("calculate", "compute", "evaluate", "find", "determine", "what is"),
                 Command.PARTIAL_FRACTIONS to listOf("partial fractions of", "partial fractions", "partial fraction decomposition of", "partial fraction decomposition", "apart"),
                 Command.SERIES to listOf("taylor series of", "taylor series", "taylor polynomial of", "taylor polynomial", "maclaurin series of", "maclaurin series", "series expansion of", "series expansion", "power series of", "series of", "series", "taylor", "maclaurin"),
+                Command.DETERMINANT to listOf("determinant of", "determinant", "det"),
+                Command.INVERSE to listOf("inverse matrix of", "inverse of", "inverse", "invert"),
+                Command.EIGEN to listOf("eigenvalues and eigenvectors of", "eigenvalues of", "eigenvalues", "eigenvectors of", "eigenvectors", "eigenvalue"),
+                Command.ROW_REDUCE to listOf("reduced row echelon form of", "row echelon form of", "row echelon form", "row reduce", "rref of", "rref", "gaussian elimination", "rank of", "rank"),
+                Command.TRANSPOSE to listOf("transpose of", "transpose"),
             ),
             of = setOf("of"),
             from = words("from"),
@@ -882,6 +964,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("berechne", "rechne", "bestimme", "ermittle", "was ist"),
                 Command.PARTIAL_FRACTIONS to listOf("partialbruchzerlegung von", "partialbruchzerlegung", "partialbrüche von", "partialbrüche"),
                 Command.SERIES to listOf("taylorreihe von", "taylorreihe", "taylorpolynom von", "taylorpolynom", "taylorentwicklung von", "taylorentwicklung", "taylor-entwicklung von", "reihenentwicklung von", "reihenentwicklung", "potenzreihe von", "potenzreihe", "maclaurin-reihe von", "maclaurinreihe von", "maclaurinreihe"),
+                Command.DETERMINANT to listOf("determinante von", "determinante"),
+                Command.INVERSE to listOf("inverse matrix von", "inverse von", "kehrmatrix von", "inverse", "invertiere"),
+                Command.EIGEN to listOf("eigenwerte und eigenvektoren von", "eigenwerte von", "eigenwerte", "eigenvektoren von", "eigenvektoren"),
+                Command.ROW_REDUCE to listOf("reduzierte zeilenstufenform von", "zeilenstufenform von", "zeilenstufenform", "gauß-verfahren", "gauss-verfahren", "rang von", "rang"),
+                Command.TRANSPOSE to listOf("transponierte von", "transponierte", "transponiere"),
             ),
             of = setOf("von"),
             from = words("von"),
@@ -909,6 +996,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("calcula", "calcular", "evalúa", "evaluar", "halla", "hallar", "encuentra", "determina", "cuánto es", "cuanto es"),
                 Command.PARTIAL_FRACTIONS to listOf("fracciones parciales de", "fracciones parciales", "descompón en fracciones parciales", "descomposición en fracciones simples de", "descomposición en fracciones simples", "descomposición en fracciones parciales de", "descomposición en fracciones parciales", "descompón en fracciones simples", "descomponer en fracciones simples", "descomponer en fracciones parciales", "fracciones simples de", "fracciones simples"),
                 Command.SERIES to listOf("serie de taylor de", "serie de taylor", "polinomio de taylor de", "polinomio de taylor", "serie de maclaurin de", "serie de maclaurin", "desarrollo en serie de", "desarrollo de taylor de"),
+                Command.DETERMINANT to listOf("determinante de", "determinante"),
+                Command.INVERSE to listOf("matriz inversa de", "inversa de", "inversa"),
+                Command.EIGEN to listOf("valores propios de", "valores propios", "autovalores de", "autovalores", "vectores propios de", "autovectores de"),
+                Command.ROW_REDUCE to listOf("forma escalonada reducida de", "forma escalonada de", "forma escalonada", "escalona", "rango de", "rango"),
+                Command.TRANSPOSE to listOf("traspuesta de", "transpuesta de", "traspuesta", "transpuesta"),
             ),
             of = setOf("de"),
             from = words("de", "desde"),
@@ -937,6 +1029,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("calcule", "calculer", "calculez", "évalue", "détermine", "déterminer", "trouve", "combien fait"),
                 Command.PARTIAL_FRACTIONS to listOf("décompose en éléments simples", "décomposition en éléments simples de", "décomposition en éléments simples", "éléments simples de", "éléments simples", "décomposer en éléments simples", "décomposez en éléments simples"),
                 Command.SERIES to listOf("série de taylor de", "série de taylor", "serie de taylor de", "développement limité de", "développement limité", "developpement limite de", "développement en série de", "polynôme de taylor de", "polynôme de taylor", "série de maclaurin de"),
+                Command.DETERMINANT to listOf("déterminant de", "déterminant", "determinant de"),
+                Command.INVERSE to listOf("matrice inverse de", "inverse de", "inverse"),
+                Command.EIGEN to listOf("valeurs propres de", "valeurs propres", "vecteurs propres de", "vecteurs propres"),
+                Command.ROW_REDUCE to listOf("forme échelonnée réduite de", "forme échelonnée de", "forme échelonnée", "échelonne", "rang de", "rang"),
+                Command.TRANSPOSE to listOf("transposée de", "transposée"),
             ),
             of = setOf("de", "du"),
             from = words("de"),
@@ -966,6 +1063,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("hitunglah", "hitung", "tentukan", "carilah", "cari", "berapa"),
                 Command.PARTIAL_FRACTIONS to listOf("pecahan parsial dari", "pecahan parsial", "uraikan menjadi pecahan parsial", "dekomposisi pecahan parsial dari", "dekomposisi pecahan parsial"),
                 Command.SERIES to listOf("deret taylor dari", "deret taylor", "deret maclaurin dari", "deret maclaurin", "polinomial taylor dari", "polinom taylor dari", "ekspansi deret dari"),
+                Command.DETERMINANT to listOf("determinan dari", "determinan"),
+                Command.INVERSE to listOf("invers matriks dari", "invers dari", "invers"),
+                Command.EIGEN to listOf("nilai eigen dari", "nilai eigen", "vektor eigen dari", "vektor eigen"),
+                Command.ROW_REDUCE to listOf("eselon baris tereduksi dari", "eselon baris dari", "eselon baris", "rank dari"),
+                Command.TRANSPOSE to listOf("transpos dari", "transpose dari", "transpos"),
             ),
             of = setOf("dari"),
             from = words("dari"),
@@ -993,6 +1095,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("calcola", "calcolare", "trova", "determina", "quanto fa"),
                 Command.PARTIAL_FRACTIONS to listOf("fratti semplici di", "fratti semplici", "scomponi in fratti semplici", "decomposizione in fratti semplici di", "decomposizione in fratti semplici", "scomporre in fratti semplici"),
                 Command.SERIES to listOf("serie di taylor di", "serie di taylor", "sviluppo di taylor di", "sviluppo di taylor", "polinomio di taylor di", "polinomio di taylor", "serie di maclaurin di", "sviluppo in serie di", "sviluppo di maclaurin di"),
+                Command.DETERMINANT to listOf("determinante di", "determinante"),
+                Command.INVERSE to listOf("matrice inversa di", "inversa di", "inversa"),
+                Command.EIGEN to listOf("autovalori di", "autovalori", "autovettori di", "autovettori"),
+                Command.ROW_REDUCE to listOf("forma a scala ridotta di", "forma a scala di", "riduci a scala", "rango di", "rango"),
+                Command.TRANSPOSE to listOf("trasposta di", "trasposta"),
             ),
             of = setOf("di", "del", "della"),
             from = words("da"),
@@ -1023,6 +1130,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("bereken", "reken uit", "bepaal", "wat is"),
                 Command.PARTIAL_FRACTIONS to listOf("breuksplitsen", "splits in breuken", "splits in partiële breuken", "partiële breuken van", "partiële breuken", "breuksplitsing van", "breuksplitsing"),
                 Command.SERIES to listOf("taylorreeks van", "taylorreeks", "taylorpolynoom van", "taylorpolynoom", "maclaurinreeks van", "maclaurinreeks", "reeksontwikkeling van", "taylorontwikkeling van"),
+                Command.DETERMINANT to listOf("determinant van", "determinant"),
+                Command.INVERSE to listOf("inverse matrix van", "inverse van", "inverse"),
+                Command.EIGEN to listOf("eigenwaarden van", "eigenwaarden", "eigenvectoren van", "eigenvectoren"),
+                Command.ROW_REDUCE to listOf("rijgereduceerde vorm van", "trapvorm van", "trapvorm", "rang van", "rang"),
+                Command.TRANSPOSE to listOf("getransponeerde van", "getransponeerde", "transponeer"),
             ),
             of = setOf("van"),
             from = words("van"),
@@ -1053,6 +1165,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("oblicz", "wyznacz", "znajdź", "ile wynosi", "ile to"),
                 Command.PARTIAL_FRACTIONS to listOf("rozłóż na ułamki proste", "ułamki proste", "rozkład na ułamki proste", "rozloz na ulamki proste", "rozklad na ulamki proste", "ulamki proste"),
                 Command.SERIES to listOf("rozwiń w szereg taylora", "rozwinięcie w szereg taylora", "szereg taylora funkcji", "szereg taylora", "szereg maclaurina", "wielomian taylora", "rozwin w szereg taylora", "szereg potęgowy"),
+                Command.DETERMINANT to listOf("oblicz wyznacznik", "wyznacznik macierzy", "wyznacznik"),
+                Command.INVERSE to listOf("macierz odwrotna do", "macierz odwrotna", "odwrotność macierzy"),
+                Command.EIGEN to listOf("wartości własne macierzy", "wartości własne", "wektory własne", "wartosci wlasne"),
+                Command.ROW_REDUCE to listOf("sprowadź do postaci schodkowej", "postać schodkowa", "rząd macierzy", "rząd"),
+                Command.TRANSPOSE to listOf("macierz transponowana", "transpozycja", "transponuj"),
             ),
             of = setOf("z"),
             from = words("od"),
@@ -1081,6 +1198,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("calcule", "calcular", "determine", "encontre", "ache", "quanto é", "quanto e"),
                 Command.PARTIAL_FRACTIONS to listOf("frações parciais de", "frações parciais", "decomponha em frações parciais", "decomposição em frações parciais de", "decomposição em frações parciais", "decompor em frações parciais", "decomponha em fracoes parciais", "fracoes parciais de", "fracoes parciais"),
                 Command.SERIES to listOf("série de taylor de", "série de taylor", "serie de taylor de", "polinômio de taylor de", "polinômio de taylor", "série de maclaurin de", "série de maclaurin", "expansão em série de"),
+                Command.DETERMINANT to listOf("determinante de", "determinante"),
+                Command.INVERSE to listOf("matriz inversa de", "inversa de", "inversa"),
+                Command.EIGEN to listOf("autovalores de", "autovalores", "valores próprios de", "autovetores de", "autovetores"),
+                Command.ROW_REDUCE to listOf("forma escalonada reduzida de", "forma escalonada de", "escalone", "posto de", "posto"),
+                Command.TRANSPOSE to listOf("transposta de", "transposta"),
             ),
             of = setOf("de", "da", "do"),
             from = words("de"),
@@ -1109,6 +1231,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("hesaplayın", "hesapla", "bulun", "bul", "kaç eder", "kac eder"),
                 Command.PARTIAL_FRACTIONS to listOf("basit kesirlere ayır", "basit kesirler", "basit kesirlerine ayırınız", "basit kesirlerine ayırın", "basit kesirlerine ayır", "basit kesirlere ayırınız", "basit kesirlere ayırın", "basit kesirlere ayir", "basit kesirlerine ayir"),
                 Command.SERIES to listOf("taylor serisine açınız", "taylor serisine açın", "taylor serisine aç", "taylor serisi", "taylor açılımı", "maclaurin serisi", "taylor polinomu", "taylor serisini bulun", "taylor serisini bul"),
+                Command.DETERMINANT to listOf("determinantını bulun", "determinantını bul", "determinantı", "determinant"),
+                Command.INVERSE to listOf("tersini bulun", "tersini bul", "ters matrisi", "ters matris", "tersi"),
+                Command.EIGEN to listOf("özdeğerlerini bulun", "özdeğerlerini bul", "özdeğerleri", "özvektörleri", "ozdegerleri"),
+                Command.ROW_REDUCE to listOf("satır eşelon formu", "eşelon formu", "rankı", "rank"),
+                Command.TRANSPOSE to listOf("transpozunu bulun", "transpozu", "devriği", "transpoz"),
             ),
             of = emptySet(),
             from = words("'dan", "'den", "'tan", "'ten"),
@@ -1138,6 +1265,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("tính giá trị", "tính", "tinh", "tìm"),
                 Command.PARTIAL_FRACTIONS to listOf("phân tích thành phân thức đơn giản", "phân thức đơn giản", "phân tích thành tổng các phân thức đơn giản", "phân tích thành các phân thức đơn giản"),
                 Command.SERIES to listOf("chuỗi taylor của", "chuỗi taylor", "khai triển taylor của", "khai triển taylor", "chuỗi maclaurin của", "chuỗi maclaurin", "đa thức taylor của", "khai triển thành chuỗi taylor"),
+                Command.DETERMINANT to listOf("định thức của", "định thức"),
+                Command.INVERSE to listOf("ma trận nghịch đảo của", "nghịch đảo của", "nghịch đảo"),
+                Command.EIGEN to listOf("giá trị riêng của", "giá trị riêng", "vectơ riêng của", "vectơ riêng"),
+                Command.ROW_REDUCE to listOf("dạng bậc thang rút gọn của", "dạng bậc thang của", "dạng bậc thang", "hạng của", "hạng"),
+                Command.TRANSPOSE to listOf("ma trận chuyển vị của", "chuyển vị của", "chuyển vị"),
             ),
             of = setOf("của"),
             from = words("từ"),
@@ -1164,6 +1296,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("вычисли", "вычислите", "вычислить", "посчитай", "найди значение", "найдите значение", "сколько будет"),
                 Command.PARTIAL_FRACTIONS to listOf("разложи на простейшие дроби", "разложите на простейшие дроби", "простейшие дроби", "разложить на простейшие дроби", "разложение на простейшие дроби"),
                 Command.SERIES to listOf("разложи в ряд тейлора", "разложите в ряд тейлора", "разложить в ряд тейлора", "разложение в ряд тейлора", "ряд тейлора", "ряд маклорена", "многочлен тейлора", "разложи в ряд маклорена", "разложите в ряд маклорена"),
+                Command.DETERMINANT to listOf("найдите определитель", "найди определитель", "определитель", "детерминант"),
+                Command.INVERSE to listOf("найдите обратную матрицу", "найди обратную матрицу", "обратная матрица", "обратную матрицу"),
+                Command.EIGEN to listOf("найдите собственные значения", "собственные значения", "собственные векторы"),
+                Command.ROW_REDUCE to listOf("приведите к ступенчатому виду", "ступенчатый вид", "ранг матрицы", "ранг"),
+                Command.TRANSPOSE to listOf("транспонированная матрица", "транспонируйте", "транспонировать"),
             ),
             of = setOf("от"),
             from = words("от"),
@@ -1190,6 +1327,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("обчисли", "обчисліть", "порахуй", "скільки буде"),
                 Command.PARTIAL_FRACTIONS to listOf("розклади на найпростіші дроби", "розкладіть на найпростіші дроби", "найпростіші дроби", "розкласти на найпростіші дроби", "розклад на найпростіші дроби"),
                 Command.SERIES to listOf("розклади в ряд тейлора", "розкладіть в ряд тейлора", "розкласти в ряд тейлора", "розклад у ряд тейлора", "ряд тейлора", "ряд маклорена", "многочлен тейлора"),
+                Command.DETERMINANT to listOf("знайдіть визначник", "визначник"),
+                Command.INVERSE to listOf("знайдіть обернену матрицю", "обернена матриця", "обернену матрицю"),
+                Command.EIGEN to listOf("знайдіть власні значення", "власні значення", "власні вектори"),
+                Command.ROW_REDUCE to listOf("зведіть до східчастого вигляду", "східчастий вигляд", "ранг матриці", "ранг"),
+                Command.TRANSPOSE to listOf("транспонована матриця", "транспонуйте"),
             ),
             of = setOf("від"),
             from = words("від"),
@@ -1216,6 +1358,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("احسب", "كم يساوي"),
                 Command.PARTIAL_FRACTIONS to listOf("الكسور الجزئية", "كسور جزئية", "حلل إلى كسور جزئية", "حلل الى كسور جزئية", "حللوا إلى كسور جزئية", "حللوا الى كسور جزئية"),
                 Command.SERIES to listOf("متسلسلة تايلور", "متسلسلة ماكلورين", "مفكوك تايلور", "سلسلة تايلور", "منشور تايلور"),
+                Command.DETERMINANT to listOf("محدد المصفوفة", "المحدد", "محدد"),
+                Command.INVERSE to listOf("معكوس المصفوفة", "المعكوس", "معكوس"),
+                Command.EIGEN to listOf("القيم الذاتية للمصفوفة", "القيم الذاتية", "المتجهات الذاتية"),
+                Command.ROW_REDUCE to listOf("الصيغة الدرجية", "رتبة المصفوفة", "الرتبة"),
+                Command.TRANSPOSE to listOf("منقول المصفوفة", "المنقول", "منقول"),
             ),
             of = emptySet(),
             from = words("من"),
@@ -1240,6 +1387,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("חשב", "חשבי", "חשבו", "כמה זה"),
                 Command.PARTIAL_FRACTIONS to listOf("פירוק לשברים חלקיים", "שברים חלקיים", "פרק לשברים חלקיים", "פרקו לשברים חלקיים", "פרקי לשברים חלקיים"),
                 Command.SERIES to listOf("טור טיילור של", "טור טיילור", "פולינום טיילור של", "פולינום טיילור", "טור מקלורן של", "טור מקלורן"),
+                Command.DETERMINANT to listOf("דטרמיננטה של", "דטרמיננטה"),
+                Command.INVERSE to listOf("מטריצה הופכית של", "ההופכית של", "הופכית"),
+                Command.EIGEN to listOf("ערכים עצמיים של", "ערכים עצמיים", "וקטורים עצמיים של", "וקטורים עצמיים"),
+                Command.ROW_REDUCE to listOf("צורה מדורגת של", "צורה מדורגת", "דרגה של", "דרגה"),
+                Command.TRANSPOSE to listOf("מטריצה משוחלפת של", "שחלוף של", "משוחלפת"),
             ),
             of = setOf("של"),
             from = words("מ", "החל מ"),
@@ -1266,6 +1418,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("गणना", "परिकलन", "कितना है"),
                 Command.PARTIAL_FRACTIONS to listOf("आंशिक भिन्न", "आंशिक भिन्नों में", "आंशिक भिन्नों"),
                 Command.SERIES to listOf("टेलर श्रेणी", "मैक्लॉरिन श्रेणी", "टेलर प्रसार", "टेलर श्रेणी ज्ञात कीजिए"),
+                Command.DETERMINANT to listOf("सारणिक ज्ञात कीजिए", "सारणिक"),
+                Command.INVERSE to listOf("व्युत्क्रम आव्यूह", "व्युत्क्रम"),
+                Command.EIGEN to listOf("अभिलक्षणिक मान", "आइगेन मान"),
+                Command.ROW_REDUCE to listOf("पंक्ति सोपानक रूप", "कोटि"),
+                Command.TRANSPOSE to listOf("परिवर्त आव्यूह", "परिवर्त"),
             ),
             of = setOf("का", "की", "के"),
             from = words("से"),
@@ -1298,6 +1455,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("計算", "の値"),
                 Command.PARTIAL_FRACTIONS to listOf("部分分数分解", "部分分数に分解"),
                 Command.SERIES to listOf("テイラー展開", "マクローリン展開", "テイラー級数", "マクローリン級数"),
+                Command.DETERMINANT to listOf("行列式"),
+                Command.INVERSE to listOf("逆行列"),
+                Command.EIGEN to listOf("固有値と固有ベクトル", "固有値", "固有ベクトル"),
+                Command.ROW_REDUCE to listOf("階段行列", "簡約化", "階数", "ランク"),
+                Command.TRANSPOSE to listOf("転置行列", "転置"),
             ),
             of = setOf("の"),
             from = words("から"),
@@ -1329,6 +1491,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("계산", "값 구하기", "의 값"),
                 Command.PARTIAL_FRACTIONS to listOf("부분분수로 분해", "부분분수", "부분분수분해", "부분분수 분해"),
                 Command.SERIES to listOf("테일러 급수", "테일러 전개", "테일러급수", "테일러전개", "매클로린 급수", "매클로린급수", "테일러 다항식"),
+                Command.DETERMINANT to listOf("행렬식"),
+                Command.INVERSE to listOf("역행렬"),
+                Command.EIGEN to listOf("고윳값과 고유벡터", "고윳값", "고유값", "고유벡터"),
+                Command.ROW_REDUCE to listOf("기약 행 사다리꼴", "행 사다리꼴", "랭크"),
+                Command.TRANSPOSE to listOf("전치행렬", "전치 행렬", "전치"),
             ),
             of = setOf("의"),
             from = words("부터", "에서"),
@@ -1359,6 +1526,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("คำนวณ", "หาค่า"),
                 Command.PARTIAL_FRACTIONS to listOf("แยกเศษส่วนย่อย", "เศษส่วนย่อย", "แยกเป็นเศษส่วนย่อย"),
                 Command.SERIES to listOf("อนุกรมเทย์เลอร์ของ", "อนุกรมเทย์เลอร์", "อนุกรมแมคลอรินของ", "อนุกรมแมคลอริน", "พหุนามเทย์เลอร์"),
+                Command.DETERMINANT to listOf("ดีเทอร์มิแนนต์ของ", "ดีเทอร์มิแนนต์"),
+                Command.INVERSE to listOf("อินเวอร์สของเมทริกซ์", "เมทริกซ์ผกผันของ", "อินเวอร์สของ", "เมทริกซ์ผกผัน"),
+                Command.EIGEN to listOf("ค่าลักษณะเฉพาะของ", "ค่าลักษณะเฉพาะ", "เวกเตอร์ลักษณะเฉพาะ"),
+                Command.ROW_REDUCE to listOf("รูปแบบขั้นบันไดแบบลดรูป", "รูปแบบขั้นบันได", "แรงก์ของ", "แรงก์"),
+                Command.TRANSPOSE to listOf("ทรานสโพสของ", "เมทริกซ์สลับเปลี่ยน", "ทรานสโพส"),
             ),
             of = setOf("ของ"),
             from = words("จาก"),
@@ -1386,6 +1558,11 @@ class Vocabulary internal constructor(
                 Command.CALCULATE to listOf("计算", "計算", "求值", "等于多少", "等於多少"),
                 Command.PARTIAL_FRACTIONS to listOf("部分分式分解", "部分分式", "分解为部分分式", "分解成部分分式", "化为部分分式", "分解為部分分式", "化為部分分式", "化成部分分式"),
                 Command.SERIES to listOf("泰勒级数", "泰勒展开式", "泰勒展开", "麦克劳林级数", "麦克劳林展开", "泰勒級數", "泰勒展開式", "泰勒展開", "麥克勞林級數", "泰勒多项式", "泰勒多項式"),
+                Command.DETERMINANT to listOf("行列式"),
+                Command.INVERSE to listOf("求逆矩阵", "逆矩阵", "反矩陣", "逆矩陣"),
+                Command.EIGEN to listOf("特征值和特征向量", "特征值", "特征向量", "特徵值", "特徵向量"),
+                Command.ROW_REDUCE to listOf("化为行最简形", "行最简形", "行阶梯形", "列梯形", "秩"),
+                Command.TRANSPOSE to listOf("转置矩阵", "转置", "轉置矩陣", "轉置"),
             ),
             of = setOf("的"),
             from = words("从", "從"),

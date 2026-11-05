@@ -104,7 +104,7 @@ object Precise {
             is Expr.Mul -> e.factors.fold(CBall.ONE) { acc, f -> acc.mul(eval(f, w, complex, env), w) }
             is Expr.Pow -> power(e, w, complex, env)
             is Expr.Fn -> function(e.f, e.args, w, complex, env)
-            is Expr.Op -> throw CalcException(Failure.UNREADABLE)
+            is Expr.Op, is Expr.Mat -> throw CalcException(Failure.UNREADABLE)
         }
         if (!complex && !z.isReal) {
             if (z.im.containsZero()) throw Imprecise()

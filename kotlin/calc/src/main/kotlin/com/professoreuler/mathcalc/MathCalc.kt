@@ -31,6 +31,10 @@ enum class Failure {
     UNSOLVED,
     /** Working it out took longer than a calculation may (about three seconds). */
     TOO_LONG,
+    /** A square matrix with determinant 0: it has no inverse. */
+    SINGULAR,
+    /** Matrices or vectors whose sizes do not fit the operation: a 2 × 3 matrix times a 2 × 2 one. */
+    SIZES,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -83,6 +87,16 @@ enum class Mode {
     EXTREMA,
     /** A function of x and y as a surface z = f(x, y), turned by a finger. */
     SURFACE,
+    /** A square matrix's determinant. */
+    DETERMINANT,
+    /** A square matrix's inverse, checked: A·A⁻¹ = I. */
+    INVERSE,
+    /** A square matrix's eigenvalues and eigenvectors, with its characteristic polynomial. */
+    EIGEN,
+    /** A matrix in reduced row echelon form, with its row operations, rank and null space. */
+    ROW_REDUCE,
+    /** A matrix with its rows as columns. */
+    TRANSPOSE,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -171,6 +185,14 @@ sealed class Outcome {
      * (checked by putting it in), with what the second-derivative test makes of it and the function's value there.
      */
     data class Critical(val letters: List<String>, val gradient: List<Expr>, val hessian: List<List<Expr>>, val points: List<CriticalPoint>) : Outcome()
+
+    /** A matrix in reduced row echelon [form], its [rank], the row [operations] that made it and a basis of its [nullSpace]. */
+    data class RowReduced(val form: Expr.Mat, val rank: Int, val operations: List<LinAlg.RowOp>, val nullSpace: List<Expr.Mat>) : Outcome()
+
+    /** A square matrix's [characteristic] polynomial det(λI − A) and its eigenvalues, each with its eigenvectors. */
+    data class Eigenvalues(val characteristic: Expr, val values: List<LinAlg.Eigen>,
+        /** P and D of A = P·D·P⁻¹ where A can be diagonalized. */
+        val diagonal: Pair<Expr.Mat, Expr.Mat>? = null) : Outcome()
 
     /** z = [function] of [x] and [y], drawn as a surface. */
     data class Surface(val function: Expr, val x: String, val y: String) : Outcome()
@@ -327,6 +349,16 @@ object MathCalc {
         val sides = written.map { Calculus.evaluate(it) }
         val wroteCalculus = written.any { it.hasOp() }
         val letters = sides.flatMap { it.symbols() }.toSortedSet().toList()
+
+        // A matrix or a vector, worked out where it was written (a product, a power, a transpose).
+        val lastSide = sides.last()
+        if (!equation && lastSide is Expr.Mat) {
+            val text = s.texts.lastOrNull { it.isNotBlank() }.orEmpty()
+            // Written as it is: one matrix and nothing after its \end (no power, no transpose).
+            val literal = text.split("\\begin").size == 2 && text.trim().startsWith("\\begin") &&
+                Regex("""\\end\{[a-zA-Z]+\}\s*$""").containsMatchIn(text)
+            return matrixPlan(lastSide, literal)
+        }
 
         if (equation && relations.any { it.isInequality || it == Rel.NE }) return inequalityPlan(sides, relations, letters)
 
@@ -529,6 +561,43 @@ object MathCalc {
 
     /** An exact form worth showing: roots, π, e, logarithms of numbers; not sin(47°), whose decimal says more. */
     private val COORDINATES = setOf("x", "y", "z")
+
+    /**
+     * A matrix: for a square one its determinant (the likeliest where it was written as it is), inverse and eigenvalues; for any
+     * its row echelon form and its transpose; a matrix worked out from others (A·B, A²) or a vector is shown as it came out.
+     */
+    private fun matrixPlan(m: Expr.Mat, literal: Boolean): Plan {
+        val square = m.size == m.columns
+        val vector = LinAlg.isVector(m)
+        val choices = ArrayList<Choice>()
+        if (!literal || vector) choices += Choice(Mode.CALCULATE)
+        if (square) {
+            choices += Choice(Mode.DETERMINANT)
+            choices += Choice(Mode.INVERSE)
+            choices += Choice(Mode.EIGEN)
+        }
+        if (!vector) choices += Choice(Mode.ROW_REDUCE)
+        choices += Choice(Mode.TRANSPOSE)
+        val likeliest = when {
+            !literal || vector -> Choice(Mode.CALCULATE)
+            square -> Choice(Mode.DETERMINANT)
+            else -> Choice(Mode.ROW_REDUCE)
+        }
+        return Plan(choices, likeliest) { c ->
+            when (c.mode) {
+                Mode.CALCULATE -> Outcome.Expression(m)
+                Mode.DETERMINANT -> LinAlg.det(m).let { d -> if (d.symbols().isEmpty()) value(d, emptyList(), emptyList()) else Outcome.Expression(d) }
+                Mode.INVERSE -> Outcome.Expression(LinAlg.inverse(m))
+                Mode.TRANSPOSE -> Outcome.Expression(LinAlg.transpose(m))
+                Mode.ROW_REDUCE -> LinAlg.echelon(m).let { e -> Outcome.RowReduced(e.form, e.rank, e.ops, LinAlg.nullSpace(m)) }
+                Mode.EIGEN -> {
+                    val eigen = LinAlg.eigen(m) ?: throw CalcException(Failure.UNSOLVED)
+                    Outcome.Eigenvalues(LinAlg.characteristic(m), eigen, LinAlg.diagonalization(m, eigen))
+                }
+                else -> throw CalcException(Failure.UNREADABLE)
+            }
+        }
+    }
 
     /**
      * The critical points of [f] in [names]: the gradient's zeros by the system solver (real ones, each put back into every

@@ -115,7 +115,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     fun statements(): List<Statement> {
         val out = mutableListOf<Statement>()
         if (peek() == "\\{") i++
-        if (peek() == "\\begin") {
+        if (peek() == "\\begin" && environmentAt(i) !in MATRICES) {
             i++
             groupTokens()
             if (peek() == "{") groupTokens() // an array's column specification
@@ -178,7 +178,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     fun expression(): Expr {
         var left = when (peek()) {
-            "-" -> { i++; neg(term()) }
+            "-" -> { i++; negative(term()) }
             "+" -> { i++; term() }
             "\\pm" -> { i++; flags.plusMinus = true; mul(num(pmSign.toLong()), term()) }
             "\\mp" -> { i++; flags.plusMinus = true; mul(num(-pmSign.toLong()), term()) }
@@ -186,8 +186,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         }
         while (true) {
             left = when (peek()) {
-                "+" -> { i++; add(left, term()) }
-                "-" -> { i++; add(left, neg(term())) }
+                "+" -> { i++; sum(left, term()) }
+                "-" -> { i++; sum(left, negative(term())) }
                 "\\pm" -> { i++; flags.plusMinus = true; add(left, mul(num(pmSign.toLong()), term())) }
                 "\\mp" -> { i++; flags.plusMinus = true; add(left, mul(num(-pmSign.toLong()), term())) }
                 else -> return left
@@ -200,27 +200,42 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         while (true) {
             val op = peek() ?: return left
             left = when {
-                op in TIMES -> { i++; mul(left, factor()) }
+                op in TIMES -> { i++; product(left, factor(), op) }
                 op in DIVIDE -> { i++; divide(left, factor()) }
-                startsFactor(op) -> mul(left, factor())
+                startsFactor(op) -> product(left, factor(), null)
                 else -> return left
             }
         }
     }
 
+    /** a + b, of matrices by [LinAlg]: a matrix is worked out where it is written. */
+    private fun sum(a: Expr, b: Expr): Expr = if (a is Expr.Mat || b is Expr.Mat) LinAlg.plus(a, b) else add(a, b)
+
+    private fun negative(a: Expr): Expr = if (a is Expr.Mat) LinAlg.scale(a, Expr.MINUS_ONE) else neg(a)
+
+    /** a·b in the order written: × of two vectors of three is their cross product, · their dot product. */
+    private fun product(a: Expr, b: Expr, op: String?): Expr = when {
+        a is Expr.Mat && b is Expr.Mat && op == "\\times" && LinAlg.isVector(a) && LinAlg.isVector(b) -> LinAlg.cross(a, b)
+        a is Expr.Mat || b is Expr.Mat -> LinAlg.times(a, b)
+        else -> mul(a, b)
+    }
+
     private fun divide(a: Expr, b: Expr): Expr {
+        if (b is Expr.Mat) throw CalcException(Failure.SIZES)
+        if (a is Expr.Mat) return LinAlg.scale(a, pow(b, Expr.MINUS_ONE))
         if (isZero(b)) throw CalcException(Failure.DIVISION_BY_ZERO)
         return mul(a, pow(b, Expr.MINUS_ONE))
     }
 
     private fun startsFactor(op: String) = isDigit(op) || isLetter(op) || op == "(" || op == "[" || op == "\\frac" ||
+        op == "\\begin" || op == "\\det" ||
         op == "\\sqrt" || op == "\\pi" || op == "\\infty" || op in FUNCTION_COMMANDS || op in GREEK || op == "\\int" ||
         op == "\\sum" || op == "\\prod" || op == "\\lim" || op == "\\lfloor" || op == "\\lceil" || (op == "|" && absDepth == 0)
 
     private fun factor(): Expr {
         if (peek() == "-") {
             i++
-            return neg(factor())
+            return negative(factor())
         }
         var node = power()
         while (true) {
@@ -268,7 +283,87 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             repeat(primes) { e = derivativeOf(e) }
             return e
         }
+        // A matrix: Aᵀ, A⁻¹, Aⁿ.
+        if (base is Expr.Mat) {
+            if (peek() == "T" || peek() == "\\top" || (peek() == "{" && (peek(1) == "T" || peek(1) == "\\top") && peek(2) == "}")) {
+                i += if (peek() == "{") 3 else 1
+                return LinAlg.transpose(base)
+            }
+            val n = integer(group())?.takeIf { it.bitLength() < 31 } ?: throw unreadable()
+            return LinAlg.power(base, n.toInt())
+        }
         return pow(base, group())
+    }
+
+    /** The name of the environment a \\begin at [k] opens: pmatrix, cases. */
+    private fun environmentAt(k: Int): String {
+        if (t.getOrNull(k) != "\\begin" || t.getOrNull(k + 1) != "{") return ""
+        val out = StringBuilder()
+        var j = k + 2
+        while (j < t.size && t[j] != "}") out.append(t[j++])
+        return out.toString()
+    }
+
+    /** \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix} (bmatrix, matrix, Bmatrix too; vmatrix is the determinant). */
+    private fun matrix(): Expr {
+        val kind = environmentAt(i)
+        i++
+        groupTokens()
+        val rows = ArrayList<List<Expr>>()
+        var row = ArrayList<Expr>()
+        while (true) {
+            if (peek() == "\\end") break
+            if (peek() == null) throw unreadable()
+            row += expression()
+            when (peek()) {
+                "&" -> i++
+                "\\\\" -> { i++; rows += row; row = ArrayList() }
+                "\\end" -> {}
+                else -> throw unreadable()
+            }
+        }
+        if (row.isNotEmpty()) rows += row
+        i++
+        groupTokens()
+        val m = LinAlg.matrix(rows)
+        return if (kind == "vmatrix") LinAlg.det(m) else m
+    }
+
+    /** Inside a vector's brackets a comma separates its entries: never a decimal comma there. */
+    private var listDepth = 0
+
+    /**
+     * Whether the bracket at the cursor is a vector: [1, 2] with any comma; (1, 2, 3) with two or more, or one that is not
+     * between two digits ((x, y)). (1,5) alone keeps its decimal comma, as a learner who writes decimal commas means it.
+     */
+    private fun listAhead(open: String, close: String): Boolean {
+        var depth = 0
+        var commas = 0
+        var notBetweenDigits = false
+        var k = i
+        while (k < t.size) {
+            val s = t[k]
+            if (s == "(" || s == "[" || s == "{") depth++
+            if (s == ")" || s == "]" || s == "}") {
+                depth--
+                if (depth == 0) break
+            }
+            if (depth == 1 && s == ",") {
+                commas++
+                if (!isDigit(t.getOrNull(k - 1)) || !isDigit(t.getOrNull(k + 1))) notBetweenDigits = true
+            }
+            k++
+        }
+        if (commas == 0) return false
+        return open == "[" || commas >= 2 || notBetweenDigits
+    }
+
+    /** After the first entry of (…) or […]: a comma makes it a vector, (1, 2, 3). */
+    private fun vectorRest(first: Expr, close: String): Expr {
+        val entries = arrayListOf(first)
+        while (peek() == ",") { i++; entries += expression() }
+        expect(close)
+        return LinAlg.column(entries)
     }
 
     /** A braced expression, or the single digit, letter or constant LaTeX takes without braces (`x^2`). */
@@ -304,8 +399,21 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         return when {
             isDigit(tok) -> number()
             (tok == "." || tok == ",") && isDigit(peek(1)) -> number()
-            tok == "(" -> bracket("(", ")")
-            tok == "[" -> bracket("[", "]")
+            tok == "(" || tok == "[" -> {
+                val close = if (tok == "(") ")" else "]"
+                val list = listAhead(tok, close)
+                i++
+                if (list) listDepth++
+                try {
+                    val e = expression()
+                    if (list && peek() == ",") vectorRest(e, close) else { expect(close); e }
+                } finally {
+                    if (list) listDepth--
+                }
+            }
+            tok == "\\begin" && environmentAt(i) in MATRICES -> matrix()
+            // det A, \\det(A): the determinant of the matrix after it.
+            tok == "\\det" -> { i++; val m = factor(); if (m is Expr.Mat) LinAlg.det(m) else throw unreadable() }
             tok == "{" -> braced()
             tok == "|" || tok == "\\|" -> {
                 i++
@@ -313,7 +421,12 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                 val e = expression()
                 expect(tok)
                 absDepth--
-                fn(Func.ABS, e)
+                // |v| of a vector is its length, |A| of a square matrix its determinant.
+                when {
+                    e is Expr.Mat && LinAlg.isVector(e) -> LinAlg.norm(e)
+                    e is Expr.Mat -> LinAlg.det(e)
+                    else -> fn(Func.ABS, e)
+                }
             }
             tok == "\\lfloor" -> { i++; val e = expression(); expect("\\rfloor"); fn(Func.FLOOR, e) }
             tok == "\\lceil" -> { i++; val e = expression(); expect("\\rceil"); fn(Func.CEIL, e) }
@@ -342,7 +455,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         val whole = StringBuilder()
         while (isDigit(peek())) whole.append(t[i++])
         val separator = peek()
-        if ((separator == "." || separator == ",") && isDigit(peek(1))) {
+        if ((separator == "." || (separator == "," && listDepth == 0)) && isDigit(peek(1))) {
             i++
             val fraction = StringBuilder()
             while (isDigit(peek())) fraction.append(t[i++])
@@ -708,6 +821,9 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     companion object {
         private val TIMES = setOf("\\cdot", "\\times", "*", "\\ast", "\\bullet")
+
+        /** The environments of a matrix. */
+        private val MATRICES = setOf("pmatrix", "bmatrix", "matrix", "Bmatrix", "vmatrix")
         private val DIVIDE = setOf(":", "\\div", "/")
         /** Longest first, so `arcsin` is not read as `a r c sin` and `sinh` not as `sin h`. */
         private val FUNCTIONS = listOf("lambertw", "besselj", "digamma", "arcsin", "arccos", "arctan", "arccot", "gamma",

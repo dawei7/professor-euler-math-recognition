@@ -31,6 +31,10 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
         "(" + o.letters.joinToString(", ") { c.text(p.at.getValue(it)) } + ") " + p.kind.name.lowercase() + " " + c.textValue(p.value)
     }
     is Outcome.Surface -> "surface " + c.text(o.function)
+    is Outcome.RowReduced -> c.text(o.form) + " rank ${o.rank}" + (if (o.nullSpace.isNotEmpty()) " null " + o.nullSpace.joinToString(" ") { c.text(it) } else "")
+    is Outcome.Eigenvalues -> o.values.joinToString("; ") { e ->
+        c.text(e.value) + (if (e.multiplicity > 1) " (${e.multiplicity}×)" else "") + ": " + e.vectors.joinToString(" ") { c.text(it) }
+    }
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))

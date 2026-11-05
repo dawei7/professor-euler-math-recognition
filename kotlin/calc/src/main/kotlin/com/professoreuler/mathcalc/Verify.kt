@@ -123,7 +123,7 @@ object Verify {
         is Expr.Mul -> e.factors.fold(Cx(1.0)) { acc, f -> acc * value(f, env) }
         is Expr.Pow -> power(e, env)
         is Expr.Fn -> function(e.f, e.args.map { value(it, env) })
-        is Expr.Op -> Cx.NAN
+        is Expr.Op, is Expr.Mat -> Cx.NAN
     }
 
     private fun power(p: Expr.Pow, env: Map<String, Double>): Cx {
