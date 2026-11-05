@@ -92,6 +92,9 @@ internal class Flags(val assumptions: Assumptions = Assumptions()) {
 
     /** The readings the formula met that could have gone two ways, in the order met. */
     val met = LinkedHashSet<Ambiguity>()
+
+    /** The modulus of each line written as a congruence (x ≡ 2 (mod 3), x mod 3 = 2), by the line's index. */
+    val moduli = HashMap<Int, BigInteger>()
 }
 
 /**
@@ -107,6 +110,10 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     private val t: List<String> = clean(tokens)
     private var i = 0
     private var absDepth = 0
+
+    /** The index of the line being read, and whether it was written with ≡. */
+    private var line = -1
+    private var congruence = false
 
     val decimalComma get() = flags.decimalComma
     val decimals get() = flags.decimals
@@ -139,6 +146,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     }
 
     private fun statement(stopAt: Set<String>): Statement {
+        line++
+        congruence = false
         val sides = mutableListOf<Expr?>()
         val relations = mutableListOf<Rel>()
         val texts = mutableListOf<String>()
@@ -156,9 +165,11 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             val atEnd = i == t.size || peek() in stopAt || relationAt(0) != null || peek() == "&"
             sides += if (atEnd) null else expression()
             texts += t.subList(start, i).joinToString("")
+            modulus()
             if (peek() == "&") i++
             if (i == t.size || peek() in stopAt) return Statement(sides, relations, texts, definition)
             val rel = relationAt(0) ?: throw unreadable()
+            if (peek() == "\\equiv" || peek() == "≡") congruence = true
             i += relationLength(0)
             if (peek() == "&") i++
             relations += rel
@@ -166,13 +177,37 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     }
 
     private fun relationAt(k: Int): Rel? = when (peek(k)) {
-        "=", "\\approx" -> Rel.EQ
+        "=", "\\approx", "\\equiv", "≡" -> Rel.EQ
         "<" -> if (peek(k + 1) == "=") Rel.LE else Rel.LT
         ">" -> if (peek(k + 1) == "=") Rel.GE else Rel.GT
         "\\le", "\\leq", "\\leqslant" -> Rel.LE
         "\\ge", "\\geq", "\\geqslant" -> Rel.GE
         "\\ne", "\\neq" -> Rel.NE
         else -> null
+    }
+
+    /** How many tokens a mod at [k] takes: \bmod, \mod, or the letters m o d on their own. */
+    private fun modAt(k: Int = 0): Int = when {
+        peek(k) == "\\bmod" || peek(k) == "\\mod" -> 1
+        peek(k) == "m" && peek(k + 1) == "o" && peek(k + 2) == "d" && !isLetter(peek(k + 3)) -> 3
+        else -> 0
+    }
+
+    /** A modulus after a side: \pmod{7}, (\mod 7), or mod 7 in a congruence, kept for the line. */
+    private fun modulus() {
+        val m = when {
+            peek() == "\\pmod" -> { i++; group() }
+            peek() == "(" && modAt(1) > 0 -> {
+                i += 1 + modAt(1)
+                val e = expression()
+                expect(")")
+                e
+            }
+            congruence && modAt() > 0 -> { i += modAt(); factor() }
+            else -> return
+        }
+        val n = integer(m)?.abs()?.takeIf { it > BigInteger.ONE } ?: throw CalcException(Failure.UNDEFINED)
+        flags.moduli[line] = n
     }
 
     private fun relationLength(k: Int): Int = if ((peek(k) == "<" || peek(k) == ">") && peek(k + 1) == "=") 2 else 1
@@ -202,6 +237,27 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         var left = factor()
         while (true) {
             val op = peek() ?: return left
+            // (\mod 7) after a side is its line's modulus, and so is mod after ≡.
+            if (op == "(" && modAt(1) > 0) return left
+            val mod = modAt()
+            if (mod > 0) {
+                if (congruence) return left
+                i += mod
+                val m = factor()
+                val a = integer(left)
+                val n = integer(m)?.abs()
+                if (n == null || n.signum() == 0) throw CalcException(Failure.UNDEFINED)
+                if (a != null) {
+                    left = num(Rational.of(a.mod(n)))
+                    continue
+                }
+                // x mod 3 = 2: the line is a congruence modulo 3.
+                if (n > BigInteger.ONE && flags.moduli[line] == null) {
+                    flags.moduli[line] = n
+                    continue
+                }
+                throw unreadable()
+            }
             left = when {
                 op in TIMES -> { i++; product(left, factor(), op) }
                 op in DIVIDE -> { i++; divide(left, factor()) }
@@ -450,6 +506,15 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             tok == "\\lfloor" -> { i++; val e = expression(); expect("\\rfloor"); fn(Func.FLOOR, e) }
             tok == "\\lceil" -> { i++; val e = expression(); expect("\\rceil"); fn(Func.CEIL, e) }
             tok == "\\frac" -> fraction()
+            tok == "\\gcd" -> { i++; numberFunction("gcd") ?: throw unreadable() }
+            tok == "\\binom" || tok == "\\dbinom" || tok == "\\tbinom" -> {
+                i++
+                val n = group()
+                val k = group()
+                if (n.symbols().isEmpty() && k.symbols().isEmpty()) Discrete.binomial(n, k)
+                else mul(fn(Func.FACTORIAL, n), pow(mul(fn(Func.FACTORIAL, k), fn(Func.FACTORIAL, add(n, neg(k)))), Expr.MINUS_ONE))
+            }
+            tok in NUMBER_GREEK && peek(1) == "(" -> { i++; numberFunction(NUMBER_GREEK.getValue(tok)) ?: Expr.Sym(tok) }
             tok == "\\sqrt" -> {
                 i++
                 val index = if (peek() == "[") bracket("[", "]") else Expr.TWO
@@ -641,6 +706,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     /** A function written in letters, lim, or else one letter: e, i, or a letter (with its subscript, as `x_{1}`). */
     private fun letters(): Expr {
+        numberFunction()?.let { return it }
         val run = lettersFrom(i)
         if (run.startsWith("lim") && peek(3) == "_") {
             i += 3
@@ -652,6 +718,54 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             return call(name)
         }
         return letter(t[i++])
+    }
+
+    /**
+     * gcd(12, 18), binom(5, 2), mean(1, 2, 3), binompdf(10, 0.5, 3): a number function of numbers, worked out here ([Discrete]);
+     * null where the letters are no such name or its arguments are no numbers (mu(x + 1) is then m·u·(x + 1)).
+     */
+    private fun numberFunction(name0: String? = null): Expr? {
+        val word = name0 ?: buildString { while (length < 12 && isLetter(t.getOrNull(i + length))) append(t[i + length]) }
+        var name = word.lowercase()
+        var length = if (name0 != null) 0 else word.length
+        if (name == "stirling" && peek(length) == "1") { name = "stirling1"; length++ }
+        if (name !in Discrete.NAMES || peek(length) != "(") return null
+        val save = i
+        i += length
+        val args = arguments()
+        if (args == null) { i = save; return null }
+        return Discrete.call(name, args) ?: run { i = save; null }
+    }
+
+    /** (a, b, c) of a function: separated by commas, or by semicolons where a semicolon stands (decimal commas: 1,5; 2,5). */
+    private fun arguments(): List<Expr>? {
+        if (peek() != "(") return null
+        var depth = 0
+        var semicolons = false
+        for (k in i until t.size) {
+            if (t[k] == "(" || t[k] == "[" || t[k] == "{") depth++
+            if (t[k] == ")" || t[k] == "]" || t[k] == "}") depth--
+            if (depth == 1 && t[k] == ";") semicolons = true
+            if (depth == 0) break
+        }
+        i++
+        if (!semicolons) listDepth++
+        try {
+            val out = ArrayList<Expr>()
+            while (true) {
+                out += Calculus.evaluate(expression())
+                when {
+                    peek() == ";" || (!semicolons && peek() == ",") -> i++
+                    peek() == ")" -> { i++; return out }
+                    else -> return null
+                }
+            }
+        } catch (e: CalcException) {
+            if (e.failure == Failure.TOO_LONG) throw e
+            return null
+        } finally {
+            if (!semicolons) listDepth--
+        }
     }
 
     private fun letter(tok: String): Expr {
@@ -869,6 +983,9 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         private val FUNCTIONS = listOf("lambertw", "besselj", "digamma", "arcsin", "arccos", "arctan", "arccot", "gamma",
             "sinh", "cosh", "tanh", "erfc", "zeta", "sin", "cos", "tan", "cot", "sec", "csc", "exp", "log", "erf", "sgn", "ln", "lg")
         private val INVERSES = setOf("sin", "cos", "tan", "cot")
+
+        /** φ(n), σ(n), τ(n), μ(n) of a whole number: Euler's φ, the divisors' sum and count, Möbius μ. */
+        private val NUMBER_GREEK = mapOf("\\varphi" to "totient", "\\phi" to "totient", "\\sigma" to "sigma", "\\tau" to "tau", "\\mu" to "mu")
 
         /** The functions of an angle, and those whose value is one: where radians and degrees differ. */
         private val ANGLE_FUNCTIONS = setOf(Func.SIN, Func.COS, Func.TAN, Func.COT, Func.SEC, Func.CSC)

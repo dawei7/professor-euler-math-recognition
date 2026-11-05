@@ -87,14 +87,14 @@ class AlgebraTest {
         assertEquals("SIMPLIFY,FACTOR,DERIVATIVE x,INTEGRAL x,GRAPH x -> FACTOR", modes("x^{2}+4x+4"))
         assertEquals("SIMPLIFY,FACTOR,DERIVATIVE x,INTEGRAL x,GRAPH x -> FACTOR", modes("x^{2}+4x+4="))
         // Its letters cancel: a number.
-        assertEquals("CALCULATE,FACTOR -> CALCULATE", modes("x-x+3"))
+        assertEquals("CALCULATE,FACTOR,NUMBER_FACTS -> CALCULATE", modes("x-x+3"))
         assertEquals("SOLVE x,COMPARE,GRAPH x -> SOLVE", modes("2x+3=11"))
         assertEquals("SOLVE x,COMPARE,GRAPH x -> COMPARE", modes("(x+2)^{2}=x^{2}+4x+4"))
         assertEquals("SOLVE x,COMPARE,GRAPH x -> SOLVE", modes("\\sin(x)=0,5"))
         assertEquals("SOLVE x,SOLVE y,COMPARE,GRAPH x -> COMPARE", modes("x+y=y+x"))
         assertEquals("SOLVE s,SOLVE t,SOLVE v,COMPARE -> SOLVE", modes("v=\\frac{s}{t}"))
         assertEquals("COMPARE -> COMPARE", modes("2+2=4"))
-        assertEquals("CALCULATE,FACTOR -> CALCULATE", modes("37+48="))
+        assertEquals("CALCULATE,FACTOR,NUMBER_FACTS -> CALCULATE", modes("37+48="))
         assertEquals("CALCULATE -> CALCULATE", modes("1:3="))
         assertEquals("CALCULATE -> CALCULATE", modes("1="))
         // A mode that does not fit is not taken.

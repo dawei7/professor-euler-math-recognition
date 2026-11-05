@@ -57,6 +57,43 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     is Outcome.Eigenvalues -> o.values.joinToString("; ") { e ->
         c.text(e.value) + (if (e.multiplicity > 1) " (${e.multiplicity}×)" else "") + ": " + e.vectors.joinToString(" ") { c.text(it) }
     }
+    is Outcome.NumberFacts -> o.facts.let { f ->
+        (if (f.prime) "prime" else c.text(Outcome.Primes(f.n, f.factors))) + " d=${f.divisorCount} σ=${f.sigma} φ=${f.phi} μ=${f.mu} next ${f.nextPrime} bin ${f.binary}"
+    }
+    is Outcome.Congruence -> o.solution.let { k -> if (k.residues.isEmpty()) "none" else "${k.letter} ≡ " + k.residues.joinToString(", ") + " (mod ${k.modulus})" }
+    is Outcome.WholeSolutions -> when (val k = o.solution) {
+        is Discrete.Integers.Linear -> "${k.x} = ${k.x0} + ${k.sx}t, ${k.y} = ${k.y0} + ${k.sy}t"
+        is Discrete.Integers.Pell -> "${k.x} = ${k.x1}, ${k.y} = ${k.y1} (d = ${k.d})"
+        Discrete.Integers.None -> "none"
+    }
+    is Outcome.RecurrenceSolved -> o.recurrence.let { r ->
+        "${r.name}_n = " + c.text(r.closed) + (if (r.terms.isNotEmpty()) " | " + r.terms.joinToString(", ") { c.text(it) } else "")
+    }
+    is Outcome.SequenceRule -> (o.rule.formula?.let { "a_n = " + c.text(it) } ?: "no formula") +
+        (o.rule.recurrence?.let { r -> " rec " + r.joinToString(", ") { c.text(it) } } ?: "") + " next " + o.rule.next.joinToString(", ") { c.text(it) }
+    is Outcome.LogicTable -> o.analysis.let { a ->
+        (when { a.tautology -> "tautology "; a.contradiction -> "contradiction "; else -> "" }) + a.values.joinToString("") { if (it) "1" else "0" } +
+            " dnf " + Logic.text(a.dnf, a.sets) + " cnf " + Logic.text(a.cnf, a.sets) + (a.equivalent?.let { " equivalent $it" } ?: "")
+    }
+    is Outcome.SetValue -> "{" + o.elements.joinToString(", ") { c.text(it) } + "}"
+    is Outcome.Statistics -> o.summary.let { k ->
+        "n=${k.n} mean " + c.text(k.mean) + " median " + c.text(k.median) + " sd " + (k.sampleSd?.let { c.text(it) } ?: "-") + " q1 " + c.text(k.q1) + " q3 " + c.text(k.q3)
+    }
+    is Outcome.Regression -> "y = " + c.text(o.line.slope) + "x + " + c.text(o.line.intercept) + " r " + c.text(o.line.r)
+    is Outcome.Converted -> c.text(o.result) + " ${o.to}"
+    is Outcome.Triangles -> o.triangles.joinToString(" | ") { t ->
+        "sides " + t.sides.joinToString(", ") { c.text(it) } + " angles " + t.angles.joinToString(", ") { c.text(it) } + " area " + c.text(t.area)
+    }
+    is Outcome.ConicSection -> o.conic.let { k ->
+        fun pt(p: Geometry.Point) = "(" + c.text(p.x) + ", " + c.text(p.y) + ")"
+        k.kind.name.lowercase() + (k.centre?.let { " centre " + pt(it) } ?: "") + (k.semiAxes?.let { " axes " + c.text(it.first) + ", " + c.text(it.second) } ?: "") +
+            (if (k.foci.isNotEmpty()) " foci " + k.foci.joinToString(" ") { pt(it) } else "") + (k.eccentricity?.let { " e " + c.text(it) } ?: "") +
+            (k.vertex?.let { " vertex " + pt(it) } ?: "") + (k.directrix?.let { " directrix ${it.first} = " + c.text(it.second) } ?: "") +
+            (if (k.asymptotes.isNotEmpty()) " asymptotes " + k.asymptotes.joinToString(" ") { c.text(it) } else "") +
+            (k.angle?.let { " angle " + c.text(it) } ?: "")
+    }
+    is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
+    is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))

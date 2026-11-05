@@ -35,6 +35,10 @@ enum class Failure {
     SINGULAR,
     /** Matrices or vectors whose sizes do not fit the operation: a 2 × 3 matrix times a 2 × 2 one. */
     SIZES,
+    /** Units that measure different things: metres in seconds. */
+    UNITS,
+    /** No triangle has these sides and angles. */
+    NO_TRIANGLE,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -139,6 +143,45 @@ enum class Mode {
     POLAR,
     /** A function's poles and their residues. */
     RESIDUES,
+
+    /** A whole number's facts: prime or not, its factors and divisors, φ, σ, μ, other bases. */
+    NUMBER_FACTS,
+
+    /** A congruence or a system of them solved: x ≡ 2 (mod 3). */
+    CONGRUENCE,
+
+    /** An equation in two letters solved in whole numbers: 3x + 5y = 7, x² − 2y² = 1. */
+    DIOPHANTINE,
+
+    /** A linear recurrence solved in closed form: aₙ₊₁ = 2aₙ + 1, a₀ = 1. */
+    RECURRENCE,
+
+    /** The rule of a list of numbers, and its next terms. */
+    SEQUENCE,
+
+    /** A formula of logic or sets: its truth table and simplest forms. */
+    LOGIC,
+
+    /** A list of numbers' statistics: mean, median, deviations, quartiles. */
+    STATISTICS,
+
+    /** The least-squares line through points. */
+    REGRESSION,
+
+    /** A value in one unit written in another: 5 km in mi (the units in the choice's letter and point). */
+    UNITS,
+
+    /** A triangle from three of its sides and angles. */
+    TRIANGLE,
+
+    /** A conic from its equation: centre, axes, foci, eccentricity. */
+    CONIC,
+
+    /** The line through two points. */
+    LINE,
+
+    /** The plane through three points. */
+    PLANE,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -265,6 +308,48 @@ sealed class Outcome {
     /** A function's poles in [z] with their orders and residues. */
     data class Residues(val z: String, val poles: List<ComplexAnalysis.Pole>) : Outcome()
 
+    /** A whole number's facts ([Discrete.facts]). */
+    data class NumberFacts(val facts: Discrete.Facts) : Outcome()
+
+    /** Congruences solved: x ≡ r (mod m) for each residue ([Discrete.congruences]). */
+    data class Congruence(val solution: Discrete.Congruences) : Outcome()
+
+    /** An equation solved in whole numbers ([Discrete.integers]). */
+    data class WholeSolutions(val solution: Discrete.Integers) : Outcome()
+
+    /** A recurrence in closed form ([Discrete.recurrence]). */
+    data class RecurrenceSolved(val recurrence: Discrete.Recurrence) : Outcome()
+
+    /** A list's rule and its next terms ([Discrete.sequence]). */
+    data class SequenceRule(val values: List<Expr>, val rule: Discrete.Rule) : Outcome()
+
+    /** A formula of logic or sets: its table and simplest forms ([Logic.analyse]). */
+    data class LogicTable(val analysis: Logic.Analysis) : Outcome()
+
+    /** Sets written out, worked out: the elements of the result. */
+    data class SetValue(val elements: List<Expr>) : Outcome()
+
+    /** A data list's statistics ([Stats.summary]). */
+    data class Statistics(val values: List<Expr>, val summary: Stats.Summary) : Outcome()
+
+    /** The least-squares line y = a·x + b through the points, with Pearson's r ([Stats.regression]). */
+    data class Regression(val xs: List<Expr>, val ys: List<Expr>, val line: Stats.Line) : Outcome()
+
+    /** [value] in [from] is [result] in [to] ([Units.convert]). */
+    data class Converted(val value: Expr, val from: String, val to: String, val result: Expr) : Outcome()
+
+    /** The triangles with the given sides and angles: two in the ambiguous case ([Geometry.triangles]). */
+    data class Triangles(val triangles: List<Geometry.Triangle>) : Outcome()
+
+    /** A conic's centre, axes, foci and the rest ([Geometry.conic]). */
+    data class ConicSection(val conic: Geometry.Conic) : Outcome()
+
+    /** The line through two points ([Geometry.line]). */
+    data class LineThrough(val line: Geometry.Line) : Outcome()
+
+    /** The plane through three points ([Geometry.plane]). */
+    data class PlaneThrough(val plane: Geometry.Plane) : Outcome()
+
     /** A linear system with a parameter, case by case ([LinAlg.cases]). */
     data class SystemCases(val cases: LinAlg.Cases) : Outcome()
 
@@ -360,12 +445,15 @@ object MathCalc {
         var choices = emptyList<Choice>()
         var shown: Choice? = null
         val outcome = try {
-            val statements = Parser(tokens, flags).statements()
+            // Logic and sets are read on their own; everything else is mathematics for the parser.
+            val logic = Logic.read(tokens)
+            val statements = if (logic != null) emptyList() else Parser(tokens, flags).statements()
             if (fractions) flags.fractions = true
             val others = if (flags.plusMinus) Parser(tokens, Flags(assumptions).also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
             Budget.within(millis) {
-                val plan = odePlan(statements, flags.odeVariable) ?: plan(statements, others, style, flags.degrees)
+                val plan = if (logic != null) logicPlan(logic)
+                    else odePlan(statements, flags.odeVariable) ?: plan(statements, others, style, flags.degrees, flags.moduli)
                 choices = plan.choices
                 // A series asked for at a point or to a power of its own: the plan's series in that letter, so taken.
                 val chosen = choice?.takeIf { it in plan.choices }
@@ -412,7 +500,10 @@ object MathCalc {
     /** What a formula can be worked out as: its [choices] (chips), the [likeliest], and modes it does only when asked ([accepts]). */
     private class Plan(val choices: List<Choice>, val likeliest: Choice, val accepts: Set<Mode> = emptySet(), val outcome: (Choice) -> Outcome)
 
-    private fun plan(statements: List<Statement>, others: List<Statement>?, style: Style, degrees: Boolean): Plan {
+    private fun plan(statements: List<Statement>, others: List<Statement>?, style: Style, degrees: Boolean, moduli: Map<Int, BigInteger>): Plan {
+        if (moduli.isNotEmpty()) return congruencePlan(statements, moduli)
+        recurrencePlan(statements)?.let { return it }
+        pointsPlan(statements)?.let { return it }
         if (statements.size > 1) return systemPlan(statements)
         val s = statements[0]
         if (s.definition != null) return definitionPlan(s)
@@ -452,10 +543,18 @@ object MathCalc {
             // A definite integral with numbers for bounds: the trapezoidal and Simpson's rules beside its value.
             val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
                 ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
+            val facts = integer(v)?.takeIf { it >= TWO && it.bitLength() <= 110 && integral == null }
             val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.takeIf { integral == null }?.let { Choice(Mode.FACTOR) },
+                facts?.let { Choice(Mode.NUMBER_FACTS) },
                 if (complexNumber) Choice(Mode.POLAR) else null, integral?.let { Choice(Mode.TRAPEZOID) }, integral?.let { Choice(Mode.SIMPSON) })
-            return Plan(choices, Choice(Mode.CALCULATE)) { c ->
-                if (c.mode == Mode.FACTOR && whole != null) Outcome.Primes(whole, Factor.primes(whole.abs())!!)
+            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS)) { c ->
+                if (c.mode == Mode.UNITS) {
+                    val from = c.letter ?: throw CalcException(Failure.UNREADABLE)
+                    val to = c.point ?: throw CalcException(Failure.UNREADABLE)
+                    Outcome.Converted(v, from, to, Units.convert(v, from, to) ?: throw CalcException(Failure.UNREADABLE))
+                }
+                else if (c.mode == Mode.NUMBER_FACTS && facts != null) Outcome.NumberFacts(Discrete.facts(facts) ?: throw CalcException(Failure.TOO_LARGE))
+                else if (c.mode == Mode.FACTOR && whole != null) Outcome.Primes(whole, Factor.primes(whole.abs())!!)
                 else if (c.mode == Mode.POLAR) Outcome.PolarForm(v, ComplexAnalysis.polar(v) ?: throw CalcException(Failure.UNSOLVED))
                 else if (integral != null && (c.mode == Mode.TRAPEZOID || c.mode == Mode.SIMPSON)) {
                     val a = Numeric.value(Calculus.evaluate(integral.a!!))!!
@@ -601,8 +700,16 @@ object MathCalc {
             else -> Choice(Mode.SOLVE, if (letters.size == 1) variable else formulaLetter(lhs, rhs, letters))
         }
         val onRequest = if (letters.size == 1) setOf(Mode.NEWTON, Mode.BISECTION) else emptySet()
-        return Plan(choices, likeliest, onRequest) { c ->
+        // A curve of degree two in x and y: a conic, named first where both squares (or xy) are in it.
+        val conic = letters.toSet() == setOf("x", "y") && !wroteCalculus && Geometry.isConic(difference)
+        if (conic) choices += Choice(Mode.CONIC)
+        val whole = letters.size == 2 && !wroteCalculus && try { Discrete.integers(difference, letters) != null } catch (e: CalcException) { false }
+        if (whole) choices += Choice(Mode.DIOPHANTINE)
+        val chosen = if (conic && !identity && Geometry.bothSquares(difference)) Choice(Mode.CONIC) else likeliest
+        return Plan(choices, chosen, onRequest) { c ->
             when (c.mode) {
+                Mode.CONIC -> Outcome.ConicSection(Geometry.conic(difference) ?: throw CalcException(Failure.UNSOLVED))
+                Mode.DIOPHANTINE -> Outcome.WholeSolutions(Discrete.integers(difference, letters) ?: throw CalcException(Failure.UNSOLVED))
                 Mode.NEWTON, Mode.BISECTION -> numericRoot(difference, Expr.Sym(variable), c)
                 Mode.COMPARE -> compareOutcome()
                 Mode.GRAPH -> when {
@@ -744,13 +851,42 @@ object MathCalc {
             choices += Choice(Mode.JACOBIAN)
         }
         choices += Choice(Mode.TRANSPOSE)
+        // Numbers in a list are data; in two columns, points.
+        val numeric = m.symbols().isEmpty() && m.rows.all { r -> r.all { Numeric.value(it) != null } }
+        val values = if (vector) m.rows.map { it[0] } else emptyList()
+        val data = vector && numeric && m.size >= 4
+        if (data) choices += Choice(Mode.STATISTICS)
+        if (data && values.all { rational(it) != null }) choices += Choice(Mode.SEQUENCE)
+        val points = !vector && numeric && m.columns == 2 && m.size >= 3
+        if (points) choices += Choice(Mode.REGRESSION)
+        val accepts = if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()
         val likeliest = when {
+            data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
+            literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)
             !literal || vector -> Choice(Mode.CALCULATE)
             square -> Choice(Mode.DETERMINANT)
             else -> Choice(Mode.ROW_REDUCE)
         }
-        return Plan(choices, likeliest) { c ->
+        return Plan(choices, likeliest, accepts) { c ->
             when (c.mode) {
+                Mode.STATISTICS -> {
+                    val list = if (vector) values else m.rows.flatten()
+                    Outcome.Statistics(list, Stats.summary(list) ?: throw CalcException(Failure.UNDEFINED))
+                }
+                Mode.SEQUENCE -> {
+                    val list = if (vector) values else m.rows.flatten()
+                    Outcome.SequenceRule(list, Discrete.sequence(list) ?: throw CalcException(Failure.UNSOLVED))
+                }
+                Mode.REGRESSION -> {
+                    if (m.columns != 2) throw CalcException(Failure.SIZES)
+                    val xs = m.rows.map { it[0] }
+                    val ys = m.rows.map { it[1] }
+                    Outcome.Regression(xs, ys, Stats.regression(xs, ys) ?: throw CalcException(Failure.UNSOLVED))
+                }
+                // The rows as points: (1, 2) and (3, 4) written as [[1, 2], [3, 4]].
+                Mode.LINE, Mode.PLANE -> pointsChoices(m.rows.map { LinAlg.column(it) })?.let { plan ->
+                    plan.outcome(Choice(c.mode))
+                } ?: throw CalcException(Failure.SIZES)
                 Mode.CALCULATE -> Outcome.Expression(m)
                 Mode.DETERMINANT -> LinAlg.det(m).let { d -> if (d.symbols().isEmpty()) value(d, emptyList(), emptyList()) else Outcome.Expression(d) }
                 Mode.INVERSE -> Outcome.Expression(LinAlg.inverse(m))
@@ -987,6 +1123,7 @@ object MathCalc {
     }
 
     private fun systemPlan(statements: List<Statement>): Plan {
+        trianglePlan(statements)?.let { return it }
         constrainedPlan(statements)?.let { return it }
         val equations = statements.map { s ->
             val sides = s.sides.filterNotNull()
@@ -1150,6 +1287,91 @@ object MathCalc {
         val t = (x.symbols() + y.symbols()).singleOrNull() ?: return null
         if (t == "x" || t == "y") return null
         return t to (Calculus.evaluate(x) to Calculus.evaluate(y))
+    }
+
+    /** Logic and sets: a truth table and the simplest forms, or sets written out worked out. */
+    private fun logicPlan(r: Logic.Reading): Plan = when (r) {
+        is Logic.Reading.Literal -> Plan(listOf(Choice(Mode.CALCULATE)), Choice(Mode.CALCULATE)) { Outcome.SetValue(r.elements) }
+        is Logic.Reading.Formula -> Plan(listOf(Choice(Mode.LOGIC)), Choice(Mode.LOGIC)) { Outcome.LogicTable(Logic.analyse(r)) }
+    }
+
+    /** Lines that are congruences (each with its modulus): solved together, or checked where they hold no letter. */
+    private fun congruencePlan(statements: List<Statement>, moduli: Map<Int, BigInteger>): Plan {
+        val lines = statements.mapIndexed { k, s ->
+            val sides = s.sides.filterNotNull()
+            if (sides.size != 2 || s.relations.size != 1 || s.relations[0] != Rel.EQ) throw CalcException(Failure.UNREADABLE)
+            val m = moduli[k] ?: throw CalcException(Failure.UNREADABLE)
+            Calculus.tidy(Calculus.evaluate(sides[0]) - Calculus.evaluate(sides[1])) to m
+        }
+        val letters = lines.flatMap { it.first.symbols() }.toSortedSet()
+        if (letters.isEmpty()) {
+            val holds = lines.all { (d, m) -> integer(d)?.mod(m)?.signum() == 0 }
+            return Plan(listOf(Choice(Mode.COMPARE)), Choice(Mode.COMPARE)) { Outcome.Checked(holds) }
+        }
+        val letter = letters.singleOrNull() ?: throw CalcException(Failure.SEVERAL_UNKNOWNS)
+        val choice = Choice(Mode.CONGRUENCE, letter)
+        return Plan(listOf(choice), choice) { Outcome.Congruence(Discrete.congruences(lines, letter) ?: throw CalcException(Failure.UNSOLVED)) }
+    }
+
+    /** aₙ₊₁ = 2aₙ + 1 with its initial values: a recurrence, solved in closed form. */
+    private fun recurrencePlan(statements: List<Statement>): Plan? {
+        val names = statements.flatMap { s -> s.sides.filterNotNull().flatMap { it.symbols() } }.toSet()
+        if (!Discrete.isRecurrence(names)) return null
+        val equations = statements.map { s ->
+            val sides = s.sides.filterNotNull()
+            if (sides.size != 2 || s.relations.size != 1 || s.relations[0] != Rel.EQ) return null
+            Calculus.evaluate(sides[0]) - Calculus.evaluate(sides[1])
+        }
+        val choice = Choice(Mode.RECURRENCE)
+        return Plan(listOf(choice), choice) { Outcome.RecurrenceSolved(Discrete.recurrence(equations) ?: throw CalcException(Failure.UNSOLVED)) }
+    }
+
+    /** Two or three points, one to a line: the line through two, the plane through three. */
+    private fun pointsPlan(statements: List<Statement>): Plan? {
+        if (statements.size !in 2..3) return null
+        val points = statements.map { s ->
+            val sides = s.sides.filterNotNull()
+            if (sides.size != 1 || s.relations.isNotEmpty()) return null
+            (Calculus.evaluate(sides[0]) as? Expr.Mat)?.takeIf { LinAlg.isVector(it) && it.size in 2..3 && it.symbols().isEmpty() } ?: return null
+        }
+        if (points.map { it.size }.distinct().size != 1) return null
+        return pointsChoices(points)
+    }
+
+    private fun pointsChoices(points: List<Expr.Mat>): Plan? {
+        if (points.any { !LinAlg.isVector(it) || it.size !in 2..3 } || points.map { it.size }.distinct().size != 1) return null
+        val choices = ArrayList<Choice>()
+        if (points.size == 2) choices += Choice(Mode.LINE)
+        if (points.size == 3 && points[0].size == 3) choices += Choice(Mode.PLANE)
+        if (choices.isEmpty()) return null
+        return Plan(choices, choices[0]) { c ->
+            if (c.mode == Mode.PLANE) Outcome.PlaneThrough(Geometry.plane(points[0], points[1], points[2]))
+            else Outcome.LineThrough(Geometry.line(points[0], points[1]))
+        }
+    }
+
+    /** a = 3, b = 4, γ = 60°: three of a triangle's sides and angles (angles in degrees unless written with π). */
+    private fun trianglePlan(statements: List<Statement>): Plan? {
+        if (statements.size != 3) return null
+        val sides = HashMap<Int, Expr>()
+        val angles = HashMap<Int, Expr>()
+        for (s in statements) {
+            val w = s.sides.filterNotNull()
+            if (w.size != 2 || s.relations != listOf(Rel.EQ)) return null
+            val name = (w[0] as? Expr.Sym)?.name ?: return null
+            val v = Calculus.evaluate(w[1])
+            if (v.symbols().isNotEmpty() || v is Expr.Mat || Numeric.value(v) == null) return null
+            val side = Geometry.SIDES.indexOf(name)
+            val angle = Geometry.ANGLES.indexOfFirst { name in it }
+            when {
+                side >= 0 -> if (sides.put(side, v) != null) return null
+                angle >= 0 -> if (angles.put(angle, if (v.hasPi()) Calculus.tidy(mul(v, num(180), pow(Expr.PI, Expr.MINUS_ONE))) else v) != null) return null
+                else -> return null
+            }
+        }
+        if (sides.isEmpty()) return null
+        val choice = Choice(Mode.TRIANGLE)
+        return Plan(listOf(choice), choice) { Outcome.Triangles(Geometry.triangles(sides, angles)) }
     }
 
     private fun definitionPlan(s: Statement): Plan {

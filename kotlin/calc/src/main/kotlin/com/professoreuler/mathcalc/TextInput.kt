@@ -47,6 +47,7 @@ object TextInput {
 
     private fun readWords(text: String, language: String): Typed {
         val vocabularies = listOfNotNull(Vocabulary.of(language), Vocabulary.ENGLISH).distinct()
+        conversion(text)?.let { return it }
         // "maximize x*y subject to x + y = 10": the constraint a line of its own, as "x*y; x + y = 10" writes it.
         val trimmed = vocabularies.fold(text) { t, v -> v.constrained(t) }
         derivativeOperator(trimmed)?.let { return it }
@@ -83,6 +84,7 @@ object TextInput {
      */
     fun display(typed: Typed): String {
         val choice = typed.choice ?: return typed.latex
+        if (choice.mode == Mode.UNITS) return "${typed.latex}\\,\\text{${choice.letter}} \\to \\text{${choice.point}}"
         val letter = choice.letter ?: mainLetterOf(typed.latex)
         val name = Format.name(letter, latex = true)
         return when (choice.mode) {
@@ -144,6 +146,16 @@ object TextInput {
             Command.RUNGE_KUTTA -> return Typed(latex(main), Choice(Mode.RUNGE_KUTTA))
             Command.POLAR -> return Typed(latex(main), Choice(Mode.POLAR))
             Command.RESIDUES -> return Typed(latex(main), Choice(Mode.RESIDUES))
+            Command.NUMBER_FACTS -> return Typed(latex(main), Choice(Mode.NUMBER_FACTS))
+            Command.STATISTICS -> return Typed(listLatex(main), Choice(Mode.STATISTICS))
+            Command.SEQUENCE -> return Typed(listLatex(main), Choice(Mode.SEQUENCE))
+            Command.REGRESSION -> return Typed(pointsLatex(main, matrix = true), Choice(Mode.REGRESSION))
+            Command.TRUTH_TABLE -> return Typed(latex(logicWords(main)), Choice(Mode.LOGIC))
+            Command.TRIANGLE -> return Typed(triangleLatex(main), Choice(Mode.TRIANGLE))
+            Command.CONIC -> return Typed(latex(main), Choice(Mode.CONIC))
+            Command.LINE -> return Typed(pointsLatex(main, matrix = false), Choice(Mode.LINE))
+            Command.PLANE -> return Typed(pointsLatex(main, matrix = false), Choice(Mode.PLANE))
+            Command.DIOPHANTINE -> return Typed(latex(main), Choice(Mode.DIOPHANTINE))
             Command.NEWTON -> {
                 // "newton x^2 - 2 from 1", "… at 1": the start.
                 val start = slots[Slot.FROM] ?: slots[Slot.AS]
@@ -369,6 +381,63 @@ object TextInput {
 
     /** "x^2 dx" → ("x^2", "x"): a trailing differential names the letter. */
     /** "x^3 - x - 1 on [1, 2]": the formula and the interval at its end (one word before it is left out), or the line and null. */
+    /** A data list typed without brackets: "1, 2, 3", "1 2 3", or with semicolons where commas are decimal ("1,5; 2,5"). */
+    private fun listLatex(main: String): String {
+        val t = main.trim()
+        if (t.startsWith("(") || t.startsWith("[")) return latex(t)
+        if (t.startsWith("{")) return latex("[" + t.removePrefix("{").removeSuffix("}") + "]")
+        val items = (if (';' in t) t.split(';').map { it.trim().replace(',', '.') } else t.split(Regex(",\\s*|\\s+"))).filter { it.isNotBlank() }
+        if (items.size < 2) return latex(t)
+        return latex("[" + items.joinToString(", ") + "]")
+    }
+
+    /** Points typed as (1, 2) and (3, 4): each a vector, one to a line, or ([matrix]) the rows of one matrix. */
+    private fun pointsLatex(main: String, matrix: Boolean): String {
+        val points = Regex("""[(\[]\s*([^()\[\]]+?)\s*[)\]]""").findAll(main).map { it.groupValues[1].trim() }.filter { ',' in it || ';' in it }.toList()
+        if (points.size < 2) return latex(main)
+        val rows = points.map { p -> (if (';' in p) p.split(';').map { it.trim().replace(',', '.') } else p.split(',').map { it.trim() }).joinToString(", ") }
+        return if (matrix) latex("[" + rows.joinToString(", ") { "[$it]" } + "]") else latex(rows.joinToString("; ") { "[$it]" })
+    }
+
+    /** "a=3, b=4, gamma=60°": a triangle's values, one to a line. */
+    private fun triangleLatex(main: String): String {
+        val parts = main.split(Regex("""\s*[,;]\s*(?=\\?[A-Za-zα-ωΑ-Ω]+\s*=)""")).map { it.trim() }.filter { it.isNotEmpty() }
+        return latex(parts.joinToString("; "))
+    }
+
+    /** and, or, not, implies, iff, xor written as words in a truth table's formula. */
+    private fun logicWords(main: String): String = listOf("and" to " ∧ ", "or" to " ∨ ", "not" to " ¬ ", "implies" to " ⇒ ", "iff" to " ⇔ ", "xor" to " ⊕ ")
+        .fold(main) { t, (w, sym) -> t.replace(Regex("(?i)(?<![A-Za-z])$w(?![A-Za-z])"), sym) }
+
+    /** The words between a value's unit and the unit it is wanted in, in any language (and an arrow or =). */
+    private val CONNECTORS = setOf("in", "to", "into", "as", "->", "=", "?", "=?", "en", "a", "em", "para", "naar", "na", "w", "в", "у", "ke",
+        "sang", "ra", "kaç", "kac", "nach", "zu", "là", "bằng")
+
+    /**
+     * "5 km in mi", "100 km/h to m/s", "20 °C in °F", "5km em mi", "5kmをmiに": a number, a unit, a word or an arrow, and the unit
+     * wanted (words of a script written without spaces may stand after it).
+     */
+    private fun conversion(text: String): Typed? {
+        val words = Vocabulary.spaced(text).trim().trimEnd('?', '.', '？', '。').split(Regex("\\s+")).filter { it.isNotEmpty() }.toMutableList()
+        if (words.size < 3) return null
+        val number = Regex("""^-?\d+(?:[.,]\d+)?(?:/\d+)?$""")
+        val joined = Regex("""^(-?\d+(?:[.,]\d+)?(?:/\d+)?)(\D.*)$""").find(words[0])
+        // A unit written against its number (5km, 20°C); a number alone (1.5, 1/2) is left as it is.
+        if (joined != null && !number.matches(words[0])) { words[0] = joined.groupValues[1]; words.add(1, joined.groupValues[2]) }
+        if (!number.matches(words[0])) return null
+        val from = words.getOrNull(1)?.takeIf { Units.known(it) } ?: return null
+        for (k in words.size - 1 downTo 3) {
+            val to = words[k]
+            if (!Units.known(to)) continue
+            val between = words.subList(2, k)
+            val after = words.subList(k + 1, words.size)
+            if (between.size !in 1..2 || !between.all { w -> w.lowercase() in CONNECTORS || w.none { it.code < 128 } }) continue
+            if (!after.all { w -> w.none { it.code < 128 } }) continue
+            return Typed(latex(words[0]), Choice(Mode.UNITS, from, to))
+        }
+        return null
+    }
+
     private fun trailingInterval(main: String): Pair<String, Pair<String, String>?> {
         // Up to three words before it in any script ("на", "im Intervall", "在"), never a lone Latin letter (a variable),
         // and one after it ("上", "で", "에서").
@@ -439,6 +508,8 @@ object TextInput {
         return out.toString()
     }
 
+    private val SET_OPERATIONS = listOf("∪", "∩", "∖", "\\cup", "\\cap", "\\setminus")
+
     private fun closing(s: String, at: Int, open: Char, close: Char): Int? {
         var depth = 0
         for (j in at until s.length) {
@@ -462,7 +533,10 @@ object TextInput {
         return out
     }
 
-    fun latex(math: String): String {
+    fun latex(math0: String): String {
+        // {1, 2, 3} ∪ {3, 4}: braces of sets.
+        val math = if ('{' in math0 && SET_OPERATIONS.any { it in math0 } && "{{" !in math0.replace(" ", ""))
+            math0.replace("{", " \\{ ").replace("}", " \\} ") else math0
         // Lines of a system, typed with ";" between them: x + y = 3; x - y = 1.
         val lines = parts(math, ';').map { it.trim() }.filter { it.isNotEmpty() }
         if (lines.size > 1) return "\\begin{cases}" + lines.joinToString("\\\\") { latex(it) } + "\\end{cases}"
@@ -660,6 +734,17 @@ object TextInput {
                 '≥' -> b.append(">=")
                 '≠' -> b.append("!=")
                 '→' -> b.append("->")
+                '≡' -> b.append(" \\equiv ")
+                '∧' -> b.append(" \\land ")
+                '∨' -> b.append(" \\lor ")
+                '¬' -> b.append(" \\neg ")
+                '⇒' -> b.append(" \\Rightarrow ")
+                '⇔', '↔' -> b.append(" \\Leftrightarrow ")
+                '⊕' -> b.append(" \\oplus ")
+                '∪' -> b.append(" \\cup ")
+                '∩' -> b.append(" \\cap ")
+                '∖' -> b.append(" \\setminus ")
+                '∅' -> b.append(" \\emptyset ")
                 '⁰' -> b.append("^0")
                 '¹' -> b.append("^1")
                 '²' -> b.append("^2")
@@ -723,6 +808,7 @@ enum class Command {
     DETERMINANT, INVERSE, EIGEN, ROW_REDUCE, TRANSPOSE,
     DECOMPOSE, MATRIX_EXP, GRADIENT, DIVERGENCE, CURL, JACOBIAN, LAPLACIAN, LEAST_SQUARES, EXTREMA,
     LAPLACE, INVERSE_LAPLACE, FOURIER, NEWTON, BISECTION, EULER, RUNGE_KUTTA, TRAPEZOID, SIMPSON, POLAR, RESIDUES,
+    NUMBER_FACTS, STATISTICS, REGRESSION, SEQUENCE, TRUTH_TABLE, TRIANGLE, CONIC, LINE, PLANE, DIOPHANTINE,
 }
 
 /**
@@ -1060,6 +1146,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("simpson's rule for", "simpson's rule", "simpson rule", "simpson"),
                 Command.POLAR to listOf("polar form of", "polar form", "exponential form of"),
                 Command.RESIDUES to listOf("residues of", "residues", "residue of", "poles of"),
+                Command.NUMBER_FACTS to listOf("is prime", "divisors of", "divisors", "properties of the number", "number properties of"),
+                Command.STATISTICS to listOf("mean of", "average of", "median of", "statistics of", "statistics", "standard deviation of", "variance of", "summary statistics of"),
+                Command.REGRESSION to listOf("linear regression of", "linear regression", "regression line of", "regression line", "regression", "line of best fit for", "line of best fit", "best fit line", "least squares line"),
+                Command.SEQUENCE to listOf("next terms of", "next term of", "next terms", "next term", "continue the sequence", "sequence", "pattern of", "rule of the sequence"),
+                Command.TRUTH_TABLE to listOf("truth table of", "truth table for", "truth table", "tautology"),
+                Command.TRIANGLE to listOf("solve the triangle", "triangle with", "triangle"),
+                Command.CONIC to listOf("conic section", "conic", "ellipse", "hyperbola", "parabola", "foci of", "eccentricity of"),
+                Command.LINE to listOf("line through the points", "line through", "equation of the line through", "straight line through"),
+                Command.PLANE to listOf("plane through the points", "plane through", "equation of the plane through"),
+                Command.DIOPHANTINE to listOf("integer solutions of", "integer solutions", "solve in integers", "solve over the integers", "diophantine", "whole number solutions of"),
             ),
             of = setOf("of"),
             from = words("from"),
@@ -1114,6 +1210,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("simpsonregel für", "simpson-regel für", "simpsonregel", "simpson-regel", "keplersche fassregel"),
                 Command.POLAR to listOf("polarform von", "polardarstellung von", "exponentialform von", "polarform", "polardarstellung", "exponentialform", "trigonometrische form von", "trigonometrische form"),
                 Command.RESIDUES to listOf("residuen von", "residuen", "polstellen von", "residuum von", "pole von"),
+                Command.NUMBER_FACTS to listOf("ist prim", "teiler von", "teiler", "eigenschaften der zahl", "zahleigenschaften von"),
+                Command.STATISTICS to listOf("mittelwert von", "durchschnitt von", "median von", "statistik von", "statistik", "standardabweichung von", "varianz von", "kennzahlen von"),
+                Command.REGRESSION to listOf("lineare regression von", "lineare regression", "regressionsgerade von", "regressionsgerade", "regression", "ausgleichsgerade durch", "ausgleichsgerade"),
+                Command.SEQUENCE to listOf("nächste glieder von", "nächste glieder", "nächstes glied", "zahlenfolge", "folge", "bildungsgesetz von", "setze die folge fort"),
+                Command.TRUTH_TABLE to listOf("wahrheitstafel von", "wahrheitstafel", "wahrheitstabelle von", "wahrheitstabelle", "tautologie"),
+                Command.TRIANGLE to listOf("löse das dreieck", "dreieck mit", "dreieck"),
+                Command.CONIC to listOf("kegelschnitt", "ellipse", "hyperbel", "parabel", "brennpunkte von", "exzentrizität von"),
+                Command.LINE to listOf("gerade durch die punkte", "gerade durch", "geradengleichung durch"),
+                Command.PLANE to listOf("ebene durch die punkte", "ebene durch", "ebenengleichung durch"),
+                Command.DIOPHANTINE to listOf("ganzzahlige lösungen von", "ganzzahlige lösungen", "diophantische gleichung", "löse in den ganzen zahlen"),
             ),
             of = setOf("von"),
             from = words("von"),
@@ -1167,6 +1273,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("regla de simpson para", "regla de simpson", "método de simpson"),
                 Command.POLAR to listOf("forma polar de", "forma polar", "forma exponencial de", "forma trigonométrica de", "forma trigonométrica"),
                 Command.RESIDUES to listOf("residuos de", "residuos", "polos de", "residuo de"),
+                Command.NUMBER_FACTS to listOf("es primo", "divisores de", "propiedades del número"),
+                Command.STATISTICS to listOf("media de", "promedio de", "mediana de", "estadística de", "estadísticas de", "desviación estándar de", "desviación típica de", "varianza de"),
+                Command.REGRESSION to listOf("regresión lineal de", "regresión lineal", "recta de regresión de", "recta de regresión", "regresión", "recta de mejor ajuste"),
+                Command.SEQUENCE to listOf("siguientes términos de", "siguiente término de", "sucesión", "término general de", "patrón de"),
+                Command.TRUTH_TABLE to listOf("tabla de verdad de", "tabla de verdad", "tautología"),
+                Command.TRIANGLE to listOf("resuelve el triángulo", "triángulo con", "triángulo"),
+                Command.CONIC to listOf("cónica", "elipse", "hipérbola", "parábola", "focos de", "excentricidad de"),
+                Command.LINE to listOf("recta que pasa por", "recta por los puntos", "recta por"),
+                Command.PLANE to listOf("plano que pasa por", "plano por los puntos", "plano por"),
+                Command.DIOPHANTINE to listOf("soluciones enteras de", "soluciones enteras", "ecuación diofántica", "resuelve en los enteros"),
             ),
             of = setOf("de"),
             from = words("de", "desde"),
@@ -1221,6 +1337,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("méthode de simpson pour", "méthode de simpson", "règle de simpson", "formule de simpson"),
                 Command.POLAR to listOf("forme polaire de", "forme polaire", "forme exponentielle de", "forme trigonométrique de", "forme trigonométrique"),
                 Command.RESIDUES to listOf("résidus de", "résidus", "pôles de", "résidu de"),
+                Command.NUMBER_FACTS to listOf("est premier", "diviseurs de", "propriétés du nombre"),
+                Command.STATISTICS to listOf("moyenne de", "médiane de", "statistiques de", "écart type de", "écart-type de", "variance de"),
+                Command.REGRESSION to listOf("régression linéaire de", "régression linéaire", "droite de régression de", "droite de régression", "régression", "droite des moindres carrés"),
+                Command.SEQUENCE to listOf("termes suivants de", "terme suivant de", "terme général de", "continue la suite", "suite"),
+                Command.TRUTH_TABLE to listOf("table de vérité de", "table de vérité", "tautologie"),
+                Command.TRIANGLE to listOf("résous le triangle", "résoudre le triangle", "triangle avec", "triangle"),
+                Command.CONIC to listOf("conique", "ellipse", "hyperbole", "parabole", "foyers de", "excentricité de"),
+                Command.LINE to listOf("droite passant par", "droite par les points", "droite par"),
+                Command.PLANE to listOf("plan passant par", "plan par les points", "plan par"),
+                Command.DIOPHANTINE to listOf("solutions entières de", "solutions entières", "équation diophantienne", "résoudre dans les entiers"),
             ),
             of = setOf("de", "du"),
             from = words("de"),
@@ -1276,6 +1402,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("aturan simpson untuk", "aturan simpson", "metode simpson", "kaidah simpson"),
                 Command.POLAR to listOf("bentuk polar dari", "bentuk polar", "bentuk eksponensial dari"),
                 Command.RESIDUES to listOf("residu dari", "residu", "kutub dari"),
+                Command.NUMBER_FACTS to listOf("apakah prima", "pembagi dari", "sifat bilangan"),
+                Command.STATISTICS to listOf("rata-rata dari", "rata-rata", "median dari", "statistik dari", "simpangan baku dari", "variansi dari", "ragam dari"),
+                Command.REGRESSION to listOf("regresi linear dari", "regresi linear", "garis regresi", "regresi"),
+                Command.SEQUENCE to listOf("suku berikutnya dari", "suku berikutnya", "barisan", "rumus suku ke-n dari", "pola dari"),
+                Command.TRUTH_TABLE to listOf("tabel kebenaran dari", "tabel kebenaran", "tautologi"),
+                Command.TRIANGLE to listOf("selesaikan segitiga", "segitiga dengan", "segitiga"),
+                Command.CONIC to listOf("irisan kerucut", "elips", "hiperbola", "parabola", "fokus dari", "eksentrisitas dari"),
+                Command.LINE to listOf("garis melalui titik", "garis melalui"),
+                Command.PLANE to listOf("bidang melalui titik", "bidang melalui"),
+                Command.DIOPHANTINE to listOf("solusi bilangan bulat dari", "solusi bulat dari", "persamaan diophantine"),
             ),
             of = setOf("dari"),
             from = words("dari"),
@@ -1329,6 +1465,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("regola di simpson per", "regola di simpson", "metodo di cavalieri-simpson", "metodo di simpson", "formula di cavalieri-simpson", "formula di simpson"),
                 Command.POLAR to listOf("forma polare di", "forma polare", "forma esponenziale di", "forma trigonometrica di"),
                 Command.RESIDUES to listOf("residui di", "residui", "poli di", "residuo di"),
+                Command.NUMBER_FACTS to listOf("è primo", "divisori di", "proprietà del numero"),
+                Command.STATISTICS to listOf("media di", "mediana di", "statistiche di", "deviazione standard di", "scarto quadratico medio di", "varianza di"),
+                Command.REGRESSION to listOf("regressione lineare di", "regressione lineare", "retta di regressione di", "retta di regressione", "regressione"),
+                Command.SEQUENCE to listOf("termini successivi di", "termine successivo di", "successione", "termine generale di"),
+                Command.TRUTH_TABLE to listOf("tavola di verità di", "tavola di verità", "tabella di verità", "tautologia"),
+                Command.TRIANGLE to listOf("risolvi il triangolo", "triangolo con", "triangolo"),
+                Command.CONIC to listOf("conica", "ellisse", "iperbole", "parabola", "fuochi di", "eccentricità di"),
+                Command.LINE to listOf("retta passante per", "retta per i punti", "retta per"),
+                Command.PLANE to listOf("piano passante per", "piano per i punti", "piano per"),
+                Command.DIOPHANTINE to listOf("soluzioni intere di", "soluzioni intere", "equazione diofantea"),
             ),
             of = setOf("di", "del", "della"),
             from = words("da"),
@@ -1385,6 +1531,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("regel van simpson voor", "regel van simpson", "simpsonregel", "simpson-regel"),
                 Command.POLAR to listOf("poolvorm van", "poolvorm", "exponentiële vorm van", "goniometrische vorm van", "goniometrische vorm"),
                 Command.RESIDUES to listOf("residuen van", "residuen", "polen van", "residu van"),
+                Command.NUMBER_FACTS to listOf("is priem", "delers van", "eigenschappen van het getal"),
+                Command.STATISTICS to listOf("gemiddelde van", "mediaan van", "statistiek van", "standaardafwijking van", "variantie van"),
+                Command.REGRESSION to listOf("lineaire regressie van", "lineaire regressie", "regressielijn van", "regressielijn", "regressie"),
+                Command.SEQUENCE to listOf("volgende termen van", "volgende term van", "rij van", "rij", "voorschrift van"),
+                Command.TRUTH_TABLE to listOf("waarheidstabel van", "waarheidstabel", "tautologie"),
+                Command.TRIANGLE to listOf("los de driehoek op", "driehoek met", "driehoek"),
+                Command.CONIC to listOf("kegelsnede", "ellips", "hyperbool", "parabool", "brandpunten van", "excentriciteit van"),
+                Command.LINE to listOf("lijn door de punten", "lijn door", "rechte door"),
+                Command.PLANE to listOf("vlak door de punten", "vlak door"),
+                Command.DIOPHANTINE to listOf("gehele oplossingen van", "gehele oplossingen", "diofantische vergelijking"),
             ),
             of = setOf("van"),
             from = words("van"),
@@ -1441,6 +1597,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("metoda simpsona", "wzór simpsona", "metoda parabol"),
                 Command.POLAR to listOf("postać trygonometryczna", "postać wykładnicza", "postać biegunowa"),
                 Command.RESIDUES to listOf("residua", "residuum", "bieguny"),
+                Command.NUMBER_FACTS to listOf("czy jest pierwsza", "dzielniki liczby", "dzielniki", "własności liczby"),
+                Command.STATISTICS to listOf("średnia z", "średnia", "mediana z", "mediana", "statystyki", "odchylenie standardowe", "wariancja"),
+                Command.REGRESSION to listOf("regresja liniowa", "prosta regresji", "regresja"),
+                Command.SEQUENCE to listOf("następne wyrazy ciągu", "następne wyrazy", "następny wyraz", "wzór ogólny ciągu", "ciąg"),
+                Command.TRUTH_TABLE to listOf("tabela prawdy", "tabelka prawdy", "tautologia"),
+                Command.TRIANGLE to listOf("rozwiąż trójkąt", "trójkąt o", "trójkąt"),
+                Command.CONIC to listOf("krzywa stożkowa", "elipsa", "hiperbola", "parabola", "ogniska", "mimośród"),
+                Command.LINE to listOf("prosta przechodząca przez punkty", "prosta przechodząca przez", "prosta przez"),
+                Command.PLANE to listOf("płaszczyzna przechodząca przez punkty", "płaszczyzna przechodząca przez", "płaszczyzna przez"),
+                Command.DIOPHANTINE to listOf("rozwiązania całkowite", "rozwiąż w liczbach całkowitych", "równanie diofantyczne"),
             ),
             of = setOf("z"),
             from = words("od"),
@@ -1495,6 +1661,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("regra de simpson para", "regra de simpson", "método de simpson"),
                 Command.POLAR to listOf("forma polar de", "forma polar", "forma trigonométrica de", "forma exponencial de"),
                 Command.RESIDUES to listOf("resíduos de", "resíduos", "polos de", "resíduo de"),
+                Command.NUMBER_FACTS to listOf("é primo", "divisores de", "propriedades do número"),
+                Command.STATISTICS to listOf("média de", "mediana de", "estatística de", "estatísticas de", "desvio padrão de", "variância de"),
+                Command.REGRESSION to listOf("regressão linear de", "regressão linear", "reta de regressão de", "reta de regressão", "regressão"),
+                Command.SEQUENCE to listOf("próximos termos de", "próximo termo de", "sequência", "termo geral de"),
+                Command.TRUTH_TABLE to listOf("tabela verdade de", "tabela-verdade de", "tabela verdade", "tabela-verdade", "tautologia"),
+                Command.TRIANGLE to listOf("resolva o triângulo", "triângulo com", "triângulo"),
+                Command.CONIC to listOf("cônica", "elipse", "hipérbole", "parábola", "focos de", "excentricidade de"),
+                Command.LINE to listOf("reta que passa por", "reta pelos pontos", "reta por"),
+                Command.PLANE to listOf("plano que passa por", "plano pelos pontos", "plano por"),
+                Command.DIOPHANTINE to listOf("soluções inteiras de", "soluções inteiras", "equação diofantina"),
             ),
             of = setOf("de", "da", "do"),
             from = words("de"),
@@ -1549,6 +1725,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("simpson kuralı", "simpson yöntemi"),
                 Command.POLAR to listOf("kutupsal biçimi", "kutupsal form", "üstel biçimi", "kutupsal biçim", "kutupsal biçimini"),
                 Command.RESIDUES to listOf("rezidüleri", "kalıntıları", "kutupları", "rezidüler", "rezidü"),
+                Command.NUMBER_FACTS to listOf("asal mı", "bölenleri", "sayının özellikleri"),
+                Command.STATISTICS to listOf("ortalaması", "ortalama", "medyanı", "medyan", "istatistikleri", "standart sapması", "standart sapma", "varyansı"),
+                Command.REGRESSION to listOf("doğrusal regresyon", "regresyon doğrusu", "regresyon"),
+                Command.SEQUENCE to listOf("sonraki terimler", "sonraki terim", "dizinin genel terimi", "dizi"),
+                Command.TRUTH_TABLE to listOf("doğruluk tablosu", "totoloji"),
+                Command.TRIANGLE to listOf("üçgeni çöz", "üçgen"),
+                Command.CONIC to listOf("konik", "elips", "hiperbol", "parabol", "odakları", "dışmerkezlik"),
+                Command.LINE to listOf("noktalarından geçen doğru", "noktasından geçen doğru", "geçen doğru"),
+                Command.PLANE to listOf("noktalarından geçen düzlem", "geçen düzlem"),
+                Command.DIOPHANTINE to listOf("tam sayı çözümleri", "diofant denklemi"),
             ),
             of = emptySet(),
             from = words("'dan", "'den", "'tan", "'ten"),
@@ -1604,6 +1790,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("công thức simpson cho", "công thức simpson", "phương pháp simpson"),
                 Command.POLAR to listOf("dạng lượng giác của", "dạng cực của", "dạng mũ của", "dạng lượng giác"),
                 Command.RESIDUES to listOf("thặng dư của", "thặng dư", "cực điểm của"),
+                Command.NUMBER_FACTS to listOf("có phải số nguyên tố", "ước của", "tính chất của số"),
+                Command.STATISTICS to listOf("trung bình cộng của", "trung bình của", "trung vị của", "thống kê của", "độ lệch chuẩn của", "phương sai của"),
+                Command.REGRESSION to listOf("hồi quy tuyến tính của", "hồi quy tuyến tính", "đường hồi quy", "hồi quy"),
+                Command.SEQUENCE to listOf("các số hạng tiếp theo của", "số hạng tiếp theo của", "số hạng tổng quát của", "dãy số"),
+                Command.TRUTH_TABLE to listOf("bảng chân trị của", "bảng chân trị", "bảng chân lý", "hằng đúng"),
+                Command.TRIANGLE to listOf("giải tam giác", "tam giác có", "tam giác"),
+                Command.CONIC to listOf("đường conic", "elip", "hypebol", "parabol", "tiêu điểm của", "tâm sai của"),
+                Command.LINE to listOf("đường thẳng đi qua", "đường thẳng qua"),
+                Command.PLANE to listOf("mặt phẳng đi qua", "mặt phẳng qua"),
+                Command.DIOPHANTINE to listOf("nghiệm nguyên của", "nghiệm nguyên", "phương trình diophantine"),
             ),
             of = setOf("của"),
             from = words("từ"),
@@ -1656,6 +1852,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("метод симпсона", "формула симпсона", "метод парабол", "метод симпсона для", "формула симпсона для"),
                 Command.POLAR to listOf("тригонометрическая форма", "показательная форма", "полярная форма"),
                 Command.RESIDUES to listOf("вычеты", "вычет", "полюсы"),
+                Command.NUMBER_FACTS to listOf("простое ли число", "является ли простым", "делители числа", "делители", "свойства числа"),
+                Command.STATISTICS to listOf("среднее значение", "среднее арифметическое", "среднее", "медиана", "статистика", "стандартное отклонение", "дисперсия"),
+                Command.REGRESSION to listOf("линейная регрессия", "уравнение регрессии", "прямая регрессии", "регрессия"),
+                Command.SEQUENCE to listOf("следующие члены последовательности", "следующие члены", "следующий член", "формула общего члена", "последовательность"),
+                Command.TRUTH_TABLE to listOf("таблица истинности", "тавтология"),
+                Command.TRIANGLE to listOf("решите треугольник", "реши треугольник", "треугольник"),
+                Command.CONIC to listOf("кривая второго порядка", "эллипс", "гипербола", "парабола", "фокусы", "эксцентриситет"),
+                Command.LINE to listOf("прямая через точки", "прямая, проходящая через", "прямая через"),
+                Command.PLANE to listOf("плоскость через точки", "плоскость, проходящая через", "плоскость через"),
+                Command.DIOPHANTINE to listOf("решите в целых числах", "реши в целых числах", "целые решения", "диофантово уравнение"),
             ),
             of = setOf("от"),
             from = words("от"),
@@ -1708,6 +1914,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("метод сімпсона", "формула сімпсона", "метод парабол", "метод сімпсона для", "формула сімпсона для"),
                 Command.POLAR to listOf("тригонометрична форма", "показникова форма", "полярна форма"),
                 Command.RESIDUES to listOf("лишки", "лишок", "полюси"),
+                Command.NUMBER_FACTS to listOf("чи є простим", "дільники числа", "дільники", "властивості числа"),
+                Command.STATISTICS to listOf("середнє значення", "середнє арифметичне", "середнє", "медіана", "статистика", "стандартне відхилення", "дисперсія"),
+                Command.REGRESSION to listOf("лінійна регресія", "рівняння регресії", "пряма регресії", "регресія"),
+                Command.SEQUENCE to listOf("наступні члени послідовності", "наступні члени", "наступний член", "формула загального члена", "послідовність"),
+                Command.TRUTH_TABLE to listOf("таблиця істинності", "тавтологія"),
+                Command.TRIANGLE to listOf("розв'яжіть трикутник", "розв'яжи трикутник", "трикутник"),
+                Command.CONIC to listOf("крива другого порядку", "еліпс", "гіпербола", "парабола", "фокуси", "ексцентриситет"),
+                Command.LINE to listOf("пряма через точки", "пряма, що проходить через", "пряма через"),
+                Command.PLANE to listOf("площина через точки", "площина, що проходить через", "площина через"),
+                Command.DIOPHANTINE to listOf("розв'яжіть у цілих числах", "цілі розв'язки", "діофантове рівняння"),
             ),
             of = setOf("від"),
             from = words("від"),
@@ -1760,6 +1976,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("قاعدة سمبسون", "طريقة سمبسون", "قاعدة سيمبسون"),
                 Command.POLAR to listOf("الصيغة القطبية", "الصورة القطبية", "الصيغة الأسية", "الشكل القطبي", "الصيغة المثلثية"),
                 Command.RESIDUES to listOf("الرواسب", "البواقي", "الأقطاب"),
+                Command.NUMBER_FACTS to listOf("هل هو أولي", "قواسم", "خصائص العدد"),
+                Command.STATISTICS to listOf("الوسط الحسابي", "المتوسط", "الوسيط", "الإحصاءات", "الانحراف المعياري", "التباين"),
+                Command.REGRESSION to listOf("الانحدار الخطي", "خط الانحدار", "الانحدار"),
+                Command.SEQUENCE to listOf("الحدود التالية", "الحد التالي", "الحد العام", "المتتالية"),
+                Command.TRUTH_TABLE to listOf("جدول الصواب", "جدول الحقيقة", "تحصيل حاصل"),
+                Command.TRIANGLE to listOf("حل المثلث", "مثلث"),
+                Command.CONIC to listOf("قطع مخروطي", "القطع الناقص", "القطع الزائد", "القطع المكافئ", "البؤرتان", "الاختلاف المركزي"),
+                Command.LINE to listOf("المستقيم المار بالنقطتين", "المستقيم المار ب", "مستقيم يمر ب"),
+                Command.PLANE to listOf("المستوى المار بالنقاط", "المستوى المار ب"),
+                Command.DIOPHANTINE to listOf("الحلول الصحيحة", "معادلة ديوفانتية"),
             ),
             of = emptySet(),
             from = words("من"),
@@ -1811,6 +2037,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("כלל סימפסון", "שיטת סימפסון"),
                 Command.POLAR to listOf("הצגה קוטבית של", "הצגה קוטבית", "הצגה מעריכית של", "הצגה טריגונומטרית", "צורה קוטבית"),
                 Command.RESIDUES to listOf("שאריות של", "שאריות", "קטבים של"),
+                Command.NUMBER_FACTS to listOf("האם ראשוני", "מחלקים של", "תכונות המספר"),
+                Command.STATISTICS to listOf("ממוצע של", "ממוצע", "חציון של", "חציון", "סטטיסטיקה של", "סטיית תקן של", "שונות של"),
+                Command.REGRESSION to listOf("רגרסיה לינארית", "קו רגרסיה", "רגרסיה"),
+                Command.SEQUENCE to listOf("האיברים הבאים של", "האיבר הבא של", "האיבר הכללי של", "סדרה"),
+                Command.TRUTH_TABLE to listOf("טבלת אמת של", "טבלת אמת", "טאוטולוגיה"),
+                Command.TRIANGLE to listOf("פתור את המשולש", "משולש עם", "משולש"),
+                Command.CONIC to listOf("חתך חרוט", "אליפסה", "היפרבולה", "פרבולה", "מוקדים של", "אקסצנטריות של"),
+                Command.LINE to listOf("ישר העובר דרך", "ישר דרך הנקודות", "ישר דרך"),
+                Command.PLANE to listOf("מישור העובר דרך", "מישור דרך הנקודות", "מישור דרך"),
+                Command.DIOPHANTINE to listOf("פתרונות שלמים של", "פתרונות שלמים", "משוואה דיופנטית"),
             ),
             of = setOf("של"),
             from = words("מ", "החל מ"),
@@ -1866,6 +2102,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("सिम्पसन नियम", "सिम्पसन का नियम"),
                 Command.POLAR to listOf("ध्रुवीय रूप", "ध्रुवीय निरूपण"),
                 Command.RESIDUES to listOf("अवशेष", "ध्रुव"),
+                Command.NUMBER_FACTS to listOf("क्या अभाज्य है", "भाजक", "संख्या के गुण"),
+                Command.STATISTICS to listOf("माध्यिका", "माध्य", "औसत", "सांख्यिकी", "मानक विचलन", "प्रसरण"),
+                Command.REGRESSION to listOf("रैखिक समाश्रयण", "समाश्रयण रेखा", "समाश्रयण"),
+                Command.SEQUENCE to listOf("अगले पद", "अगला पद", "व्यापक पद", "अनुक्रम"),
+                Command.TRUTH_TABLE to listOf("सत्यता सारणी", "पुनरुक्ति"),
+                Command.TRIANGLE to listOf("त्रिभुज हल करें", "त्रिभुज"),
+                Command.CONIC to listOf("शांकव", "दीर्घवृत्त", "अतिपरवलय", "परवलय", "नाभियाँ", "उत्केंद्रता"),
+                Command.LINE to listOf("बिंदुओं से होकर जाने वाली रेखा", "से होकर जाने वाली रेखा"),
+                Command.PLANE to listOf("बिंदुओं से होकर जाने वाला समतल", "से होकर जाने वाला समतल"),
+                Command.DIOPHANTINE to listOf("पूर्णांक हल", "डायोफैंटाइन समीकरण"),
             ),
             of = setOf("का", "की", "के"),
             from = words("से"),
@@ -1925,6 +2171,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("シンプソン公式", "シンプソン則", "シンプソンの公式"),
                 Command.POLAR to listOf("極形式"),
                 Command.RESIDUES to listOf("留数"),
+                Command.NUMBER_FACTS to listOf("は素数か", "素数判定", "約数"),
+                Command.STATISTICS to listOf("平均値", "平均", "中央値", "統計量", "標準偏差", "分散", "の平均"),
+                Command.REGRESSION to listOf("回帰直線", "線形回帰", "回帰分析", "回帰"),
+                Command.SEQUENCE to listOf("次の項", "一般項", "数列"),
+                Command.TRUTH_TABLE to listOf("真理値表", "恒真式", "トートロジー"),
+                Command.TRIANGLE to listOf("三角形を解く", "三角形"),
+                Command.CONIC to listOf("二次曲線", "楕円", "双曲線", "放物線", "焦点", "離心率"),
+                Command.LINE to listOf("を通る直線", "2点を通る直線"),
+                Command.PLANE to listOf("を通る平面", "3点を通る平面"),
+                Command.DIOPHANTINE to listOf("整数解", "不定方程式"),
             ),
             of = setOf("の"),
             from = words("から"),
@@ -1982,6 +2238,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("심프슨 공식", "심프슨 규칙", "심프슨 법칙"),
                 Command.POLAR to listOf("극형식", "극 형식"),
                 Command.RESIDUES to listOf("유수", "극점"),
+                Command.NUMBER_FACTS to listOf("소수인가", "약수", "수의 성질"),
+                Command.STATISTICS to listOf("평균", "중앙값", "통계", "표준편차", "분산"),
+                Command.REGRESSION to listOf("선형 회귀", "회귀직선", "회귀"),
+                Command.SEQUENCE to listOf("다음 항", "일반항", "수열"),
+                Command.TRUTH_TABLE to listOf("진리표", "항진명제"),
+                Command.TRIANGLE to listOf("삼각형 풀기", "삼각형"),
+                Command.CONIC to listOf("이차곡선", "타원", "쌍곡선", "포물선", "초점", "이심률"),
+                Command.LINE to listOf("을 지나는 직선", "를 지나는 직선", "지나는 직선"),
+                Command.PLANE to listOf("을 지나는 평면", "를 지나는 평면", "지나는 평면"),
+                Command.DIOPHANTINE to listOf("정수해", "디오판토스 방정식"),
             ),
             of = setOf("의"),
             from = words("부터", "에서"),
@@ -2039,6 +2305,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("กฎของซิมป์สัน", "วิธีซิมป์สัน", "กฎซิมป์สัน", "วิธีของซิมป์สัน"),
                 Command.POLAR to listOf("รูปเชิงขั้ว"),
                 Command.RESIDUES to listOf("ส่วนตกค้าง", "เรซิดิว"),
+                Command.NUMBER_FACTS to listOf("เป็นจำนวนเฉพาะหรือไม่", "ตัวหารของ", "สมบัติของจำนวน"),
+                Command.STATISTICS to listOf("ค่าเฉลี่ยของ", "ค่าเฉลี่ย", "มัธยฐานของ", "มัธยฐาน", "สถิติของ", "ส่วนเบี่ยงเบนมาตรฐาน", "ความแปรปรวน"),
+                Command.REGRESSION to listOf("การถดถอยเชิงเส้น", "เส้นถดถอย", "การถดถอย"),
+                Command.SEQUENCE to listOf("พจน์ถัดไปของ", "พจน์ถัดไป", "พจน์ทั่วไปของ", "ลำดับ"),
+                Command.TRUTH_TABLE to listOf("ตารางค่าความจริงของ", "ตารางค่าความจริง", "สัจนิรันดร์"),
+                Command.TRIANGLE to listOf("แก้สามเหลี่ยม", "สามเหลี่ยม"),
+                Command.CONIC to listOf("ภาคตัดกรวย", "วงรี", "ไฮเพอร์โบลา", "พาราโบลา", "จุดโฟกัสของ", "ความเยื้องศูนย์กลาง"),
+                Command.LINE to listOf("เส้นตรงที่ผ่านจุด", "เส้นตรงผ่าน"),
+                Command.PLANE to listOf("ระนาบที่ผ่านจุด", "ระนาบผ่าน"),
+                Command.DIOPHANTINE to listOf("ผลเฉลยที่เป็นจำนวนเต็ม", "สมการไดโอแฟนไทน์"),
             ),
             of = setOf("ของ"),
             from = words("จาก"),
@@ -2093,6 +2369,16 @@ class Vocabulary internal constructor(
                 Command.SIMPSON to listOf("辛普森法则", "辛普森公式", "辛普森法", "辛普森法則"),
                 Command.POLAR to listOf("极坐标形式", "三角形式", "極坐標形式", "極式", "指数形式", "指數形式"),
                 Command.RESIDUES to listOf("留数", "留數", "极点", "極點"),
+                Command.NUMBER_FACTS to listOf("是否为质数", "是不是质数", "是否為質數", "因数", "约数", "因數", "約數", "数的性质"),
+                Command.STATISTICS to listOf("平均值", "平均数", "平均數", "中位数", "中位數", "统计量", "統計量", "标准差", "標準差", "方差", "變異數", "平均"),
+                Command.REGRESSION to listOf("线性回归", "線性迴歸", "回归直线", "迴歸直線", "回归", "迴歸"),
+                Command.SEQUENCE to listOf("下一项", "下一項", "通项公式", "通項公式", "数列", "數列"),
+                Command.TRUTH_TABLE to listOf("真值表", "重言式", "恒真式"),
+                Command.TRIANGLE to listOf("解三角形", "三角形"),
+                Command.CONIC to listOf("圆锥曲线", "圓錐曲線", "椭圆", "橢圓", "双曲线", "雙曲線", "抛物线", "拋物線", "焦点", "焦點", "离心率", "離心率"),
+                Command.LINE to listOf("过点的直线", "经过点的直线", "過點的直線", "直线过", "直線過"),
+                Command.PLANE to listOf("过点的平面", "经过点的平面", "過點的平面", "平面过", "平面過"),
+                Command.DIOPHANTINE to listOf("整数解", "整數解", "丢番图方程", "丟番圖方程"),
             ),
             of = setOf("的"),
             from = words("从", "從"),

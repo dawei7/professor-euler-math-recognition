@@ -70,7 +70,8 @@ object Reports {
         val constant = if (result.outcome is Outcome.Failed) null else inDomain(complex) { constantOf(latex, assumptions) }
         val panels = ArrayList<Panel>()
         panels += Panel(PanelKind.RESULT, result.choice)
-        if (constant != null) panels += Panel(PanelKind.DIGITS)
+        // A value converted between units has its digits in its own answer.
+        if (constant != null && result.choice?.mode != Mode.UNITS) panels += Panel(PanelKind.DIGITS)
         val others = result.choices.filter { it != result.choice }
         // A graph is worth seeing early, as Wolfram Alpha shows its plots (a surface first); a function's curve sketch beside it.
         others.filter { it.mode == Mode.SURFACE }.forEach { panels += Panel(PanelKind.CHOICE, it) }
