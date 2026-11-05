@@ -128,15 +128,16 @@ class VocabularyTest {
         check("vi", "khai triển (x+1)^2" to expanded, "rút gọn (x^2-1)/(x-1)" to simplified, "vẽ đồ thị x^2" to graph,
             "tổng của k với k=1 đến 100" to "5050", "giới hạn của sin(x)/x khi x->0" to "1", "tích phân của x^2 từ 0 đến 3" to "9")
         check("ru", "раскрой скобки (x+1)^2" to expanded, "упрости (x^2-1)/(x-1)" to simplified, "построй график x^2" to graph,
-            "сумма k для k=1 до 100" to "5050", "предел sin(x)/x при x->0" to "1", "интеграл от x^2 от 0 до 3" to "9")
+            "сумма k для k от 1 до 100" to "5050", "предел sin(x)/x при x->0" to "1", "интеграл от x^2 от 0 до 3" to "9")
         check("uk", "розкрий дужки (x+1)^2" to expanded, "спрости (x^2-1)/(x-1)" to simplified, "побудуй графік x^2" to graph,
-            "сума k для k=1 до 100" to "5050", "границя sin(x)/x при x->0" to "1", "інтеграл від x^2 від 0 до 3" to "9")
+            "сума k для k від 1 до 100" to "5050", "границя sin(x)/x при x->0" to "1", "інтеграл від x^2 від 0 до 3" to "9")
         check("ar", "انشر (x+1)^2" to expanded, "بسط (x^2-1)/(x-1)" to simplified, "ارسم x^2" to graph,
             "مجموع k لـk=1 إلى 100" to "5050", "نهاية sin(x)/x عندما x->0" to "1", "تكامل x^2 من 0 إلى 3" to "9")
         check("iw", "פתח סוגריים (x+1)^2" to expanded, "פשט (x^2-1)/(x-1)" to simplified, "שרטט x^2" to graph,
             "סכום של k עבור k=1 עד 100" to "5050", "גבול של sin(x)/x כאשר x->0" to "1", "אינטגרל של x^2 מ-0 עד 3" to "9")
         check("hi", "(x+1)^2 का विस्तार करें" to expanded, "(x^2-1)/(x-1) को सरल करें" to simplified, "x^2 का ग्राफ़" to graph,
-            "सीमा x->0 sin(x)/x" to "1", "x^2 का 0 से 3 तक समाकलन करें" to "9")
+            "सीमा x->0 sin(x)/x" to "1", "x^2 का 0 से 3 तक समाकलन करें" to "9", "k=1 से 100 तक k का योग" to "5050",
+            "हल करें x^2=4" to solved, "x^2-1 का गुणनखंड करें" to factored, "x^3 का अवकलज" to derived)
         check("ja", "(x+1)^2を展開" to expanded, "(x^2-1)/(x-1)を簡単にして" to simplified, "x^2のグラフ" to graph,
             "k=1から100までkの和" to "5050", "x->0のときsin(x)/xの極限" to "1", "x^2を0から3まで積分" to "9")
         check("ko", "(x+1)^2을 전개" to expanded, "(x^2-1)/(x-1)을 간단히" to simplified, "x^2의 그래프" to graph,
@@ -146,7 +147,81 @@ class VocabularyTest {
         check("zh-Hans", "展开 (x+1)^2" to expanded, "化简 (x^2-1)/(x-1)" to simplified, "画图 x^2" to graph,
             "求和 k 从 k=1 到 100" to "5050", "极限 sin(x)/x 当 x->0" to "1", "积分 x^2 从 0 到 3" to "9")
         check("zh-Hant", "展開 (x+1)^2" to expanded, "化簡 (x^2-1)/(x-1)" to simplified, "畫圖 x^2" to graph,
-            "求和 k 從 k=1 到 100" to "5050", "極限 sin(x)/x 當 x->0" to "1", "積分 x^2 從 0 到 3" to "9")
+            "求和 k 從 k=1 到 100" to "5050", "極限 sin(x)/x 當 x->0" to "1", "積分 x^2 從 0 到 3" to "9",
+            "解方程式 x^2=4" to solved, "因式分解 x^2-1" to factored, "微分 x^3" to derived)
+    }
+
+    private val limit2 = "4"
+    private val power10 = "1024"
+
+    /**
+     * How textbooks and learners of each language put it, as the translation review of 5 November 2026 found them failing:
+     * polite and plural imperatives, a verb with an article and a noun, the point of a limit in words, bounds before the
+     * formula, "between … and …", a "find" after the noun, articles, particles and school notation.
+     */
+    @Test fun textbookPhrasings() {
+        check("en", "find the derivative of x^3" to derived, "limit of x^2 as x approaches 2" to limit2,
+            "integral of x^2 between 0 and 3" to "9", "integrate from 0 to 3 x^2" to "9", "solve the equation x^2=4" to solved)
+        check("de", "berechne die Ableitung von x^3" to derived, "Integral von 0 bis 3 von x^2" to "9", "löse die Gleichung x^2=4" to solved,
+            "Integral von x^2 zwischen 0 und 3" to "9")
+        check("es", "calcula la derivada de x^3" to derived, "halla la derivada de x^3" to derived, "resuelve la ecuación x^2=4" to solved,
+            "dibuja la gráfica de x^2" to graph, "representa x^2" to graph, "límite de x^2 cuando x tiende a 2" to limit2,
+            "integral de 0 a 3 de x^2" to "9", "integral de x^2 entre 0 y 3" to "9")
+        check("fr", "calcule la dérivée de x^3" to derived, "résous l’équation x^2=4" to solved, "trace la courbe de x^2" to graph,
+            "limite de x^2 quand x tend vers 2" to limit2, "limite de x^2 en 2" to limit2, "intégrale de 0 à 3 de x^2" to "9",
+            "intégrale de x^2 entre 0 et 3" to "9")
+        check("it", "calcola la derivata di x^3" to derived, "risolvi l'equazione x^2=4" to solved, "traccia il grafico di x^2" to graph,
+            "disegna il grafico di x^2" to graph, "scomponi in fattori x^2-1" to factored, "scomponi x^2-1 in fattori" to factored,
+            "limite di x^2 per x che tende a 2" to limit2, "limite per x->2 di x^2" to limit2, "integrale da 0 a 3 di x^2" to "9",
+            "integrale di x^2 tra 0 e 3" to "9")
+        check("pt", "calcule a derivada de x^3" to derived, "resolva a equação x^2=4" to solved, "desenhe o gráfico de x^2" to graph,
+            "esboce o gráfico de x^2" to graph, "limite de x^2 quando x tende a 2" to limit2, "integral de 0 a 3 de x^2" to "9")
+        check("nl", "bepaal de afgeleide van x^3" to derived, "los de vergelijking x^2=4 op" to solved, "teken de grafiek van x^2" to graph,
+            "limiet van x^2 voor x naar 2" to limit2, "integraal van 0 tot 3 van x^2" to "9")
+        check("pl", "wyznacz pochodną x^3" to derived, "pochodna funkcji x^3" to derived, "rozwiąż równanie x^2=4" to solved,
+            "narysuj wykres funkcji x^2" to graph, "rozłóż x^2-1 na czynniki" to factored, "całka oznaczona z x^2 od 0 do 3" to "9",
+            "całka od 0 do 3 z x^2" to "9")
+        check("in", "tentukan turunan dari x^3" to derived, "hitung turunan dari x^3" to derived, "turunan pertama dari x^3" to derived,
+            "selesaikan persamaan x^2=4" to solved, "gambarkan grafik fungsi x^2" to graph, "limit x^2 saat x mendekati 2" to limit2,
+            "integral dari 0 sampai 3 x^2" to "9")
+        check("vi", "tính đạo hàm của x^3" to derived, "tìm đạo hàm của x^3" to derived, "vẽ đồ thị hàm số x^2" to graph,
+            "phân tích đa thức thành nhân tử x^2-1" to factored, "tích phân từ 0 đến 3 của x^2" to "9")
+        check("tr", "x^2=4'ü çözün" to solved, "x^2-1'i çarpanlarına ayırın" to factored, "x^3'ün türevini bul" to derived,
+            "x^3'ün türevini hesapla" to derived, "x^2=4 denklemini çöz" to solved, "x^2 fonksiyonunun grafiğini çiz" to graph,
+            "parantezleri aç (x+1)^2" to expanded)
+        check("ru", "решите уравнение x^2=4" to solved, "разложите на множители x^2-1" to factored, "раскройте скобки (x+1)^2" to expanded,
+            "найдите производную x^3" to derived, "вычислите 2^10" to power10, "постройте график x^2" to graph,
+            "вычисли интеграл от x^2 от 0 до 3" to "9", "упростите выражение (x^2-1)/(x-1)" to simplified, "tg(pi/4)" to "1",
+            "ctg(pi/4)" to "1", "предел x^2 при x стремится к 2" to limit2)
+        check("uk", "розв'яжіть рівняння x^2=4" to solved, "розкладіть на множники x^2-1" to factored, "знайдіть похідну x^3" to derived,
+            "обчисли інтеграл від x^2 від 0 до 3" to "9", "спрости вираз (x^2-1)/(x-1)" to simplified, "побудуйте графік x^2" to graph)
+        check("ar", "أوجد مشتقة x^3" to derived, "حلل إلى عوامل x^2-1" to factored, "حلّل x^2-1" to factored, "بسّط (x^2-1)/(x-1)" to simplified,
+            "احسب التكامل x^2 من 0 إلى 3" to "9", "تكامل x^2 من ٠ إلى ٣" to "9", "٢^١٠" to power10)
+        check("iw", "פתרו את המשוואה x^2=4" to solved, "פרקו לגורמים x^2-1" to factored, "הנגזרת של x^3" to derived, "שרטטו x^2" to graph,
+            "פתחו סוגריים (x+1)^2" to expanded)
+        check("hi", "x^3 का अवकलज ज्ञात कीजिए" to derived, "x^2-1 के गुणनखंड ज्ञात कीजिए" to factored, "x^2 का आलेख खींचिए" to graph)
+        check("ja", "x^3の導関数を求めよ" to derived, "x^2=4の解を求めよ" to solved, "x^3の導関数を求めてください" to derived,
+            "(x^2-1)/(x-1)を簡単にせよ" to simplified, "y=x^2のグラフをかけ" to "graph of x^2", "方程式x^2=4を解け" to solved,
+            "k=1から100までkの和を求めよ" to "5050")
+        check("ko", "x^3의 도함수를 구하시오" to derived, "x^2=4의 해를 구하시오" to solved, "x^2-1을 인수분해하여라" to factored,
+            "방정식 x^2=4를 푸시오" to solved, "x^2을 0부터 3까지 정적분" to "9")
+        check("zh-Hans", "求 x^3 的导数" to derived, "求 x^2 从 0 到 3 的积分" to "9", "把x^2-1因式分解" to factored,
+            "对 x^3 求导" to derived, "当x->2时x^2的极限" to limit2, "x^2从0到3的定积分" to "9", "画出 x^2 的图像" to graph)
+        check("zh-Hant", "解方程式 x^2=4" to solved, "x^3的導函數" to derived, "微分 x^3" to derived)
+        check("th", "จงแก้สมการ x^2=4" to solved, "จงแยกตัวประกอบ x^2-1" to factored, "จงหาอนุพันธ์ของ x^3" to derived,
+            "แยกตัวประกอบของ x^2-1" to factored, "วาดกราฟของ x^2" to graph, "หาอินทิกรัลของ x^2 จาก 0 ถึง 3" to "9",
+            "จงเขียนกราฟของ x^2" to graph)
+    }
+
+    /** A line whose words cannot be made sense of is never a failure of reading: it is the math it holds. */
+    @Test fun readingNeverFails() {
+        for (line in listOf("integrate x^2+ from 0 to 1", "求 x^2 从 0 到 3 的积", "x^2을 0부터 3까지 적분 +", "derivative of )(", "lim x->")) {
+            for (language in listOf("en", "zh", "ko", "es")) {
+                val typed = TextInput.read(line, language)
+                TextInput.display(typed)
+                Reports.of(typed)
+            }
+        }
     }
 
     @Test fun everyAppLanguageHasItsWords() {

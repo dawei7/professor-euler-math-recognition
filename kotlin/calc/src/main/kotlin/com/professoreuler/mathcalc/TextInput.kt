@@ -17,8 +17,35 @@ data class Typed(val latex: String, val choice: Choice? = null, val fractions: B
 object TextInput {
     /** [text] as typed; [language] the app's language ("de", "en", "pt-BR"); English words are always understood. */
     fun read(text: String, language: String = "en"): Typed {
-        val trimmed = text.trim()
+        val trimmed = westernDigits(text.trim())
         if (trimmed.isEmpty()) return Typed("")
+        // A line whose words cannot be made sense of is the math it holds: reading never fails.
+        return try {
+            readWords(trimmed, language)
+        } catch (e: CalcException) {
+            Typed(latex(trimmed))
+        } catch (e: RuntimeException) {
+            Typed(latex(trimmed))
+        } catch (e: StackOverflowError) {
+            Typed(latex(trimmed))
+        }
+    }
+
+    /** Arabic-Indic and Persian digits as the digits the calculator reads, and the Arabic decimal separator as a point. */
+    internal fun westernDigits(text: String): String {
+        if (text.none { it in '\u0660'..'\u0669' || it in '\u06F0'..'\u06F9' || it == '\u066B' }) return text
+        return String(CharArray(text.length) { k ->
+            val c = text[k]
+            when (c) {
+                in '\u0660'..'\u0669' -> '0' + (c - '\u0660')
+                in '\u06F0'..'\u06F9' -> '0' + (c - '\u06F0')
+                '\u066B' -> '.'
+                else -> c
+            }
+        })
+    }
+
+    private fun readWords(trimmed: String, language: String): Typed {
         val vocabularies = listOfNotNull(Vocabulary.of(language), Vocabulary.ENGLISH).distinct()
         derivativeOperator(trimmed)?.let { return it }
         // The words looked for apart from the math, also where a script writes no spaces (求导x^2, x^2を0から1まで積分).
@@ -61,7 +88,13 @@ object TextInput {
     }
 
     private fun commandOf(command: Command, rest: String, vocabularies: List<Vocabulary>): Typed {
-        val slots = split(rest, vocabularies)
+        var slots = split(rest, vocabularies)
+        // Nothing before the command but a formula where its letter goes ("对 x^3 求导"): that is the formula.
+        // A sum's or a limit's "for" holds its index or approach, never the formula.
+        if (slots[Slot.MAIN].isNullOrBlank() && command != Command.SUM && command != Command.LIMIT) {
+            val where = listOf(Slot.RESPECT, Slot.FOR).firstOrNull { slots[it] != null && letterOf(slots[it]) == null }
+            if (where != null) slots = slots - where + (Slot.MAIN to slots.getValue(where))
+        }
         val main = slots[Slot.MAIN].orEmpty()
         when (command) {
             Command.SOLVE -> {
@@ -79,6 +112,13 @@ object TextInput {
                 return Typed(latex(body), Choice(Mode.DERIVATIVE, letter))
             }
             Command.INTEGRAL -> {
+                // "intégrale de 0 à 3 de x^2", "integral de x^2 entre 0 y 3": the bounds before the formula or around "and".
+                boundsOf(rest, vocabularies)?.let { (from, to, written) ->
+                    val (body, dLetter) = stripDifferential(written)
+                    val bodyLatex = latex(body)
+                    val v = dLetter ?: mainLetterOf(bodyLatex)
+                    return Typed("\\int_{${latex(from)}}^{${latex(to)}} $bodyLatex \\, d$v")
+                }
                 val (body, dLetter) = stripDifferential(main)
                 val letter = letterOf(slots[Slot.RESPECT] ?: slots[Slot.FOR]) ?: dLetter
                 val from = slots[Slot.FROM]
@@ -94,17 +134,21 @@ object TextInput {
                 // "as x -> 0", "for x gegen 0", "x -> 0" in the main part's tail
                 var variable: String? = null
                 var point: String? = null
-                val approach = slots[Slot.AS] ?: slots[Slot.FOR]
+                val approach = (slots[Slot.AS] ?: slots[Slot.FOR])?.let { a -> vocabularies.fold(a) { t, v -> v.arrowed(t) } }
                 if (approach != null) {
                     val arrow = ARROW.find(approach)
                     if (arrow != null) {
                         variable = approach.substring(0, arrow.range.first).trim()
                         point = approach.substring(arrow.range.last + 1).trim()
-                    } else {
+                    } else if (letterOf(approach) != null) {
                         variable = approach.trim()
+                    } else {
+                        // "limite de x^2 en 2": the point alone.
+                        point = approach.trim()
                     }
                 }
-                if (point == null) point = slots[Slot.TO]
+                // "voor x naar 2": a word for "with respect to" that names the point in a limit.
+                if (point == null) point = slots[Slot.TO] ?: slots[Slot.RESPECT]
                 var body = main
                 if (variable == null) {
                     // "lim x->0 sin(x)/x"
@@ -145,11 +189,20 @@ object TextInput {
         var depth = 0
         var k = 0
         val ignored = vocabularies.flatMap { it.ignored }.toSet()
+        val closers = vocabularies.flatMap { it.closers }.toSet()
         // "of" right after the command belongs to it: "derivative of x²", "Ableitung von x²".
         if (words.isNotEmpty() && vocabularies.any { v -> Vocabulary.lower(words[0]) in v.of }) k = 1
         while (k < words.size) {
             if (depth == 0) {
                 if (Vocabulary.lower(words[k]) in ignored) { k++; continue }
+                // "当 x->0 时": the word that closes a part, after which the formula goes on.
+                if (Vocabulary.lower(words[k]) in closers) { current = Slot.MAIN; k++; continue }
+                // "limite per x->2 di x^2", "suma para k=1 hasta n de k": "of" after the other parts begins the formula.
+                if (current != Slot.MAIN && slots[Slot.MAIN].isNullOrEmpty() && vocabularies.any { Vocabulary.lower(words[k]) in it.of }) {
+                    current = Slot.MAIN
+                    k++
+                    continue
+                }
                 val match = vocabularies.firstNotNullOfOrNull { v -> v.connective(words, k, current)?.let { v to it } }
                 if (match != null) {
                     val (v, found) = match
@@ -174,6 +227,40 @@ object TextInput {
         val particles = vocabularies.flatMap { it.particles }.toSet()
         for (part in slots.values) while (part.size > 1 && Vocabulary.lower(part.last()) in particles) part.removeAt(part.size - 1)
         return slots.mapValues { it.value.joinToString(" ") }
+    }
+
+    /**
+     * An integral's bounds written before its formula ("de 0 à 3 de x^2", "od 0 do 3 z x^2", "dari 0 sampai 3 x^2") or after it
+     * with "between … and …" ("x^2 entre 0 y 3"): the bounds and the formula, or null.
+     */
+    private fun boundsOf(rest: String, vocabularies: List<Vocabulary>): Triple<String, String, String>? {
+        val words = rest.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        fun low(k: Int) = words.getOrNull(k)?.let { Vocabulary.lower(it) }
+        for (v in vocabularies) {
+            if (v.postpositional) continue
+            // With its "from" ("de 0 à 3 de x^2"), or without it where the command's own phrase took it ("Integral von" 0 bis 3
+            // von x^2), and then only with the "of" before the formula, so "x bis 3" alone is never taken for bounds.
+            val withFrom = low(0) in v.from.filter { it.size == 1 }.map { it[0] }
+            val start = if (withFrom) 1 else 0
+            for (to in v.to.sortedByDescending { it.size }) {
+                val end = start + 1 + to.size
+                if (words.size <= end + 1) continue
+                if (!to.indices.all { low(start + 1 + it) == to[it] }) continue
+                var body = words.drop(end + 1)
+                val ofFirst = body.size > 1 && Vocabulary.lower(body[0]) in v.of
+                if (!withFrom && !ofFirst && !NUMBER_LIKE.matches(words[start])) continue
+                if (ofFirst) body = body.drop(1)
+                if (body.isNotEmpty()) return Triple(words[start], words[end], body.joinToString(" "))
+            }
+            for ((between, and) in v.between) {
+                val n = words.size
+                if (n < 5 || low(n - 4) != between || low(n - 2) != and) continue
+                var body = words.take(n - 4)
+                if (body.size > 1 && Vocabulary.lower(body[0]) in v.of) body = body.drop(1)
+                return Triple(words[n - 3], words[n - 1], body.joinToString(" "))
+            }
+        }
+        return null
     }
 
     /**
@@ -217,7 +304,11 @@ object TextInput {
             letters.isNotEmpty() -> letters.first()
             else -> "x"
         }
+    } catch (e: CalcException) {
+        "x"
     } catch (e: RuntimeException) {
+        "x"
+    } catch (e: StackOverflowError) {
         "x"
     }
 
@@ -423,6 +514,8 @@ object TextInput {
     private val DD = Regex("^d\\s*/\\s*d([A-Za-z])\\b\\s*")
     private val ARROW = Regex("->|→|\\\\to")
     private val LEADING_APPROACH = Regex("^\\s*([A-Za-z])\\s*(?:->|→)\\s*(\\S+)\\s+")
+    /** A bound written as a number: 0, -1, 2.5, π, pi, ∞. */
+    private val NUMBER_LIKE = Regex("^[-+−]?([0-9]+([.,][0-9]+)?|pi|π|∞|inf|infinity)$", RegexOption.IGNORE_CASE)
     private val TRAILING_D = Regex("\\s*\\bd([A-Za-z])\\s*$")
     private val LETTER = Regex("^[A-Za-z](_?\\{?[0-9]+\\}?)?$")
     private val COMMAND_END = Regex("\\\\[a-zA-Z]+$")
@@ -440,6 +533,8 @@ object TextInput {
         "erf" to "erf", "erfc" to "erfc", "zeta" to "zeta", "digamma" to "digamma",
         "lambertw" to "lambertw", "productlog" to "lambertw", "besselj" to "besselj",
         "sgn" to "sgn", "sign" to "sgn",
+        // Russian and Ukrainian school notation.
+        "tg" to "tan", "ctg" to "cot", "arctg" to "arctan", "arcctg" to "arccot",
     )
 
     private val GREEK_WORDS = setOf(
@@ -482,6 +577,18 @@ class Vocabulary internal constructor(
     internal val particles: Set<String> = emptySet(),
     internal val ignored: Set<String> = emptySet(),
     private val endings: List<String> = emptyList(),
+    /** Words that close the part before them ("当 x->0 时"). */
+    internal val closers: Set<String> = emptySet(),
+    /** Words a line may begin with before its command, left out ("จง" of a Thai exercise). */
+    private val prefixes: List<String> = emptyList(),
+    /** Articles between a command and its noun or formula ("la", "l'", "the"); an elided one ends in an apostrophe. */
+    private val articles: Set<String> = emptySet(),
+    /** Nouns that name no command ("la ecuación x^2=4", "x^2=4 denklemini"), left out after or before one. */
+    private val nouns: List<List<String>> = emptyList(),
+    /** Words for "tends to" in a limit's approach ("x tiende a 2" is x -> 2). */
+    internal val arrows: List<String> = emptyList(),
+    /** "between … and …" around an integral's bounds after its formula. */
+    internal val between: List<Pair<String, String>> = emptyList(),
 ) {
     private val phrases: List<Pair<String, Command>> =
         commands.flatMap { (c, list) -> list.map { lower(it) to c } }.sortedByDescending { it.first.length }
@@ -490,20 +597,92 @@ class Vocabulary internal constructor(
     fun words(command: Command): List<String> = commands[command].orEmpty()
 
     /** The command a line starts with, and the rest of the line. */
-    internal fun command(text: String): Pair<Command, String>? {
+    internal fun command(line: String): Pair<Command, String>? {
+        val (command, rest) = startCommand(withoutPrefix(line)) ?: return null
+        val (c, after) = refined(command, rest)
+        // "画出 x^2 的图像": a language that puts its verb last may name the command at both ends.
+        if (commandLast) endCommand(after)?.let { (inner, before) -> if (inner == c) return c to before }
+        return c to after
+    }
+
+    private fun startCommand(text: String): Pair<Command, String>? {
         val lower = lower(text)
         for ((phrase, command) in phrases) {
             if (!lower.startsWith(phrase)) continue
             val after = lower.getOrNull(phrase.length)
-            if (after != null && joins(phrase.last(), after)) continue
+            // A script without spaces runs its words together ("หาอนุพันธ์ของ"): the longest phrase is matched first.
+            if (after != null && !unspaced(phrase.last()) && joins(phrase.last(), after)) continue
             return command to text.substring(phrase.length).trim().trimStart(':', '：').trim()
         }
         return null
     }
 
+    /**
+     * What follows a command, said more exactly: "calcula la derivada de x^3" is the derivative (a calculating verb, an article
+     * and a command's noun), "dibuja la gráfica de x^2" a graph, and a noun that names no command goes ("resuelve la ecuación
+     * x^2=4", "pochodna funkcji x^3"). An article alone is kept: it may be a letter ("calcule a x + 1").
+     */
+    private fun refined(command: Command, rest: String): Pair<Command, String> {
+        val afterArticle = dropArticle(rest)
+        val inner = startCommand(afterArticle)
+        if (inner != null && (command == Command.CALCULATE || inner.first == command)) return refined(inner.first, inner.second)
+        val afterNoun = dropNoun(afterArticle)
+        if (afterNoun != null) return command to dropOf(afterNoun)
+        return command to rest
+    }
+
+    private fun dropArticle(text: String): String {
+        val lower = lower(text)
+        for (a in articles.sortedByDescending { it.length }) {
+            if (!lower.startsWith(a)) continue
+            if (a.endsWith("'") && text.length > a.length) return text.substring(a.length).trimStart()
+            if (lower.getOrNull(a.length) == ' ') return text.substring(a.length).trimStart()
+        }
+        return text
+    }
+
+    private fun dropNoun(text: String): String? {
+        val words = text.split(' ').filter { it.isNotEmpty() }
+        for (noun in nouns.sortedByDescending { it.size }) {
+            if (words.size > noun.size && noun.indices.all { lower(words[it]) == noun[it] }) return words.drop(noun.size).joinToString(" ")
+        }
+        return null
+    }
+
+    private fun dropOf(text: String): String {
+        val words = text.split(' ').filter { it.isNotEmpty() }
+        return if (words.size > 1 && lower(words[0]) in of) words.drop(1).joinToString(" ") else text
+    }
+
+    /** A noun that names no command at the end of what is left before a final command ("x^2=4 denklemini çöz"). */
+    private fun dropTrailingNoun(text: String): String {
+        val words = text.split(' ').filter { it.isNotEmpty() }
+        for (noun in nouns.sortedByDescending { it.size }) {
+            val n = noun.size
+            if (words.size > n && noun.indices.all { lower(words[words.size - n + it]) == noun[it] }) return words.dropLast(n).joinToString(" ")
+        }
+        return text
+    }
+
+    private fun withoutPrefix(text: String): String {
+        for (p in prefixes) {
+            if (lower(text).startsWith(lower(p)) && text.length > p.length) return text.substring(p.length).trimStart()
+        }
+        return text
+    }
+
     /** The command a line ends with ("x^2-1を因数分解", "x^2-1 का गुणनखंड करें"), and the rest of the line. */
     internal fun commandAtEnd(text: String): Pair<Command, String>? {
-        val line = text.trimEnd().trimEnd('.', '。', '!', '！', '?', '？').trimEnd()
+        val (command, rest) = endCommand(text) ?: return null
+        val before = dropTrailingNoun(rest)
+        // "x^3'ün türevini hesapla", "x^2 fonksiyonunun grafiğini çiz": a command's noun before a calculating verb says it.
+        val inner = endCommand(before)
+        if (inner != null && (command == Command.CALCULATE || inner.first == command)) return inner.first to dropTrailingNoun(inner.second)
+        return command to before
+    }
+
+    private fun endCommand(text: String): Pair<Command, String>? {
+        val line = withoutPrefix(text).trimEnd().trimEnd('.', '。', '!', '！', '?', '？').trimEnd()
         // The line as it is first ("인수분해" ends in "해" itself), then without a verbal ending ("因数分解して").
         val candidates = listOf(line) + endings.sortedByDescending { it.length }.mapNotNull { ending ->
             val e = lower(ending)
@@ -523,6 +702,13 @@ class Vocabulary internal constructor(
             }
         }
         return null
+    }
+
+    /** [approach] with this language's "tends to" written as an arrow: "x tiende a 2" is "x -> 2". */
+    internal fun arrowed(approach: String): String {
+        var out = " $approach "
+        for (a in arrows.sortedByDescending { it.length }) out = out.replace(Regex("(?i)(?<=\\s)" + Regex.escape(a) + "(?=\\s)"), "->")
+        return out.trim()
     }
 
     companion object {
@@ -557,8 +743,10 @@ class Vocabulary internal constructor(
          * "لـx"), and before a Turkish suffix ("0'dan", "x^2-1'i"). Apostrophes are made one (’ ʼ as ').
          */
         internal fun spaced(text: String): String {
+            // Arabic short vowels and shadda are not letters of the word ("حلّل" is "حلل").
             val s = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFC)
                 .replace('’', '\'').replace('ʼ', '\'').replace('‘', '\'')
+                .filterNot { it in '\u064B'..'\u0652' || it == '\u0670' }
             val out = StringBuilder(s.length + 8)
             for (i in s.indices) {
                 val c = s[i]
@@ -575,6 +763,8 @@ class Vocabulary internal constructor(
                     out.append(' ')
                     continue
                 }
+                // A tatweel elsewhere only stretches a word.
+                if (c == 'ـ') continue
                 // A Turkish suffix after math: "0'dan" is "0 'dan".
                 if (c == '\'' && prev != null && (prev.isDigit() || prev in 'a'..'z' || prev in 'A'..'Z' || prev == ')' || prev == ']' || prev == '}') &&
                     isTurkishSuffix(s, i + 1)) {
@@ -612,7 +802,7 @@ class Vocabulary internal constructor(
                 Command.LIMIT to listOf("limit of", "limit", "lim"),
                 Command.SUM to listOf("sum of", "sum"),
                 Command.PLOT to listOf("plot", "graph of", "graph", "draw"),
-                Command.CALCULATE to listOf("calculate", "compute", "evaluate", "what is"),
+                Command.CALCULATE to listOf("calculate", "compute", "evaluate", "find", "determine", "what is"),
             ),
             of = setOf("of"),
             from = words("from"),
@@ -620,6 +810,10 @@ class Vocabulary internal constructor(
             forWords = words("for"),
             respect = words("with respect to", "wrt"),
             approach = words("as", "when"),
+            articles = setOf("the"),
+            nouns = words("equation", "function", "expression"),
+            arrows = listOf("approaches", "tends to", "goes to"),
+            between = listOf("between" to "and"),
         )
 
         val GERMAN = Vocabulary(
@@ -633,8 +827,8 @@ class Vocabulary internal constructor(
                 Command.INTEGRAL to listOf("integral von", "integral", "integriere", "stammfunktion von", "stammfunktion"),
                 Command.LIMIT to listOf("grenzwert von", "grenzwert", "limes"),
                 Command.SUM to listOf("summe von", "summe"),
-                Command.PLOT to listOf("zeichne", "plotte", "graph von", "graph"),
-                Command.CALCULATE to listOf("berechne", "rechne", "was ist"),
+                Command.PLOT to listOf("zeichne", "plotte", "graphen von", "graph von", "graphen", "graph"),
+                Command.CALCULATE to listOf("berechne", "rechne", "bestimme", "ermittle", "was ist"),
             ),
             of = setOf("von"),
             from = words("von"),
@@ -642,6 +836,9 @@ class Vocabulary internal constructor(
             forWords = words("für"),
             respect = words("nach"),
             approach = words("wenn"),
+            articles = setOf("die", "der", "das", "den", "dem"),
+            nouns = words("gleichung", "funktion", "term"),
+            between = listOf("zwischen" to "und"),
         )
 
         val SPANISH = Vocabulary(
@@ -655,8 +852,8 @@ class Vocabulary internal constructor(
                 Command.INTEGRAL to listOf("integral de", "integral", "integra", "integrar", "primitiva de", "primitiva", "antiderivada de"),
                 Command.LIMIT to listOf("límite de", "límite", "limite de", "limite"),
                 Command.SUM to listOf("suma de", "suma", "sumatoria de", "sumatoria"),
-                Command.PLOT to listOf("grafica", "graficar", "gráfica de", "gráfica", "dibuja", "dibujar"),
-                Command.CALCULATE to listOf("calcula", "calcular", "evalúa", "evaluar", "cuánto es", "cuanto es"),
+                Command.PLOT to listOf("grafica", "graficar", "gráfica de", "gráfica", "dibuja", "dibujar", "representa gráficamente", "representa"),
+                Command.CALCULATE to listOf("calcula", "calcular", "evalúa", "evaluar", "halla", "hallar", "encuentra", "determina", "cuánto es", "cuanto es"),
             ),
             of = setOf("de"),
             from = words("de", "desde"),
@@ -664,6 +861,10 @@ class Vocabulary internal constructor(
             forWords = words("para"),
             respect = words("respecto a", "respecto de", "con respecto a"),
             approach = words("cuando"),
+            articles = setOf("el", "la", "los", "las", "lo"),
+            nouns = words("ecuación", "función", "expresión", "polinomio"),
+            arrows = listOf("tiende a", "tiende hacia"),
+            between = listOf("entre" to "y"),
         )
 
         val FRENCH = Vocabulary(
@@ -678,14 +879,19 @@ class Vocabulary internal constructor(
                 Command.LIMIT to listOf("limite de", "limite"),
                 Command.SUM to listOf("somme de", "somme"),
                 Command.PLOT to listOf("trace", "tracer", "tracez", "dessine", "graphe de", "courbe de"),
-                Command.CALCULATE to listOf("calcule", "calculer", "calculez", "évalue", "combien fait"),
+                Command.CALCULATE to listOf("calcule", "calculer", "calculez", "évalue", "détermine", "déterminer", "trouve", "combien fait"),
             ),
             of = setOf("de", "du"),
             from = words("de"),
             to = words("à", "a", "jusqu'à"),
             forWords = words("pour"),
             respect = words("par rapport à", "par rapport a", "selon"),
-            approach = words("quand", "lorsque"),
+            // "limite de x^2 en 2": the lycée names the point after "en".
+            approach = words("quand", "lorsque", "en"),
+            articles = setOf("le", "la", "les", "l'"),
+            nouns = words("équation", "fonction", "expression", "polynôme"),
+            arrows = listOf("tend vers"),
+            between = listOf("entre" to "et"),
         )
 
         val INDONESIAN = Vocabulary(
@@ -695,12 +901,12 @@ class Vocabulary internal constructor(
                 Command.FACTOR to listOf("faktorkan", "faktorisasi"),
                 Command.EXPAND to listOf("jabarkan", "uraikan", "ekspansikan"),
                 Command.SIMPLIFY to listOf("sederhanakan"),
-                Command.DERIVATIVE to listOf("turunan dari", "turunan", "turunkan"),
+                Command.DERIVATIVE to listOf("turunan pertama dari", "turunan pertama", "turunan dari", "turunan", "turunkan"),
                 Command.INTEGRAL to listOf("integral dari", "integral", "integralkan", "antiturunan dari", "antiturunan"),
                 Command.LIMIT to listOf("limit dari", "limit"),
                 Command.SUM to listOf("jumlah dari", "jumlah", "jumlahkan"),
                 Command.PLOT to listOf("gambarkan grafik", "gambarkan", "grafik dari", "grafik", "gambar"),
-                Command.CALCULATE to listOf("hitunglah", "hitung", "berapa"),
+                Command.CALCULATE to listOf("hitunglah", "hitung", "tentukan", "carilah", "cari", "berapa"),
             ),
             of = setOf("dari"),
             from = words("dari"),
@@ -708,13 +914,16 @@ class Vocabulary internal constructor(
             forWords = words("untuk"),
             respect = words("terhadap"),
             approach = words("saat", "ketika"),
+            nouns = words("persamaan", "fungsi", "bentuk"),
+            arrows = listOf("mendekati", "menuju"),
+            between = listOf("antara" to "dan"),
         )
 
         val ITALIAN = Vocabulary(
             "it",
             mapOf(
                 Command.SOLVE to listOf("risolvi", "risolvere"),
-                Command.FACTOR to listOf("scomponi", "scomporre", "fattorizza", "fattorizzare"),
+                Command.FACTOR to listOf("scomponi in fattori", "scomponi", "scomporre", "fattorizza", "fattorizzare"),
                 Command.EXPAND to listOf("sviluppa", "sviluppare", "espandi"),
                 Command.SIMPLIFY to listOf("semplifica", "semplificare"),
                 Command.DERIVATIVE to listOf("derivata di", "derivata", "deriva", "derivare"),
@@ -722,7 +931,7 @@ class Vocabulary internal constructor(
                 Command.LIMIT to listOf("limite di", "limite"),
                 Command.SUM to listOf("somma di", "somma", "sommatoria di", "sommatoria"),
                 Command.PLOT to listOf("disegna", "traccia", "grafico di", "grafico"),
-                Command.CALCULATE to listOf("calcola", "calcolare", "quanto fa"),
+                Command.CALCULATE to listOf("calcola", "calcolare", "trova", "determina", "quanto fa"),
             ),
             of = setOf("di", "del", "della"),
             from = words("da"),
@@ -730,6 +939,12 @@ class Vocabulary internal constructor(
             forWords = words("per"),
             respect = words("rispetto a"),
             approach = words("quando"),
+            articles = setOf("il", "lo", "la", "i", "gli", "le", "l'"),
+            nouns = words("equazione", "funzione", "espressione", "polinomio"),
+            arrows = listOf("che tende a", "tende a"),
+            between = listOf("tra" to "e", "fra" to "e"),
+            // "scomponi x^2-1 in fattori".
+            ignored = setOf("in", "fattori"),
         )
 
         val DUTCH = Vocabulary(
@@ -744,7 +959,7 @@ class Vocabulary internal constructor(
                 Command.LIMIT to listOf("limiet van", "limiet"),
                 Command.SUM to listOf("som van", "som"),
                 Command.PLOT to listOf("teken", "plot", "grafiek van", "grafiek"),
-                Command.CALCULATE to listOf("bereken", "reken uit", "wat is"),
+                Command.CALCULATE to listOf("bereken", "reken uit", "bepaal", "wat is"),
             ),
             of = setOf("van"),
             from = words("van"),
@@ -752,6 +967,10 @@ class Vocabulary internal constructor(
             forWords = words("voor"),
             respect = words("naar"),
             approach = words("als", "wanneer"),
+            articles = setOf("de", "het", "een"),
+            nouns = words("vergelijking", "functie", "uitdrukking"),
+            arrows = listOf("nadert tot", "nadert", "gaat naar"),
+            between = listOf("tussen" to "en"),
             // "los x^2 = 4 op", "werk (x+1)^2 uit", "ontbind x^2-1 in factoren": the verb's other half.
             ignored = setOf("op", "uit", "in", "factoren"),
         )
@@ -763,12 +982,12 @@ class Vocabulary internal constructor(
                 Command.FACTOR to listOf("rozłóż na czynniki", "rozloz na czynniki", "rozłóż", "faktoryzuj"),
                 Command.EXPAND to listOf("wymnóż", "wymnoz", "rozwiń", "rozwin"),
                 Command.SIMPLIFY to listOf("uprość", "uprosc", "uprościć"),
-                Command.DERIVATIVE to listOf("oblicz pochodną", "pochodna z", "pochodna", "różniczkuj", "rozniczkuj"),
-                Command.INTEGRAL to listOf("oblicz całkę", "całka z", "całka", "calka z", "calka", "scałkuj", "całkuj"),
+                Command.DERIVATIVE to listOf("oblicz pochodną", "pochodna z", "pochodna", "pochodną", "różniczkuj", "rozniczkuj"),
+                Command.INTEGRAL to listOf("oblicz całkę", "całka oznaczona z", "całka nieoznaczona z", "całka oznaczona", "całka nieoznaczona", "całka z", "całka", "całkę", "calka z", "calka", "scałkuj", "całkuj"),
                 Command.LIMIT to listOf("oblicz granicę", "granica", "granica z"),
                 Command.SUM to listOf("suma"),
                 Command.PLOT to listOf("narysuj wykres", "narysuj", "wykres funkcji", "wykres"),
-                Command.CALCULATE to listOf("oblicz", "ile wynosi", "ile to"),
+                Command.CALCULATE to listOf("oblicz", "wyznacz", "znajdź", "ile wynosi", "ile to"),
             ),
             of = setOf("z"),
             from = words("od"),
@@ -776,6 +995,10 @@ class Vocabulary internal constructor(
             forWords = words("dla"),
             respect = words("względem", "wzgledem", "po"),
             approach = words("gdy", "przy"),
+            nouns = words("równanie", "funkcji", "funkcję", "wyrażenie", "wielomian"),
+            arrows = listOf("dąży do", "zmierza do"),
+            // "rozłóż x^2-1 na czynniki".
+            ignored = setOf("na", "czynniki"),
         )
 
         val PORTUGUESE = Vocabulary(
@@ -789,8 +1012,8 @@ class Vocabulary internal constructor(
                 Command.INTEGRAL to listOf("integral de", "integral", "integre", "integrar", "primitiva de", "primitiva", "antiderivada de"),
                 Command.LIMIT to listOf("limite de", "limite"),
                 Command.SUM to listOf("soma de", "soma", "somatório de", "somatório"),
-                Command.PLOT to listOf("plote", "desenhe", "gráfico de", "gráfico", "grafico de"),
-                Command.CALCULATE to listOf("calcule", "calcular", "quanto é", "quanto e"),
+                Command.PLOT to listOf("plote", "desenhe", "esboce", "gráfico de", "gráfico", "grafico de"),
+                Command.CALCULATE to listOf("calcule", "calcular", "determine", "encontre", "ache", "quanto é", "quanto e"),
             ),
             of = setOf("de", "da", "do"),
             from = words("de"),
@@ -798,21 +1021,25 @@ class Vocabulary internal constructor(
             forWords = words("para"),
             respect = words("em relação a"),
             approach = words("quando"),
+            articles = setOf("o", "a", "os", "as"),
+            nouns = words("equação", "função", "expressão", "polinômio"),
+            arrows = listOf("tende a", "tende para"),
+            between = listOf("entre" to "e"),
         )
 
         val TURKISH = Vocabulary(
             "tr",
             mapOf(
-                Command.SOLVE to listOf("çöz", "coz", "çözünüz"),
-                Command.FACTOR to listOf("çarpanlarına ayır", "çarpanlara ayır", "carpanlarina ayir"),
-                Command.EXPAND to listOf("genişlet", "aç", "açınız"),
-                Command.SIMPLIFY to listOf("sadeleştir", "sadelestir", "basitleştir"),
-                Command.DERIVATIVE to listOf("türevini al", "türevi", "türev", "turev"),
-                Command.INTEGRAL to listOf("integralini al", "integrali", "integral"),
-                Command.LIMIT to listOf("limiti", "limit"),
+                Command.SOLVE to listOf("çöz", "coz", "çözün", "çözünüz"),
+                Command.FACTOR to listOf("çarpanlarına ayırın", "çarpanlarına ayır", "çarpanlara ayır", "carpanlarina ayir"),
+                Command.EXPAND to listOf("parantezleri açın", "parantezleri aç", "genişletin", "genişlet", "aç", "açınız"),
+                Command.SIMPLIFY to listOf("sadeleştirin", "sadeleştir", "sadelestir", "basitleştir"),
+                Command.DERIVATIVE to listOf("türevini al", "türevini", "türevi", "türev", "turev"),
+                Command.INTEGRAL to listOf("integralini al", "integralini", "integrali", "integral"),
+                Command.LIMIT to listOf("limitini", "limiti", "limit"),
                 Command.SUM to listOf("toplamı", "toplam"),
-                Command.PLOT to listOf("grafiğini çiz", "çiz", "ciz", "grafiği", "grafik"),
-                Command.CALCULATE to listOf("hesapla", "kaç eder", "kac eder"),
+                Command.PLOT to listOf("grafiğini çiz", "grafiğini", "çizin", "çiz", "ciz", "grafiği", "grafik"),
+                Command.CALCULATE to listOf("hesaplayın", "hesapla", "bulun", "bul", "kaç eder", "kac eder"),
             ),
             of = emptySet(),
             from = words("'dan", "'den", "'tan", "'ten"),
@@ -824,13 +1051,14 @@ class Vocabulary internal constructor(
             commandLast = true,
             particles = setOf("'i", "'ı", "'u", "'ü", "'yi", "'yı", "'yu", "'yü", "'in", "'ın", "'un", "'ün", "'nin", "'nın", "'nun", "'nün"),
             ignored = setOf("kadar"),
+            nouns = words("denklemini", "denklemi", "fonksiyonunun", "ifadesini"),
         )
 
         val VIETNAMESE = Vocabulary(
             "vi",
             mapOf(
                 Command.SOLVE to listOf("giải phương trình", "giải", "giai"),
-                Command.FACTOR to listOf("phân tích thành nhân tử", "phân tích", "phan tich"),
+                Command.FACTOR to listOf("phân tích đa thức thành nhân tử", "phân tích thành nhân tử", "phân tích đa thức", "phân tích", "phan tich"),
                 Command.EXPAND to listOf("khai triển", "khai trien"),
                 Command.SIMPLIFY to listOf("rút gọn", "rut gon", "đơn giản"),
                 Command.DERIVATIVE to listOf("đạo hàm của", "đạo hàm", "dao ham"),
@@ -838,7 +1066,7 @@ class Vocabulary internal constructor(
                 Command.LIMIT to listOf("giới hạn của", "giới hạn", "gioi han"),
                 Command.SUM to listOf("tổng của", "tổng", "tong"),
                 Command.PLOT to listOf("vẽ đồ thị", "vẽ", "đồ thị của", "đồ thị", "ve do thi"),
-                Command.CALCULATE to listOf("tính giá trị", "tính", "tinh"),
+                Command.CALCULATE to listOf("tính giá trị", "tính", "tinh", "tìm"),
             ),
             of = setOf("của"),
             from = words("từ"),
@@ -846,21 +1074,23 @@ class Vocabulary internal constructor(
             forWords = words("với"),
             respect = words("theo", "đối với"),
             approach = words("khi"),
+            nouns = words("phương trình", "hàm số", "đa thức", "biểu thức"),
+            arrows = listOf("tiến tới", "tiến đến", "dần tới"),
         )
 
         val RUSSIAN = Vocabulary(
             "ru",
             mapOf(
-                Command.SOLVE to listOf("реши уравнение", "реши", "решить", "решите"),
-                Command.FACTOR to listOf("разложи на множители", "разложить на множители", "разложи", "разложить"),
-                Command.EXPAND to listOf("раскрой скобки", "раскрыть скобки", "раскрой"),
-                Command.SIMPLIFY to listOf("упрости", "упростить", "упростите"),
-                Command.DERIVATIVE to listOf("найди производную", "производная от", "производная", "продифференцируй"),
-                Command.INTEGRAL to listOf("найди интеграл", "интеграл от", "интеграл", "проинтегрируй", "первообразная от", "первообразная"),
-                Command.LIMIT to listOf("найди предел", "предел"),
+                Command.SOLVE to listOf("реши уравнение", "решите уравнение", "реши", "решить", "решите"),
+                Command.FACTOR to listOf("разложи на множители", "разложите на множители", "разложить на множители", "разложи", "разложите", "разложить"),
+                Command.EXPAND to listOf("раскрой скобки", "раскройте скобки", "раскрыть скобки", "раскрой", "раскройте"),
+                Command.SIMPLIFY to listOf("упрости выражение", "упростите выражение", "упрости", "упростить", "упростите"),
+                Command.DERIVATIVE to listOf("найди производную", "найдите производную", "вычисли производную", "вычислите производную", "производная от", "производная", "продифференцируй"),
+                Command.INTEGRAL to listOf("найди интеграл", "найдите интеграл", "вычисли интеграл", "вычислите интеграл", "интеграл от", "интеграл", "проинтегрируй", "первообразная от", "первообразная"),
+                Command.LIMIT to listOf("найди предел", "найдите предел", "вычисли предел", "вычислите предел", "предел"),
                 Command.SUM to listOf("сумма"),
-                Command.PLOT to listOf("построй график", "построй", "нарисуй", "график"),
-                Command.CALCULATE to listOf("вычисли", "вычислить", "посчитай", "сколько будет"),
+                Command.PLOT to listOf("построй график", "постройте график", "построй", "постройте", "нарисуй", "график"),
+                Command.CALCULATE to listOf("вычисли", "вычислите", "вычислить", "посчитай", "найди значение", "найдите значение", "сколько будет"),
             ),
             of = setOf("от"),
             from = words("от"),
@@ -868,21 +1098,23 @@ class Vocabulary internal constructor(
             forWords = words("для"),
             respect = words("по"),
             approach = words("при"),
+            nouns = words("уравнение", "функции", "выражение"),
+            arrows = listOf("стремится к"),
         )
 
         val UKRAINIAN = Vocabulary(
             "uk",
             mapOf(
-                Command.SOLVE to listOf("розв'яжи рівняння", "розв'яжи", "розв'язати"),
-                Command.FACTOR to listOf("розклади на множники", "розкласти на множники", "розклади"),
-                Command.EXPAND to listOf("розкрий дужки", "розкрий"),
-                Command.SIMPLIFY to listOf("спрости", "спростити"),
-                Command.DERIVATIVE to listOf("знайди похідну", "похідна від", "похідна", "продиференціюй"),
-                Command.INTEGRAL to listOf("знайди інтеграл", "інтеграл від", "інтеграл", "проінтегруй", "первісна від", "первісна"),
-                Command.LIMIT to listOf("знайди границю", "границя", "межа"),
+                Command.SOLVE to listOf("розв'яжи рівняння", "розв'яжіть рівняння", "розв'яжи", "розв'яжіть", "розв'язати"),
+                Command.FACTOR to listOf("розклади на множники", "розкладіть на множники", "розкласти на множники", "розклади", "розкладіть"),
+                Command.EXPAND to listOf("розкрий дужки", "розкрийте дужки", "розкрий", "розкрийте"),
+                Command.SIMPLIFY to listOf("спрости вираз", "спростіть вираз", "спрости", "спростіть", "спростити"),
+                Command.DERIVATIVE to listOf("знайди похідну", "знайдіть похідну", "обчисли похідну", "обчисліть похідну", "похідна від", "похідна", "продиференціюй"),
+                Command.INTEGRAL to listOf("знайди інтеграл", "знайдіть інтеграл", "обчисли інтеграл", "обчисліть інтеграл", "інтеграл від", "інтеграл", "проінтегруй", "первісна від", "первісна"),
+                Command.LIMIT to listOf("знайди границю", "знайдіть границю", "обчисли границю", "обчисліть границю", "границя", "межа"),
                 Command.SUM to listOf("сума"),
-                Command.PLOT to listOf("побудуй графік", "побудуй", "намалюй", "графік"),
-                Command.CALCULATE to listOf("обчисли", "порахуй", "скільки буде"),
+                Command.PLOT to listOf("побудуй графік", "побудуйте графік", "побудуй", "побудуйте", "намалюй", "графік"),
+                Command.CALCULATE to listOf("обчисли", "обчисліть", "порахуй", "скільки буде"),
             ),
             of = setOf("від"),
             from = words("від"),
@@ -890,18 +1122,20 @@ class Vocabulary internal constructor(
             forWords = words("для"),
             respect = words("по", "за"),
             approach = words("при"),
+            nouns = words("рівняння", "функції", "вираз"),
+            arrows = listOf("прямує до"),
         )
 
         val ARABIC = Vocabulary(
             "ar",
             mapOf(
                 Command.SOLVE to listOf("حل المعادلة", "حل", "أوجد حل", "اوجد حل"),
-                Command.FACTOR to listOf("حلل إلى العوامل", "حلل الى العوامل", "حلل", "فكك"),
+                Command.FACTOR to listOf("حلل إلى العوامل", "حلل الى العوامل", "حلل إلى عوامل", "حلل الى عوامل", "حلل", "فكك"),
                 Command.EXPAND to listOf("فك الأقواس", "فك الاقواس", "انشر", "وسع"),
                 Command.SIMPLIFY to listOf("بسط", "اختصر"),
-                Command.DERIVATIVE to listOf("أوجد المشتقة", "اوجد المشتقة", "مشتقة", "المشتقة", "اشتق"),
-                Command.INTEGRAL to listOf("تكامل", "التكامل", "كامل", "الدالة الأصلية"),
-                Command.LIMIT to listOf("نهاية", "النهاية"),
+                Command.DERIVATIVE to listOf("أوجد المشتقة", "اوجد المشتقة", "أوجد مشتقة", "اوجد مشتقة", "احسب المشتقة", "احسب مشتقة", "مشتقة", "المشتقة", "اشتق"),
+                Command.INTEGRAL to listOf("احسب التكامل", "احسب تكامل", "أوجد التكامل", "اوجد التكامل", "تكامل", "التكامل", "كامل", "الدالة الأصلية"),
+                Command.LIMIT to listOf("احسب النهاية", "احسب نهاية", "أوجد النهاية", "اوجد النهاية", "نهاية", "النهاية"),
                 Command.SUM to listOf("مجموع", "المجموع"),
                 Command.PLOT to listOf("ارسم", "مثل بيانيا", "التمثيل البياني"),
                 Command.CALCULATE to listOf("احسب", "كم يساوي"),
@@ -917,16 +1151,16 @@ class Vocabulary internal constructor(
         val HEBREW = Vocabulary(
             "he",
             mapOf(
-                Command.SOLVE to listOf("פתור", "פתרי", "פתרו"),
-                Command.FACTOR to listOf("פרק לגורמים", "פרקי לגורמים", "פרק"),
-                Command.EXPAND to listOf("פתח סוגריים", "פתח"),
-                Command.SIMPLIFY to listOf("פשט", "פשטי"),
-                Command.DERIVATIVE to listOf("נגזרת של", "נגזרת", "גזור"),
-                Command.INTEGRAL to listOf("אינטגרל של", "אינטגרל", "פונקציה קדומה של", "פונקציה קדומה"),
-                Command.LIMIT to listOf("גבול של", "גבול"),
-                Command.SUM to listOf("סכום של", "סכום"),
-                Command.PLOT to listOf("שרטט", "צייר", "גרף של", "גרף"),
-                Command.CALCULATE to listOf("חשב", "חשבי", "כמה זה"),
+                Command.SOLVE to listOf("פתור את המשוואה", "פתרו את המשוואה", "פתרי את המשוואה", "פתור", "פתרי", "פתרו"),
+                Command.FACTOR to listOf("פרק לגורמים", "פרקי לגורמים", "פרקו לגורמים", "פרק"),
+                Command.EXPAND to listOf("פתח סוגריים", "פתחו סוגריים", "פתחי סוגריים", "פתח", "פתחו", "פתחי"),
+                Command.SIMPLIFY to listOf("פשט", "פשטי", "פשטו"),
+                Command.DERIVATIVE to listOf("הנגזרת של", "נגזרת של", "נגזרת", "גזור", "גזרו", "גזרי"),
+                Command.INTEGRAL to listOf("האינטגרל של", "אינטגרל של", "אינטגרל", "פונקציה קדומה של", "פונקציה קדומה"),
+                Command.LIMIT to listOf("הגבול של", "גבול של", "גבול"),
+                Command.SUM to listOf("הסכום של", "סכום של", "סכום"),
+                Command.PLOT to listOf("שרטט", "שרטטו", "שרטטי", "צייר", "ציירו", "ציירי", "גרף של", "גרף"),
+                Command.CALCULATE to listOf("חשב", "חשבי", "חשבו", "כמה זה"),
             ),
             of = setOf("של"),
             from = words("מ", "החל מ"),
@@ -934,6 +1168,8 @@ class Vocabulary internal constructor(
             forWords = words("עבור"),
             respect = words("לפי", "ביחס ל"),
             approach = words("כאשר", "כש"),
+            // The object marker of "פתרו את …".
+            ignored = setOf("את"),
         )
 
         val HINDI = Vocabulary(
@@ -962,22 +1198,23 @@ class Vocabulary internal constructor(
             particles = setOf("का", "की", "के", "को"),
             // "हल करें x^2=4": the verb's helper after a command that comes first.
             ignored = setOf("करें", "करो", "कीजिए", "कीजिये"),
-            endings = listOf("करें", "करो", "कीजिए", "कीजिये", "बनाएं", "बनाएँ", "बनाओ"),
+            endings = listOf("ज्ञात कीजिए", "ज्ञात कीजिये", "ज्ञात करें", "ज्ञात करो", "करें", "करो", "कीजिए", "कीजिये", "बनाएं", "बनाएँ", "बनाओ",
+                "खींचिए", "खींचें", "खींचो"),
         )
 
         val JAPANESE = Vocabulary(
             "ja",
             mapOf(
-                Command.SOLVE to listOf("方程式を解く", "解いて", "解く", "解け", "解"),
+                Command.SOLVE to listOf("方程式を解く", "解いて", "解く", "解け", "解きなさい", "解"),
                 Command.FACTOR to listOf("因数分解"),
                 Command.EXPAND to listOf("展開"),
-                Command.SIMPLIFY to listOf("簡単にして", "簡単化", "簡約", "整理"),
+                Command.SIMPLIFY to listOf("簡単にして", "簡単に", "簡単化", "簡約", "約分", "整理"),
                 Command.DERIVATIVE to listOf("導関数", "微分"),
                 Command.INTEGRAL to listOf("不定積分", "原始関数", "積分"),
-                Command.LIMIT to listOf("極限"),
+                Command.LIMIT to listOf("極限値", "極限"),
                 Command.SUM to listOf("総和", "和"),
-                Command.PLOT to listOf("グラフを描いて", "グラフを描く", "グラフ"),
-                Command.CALCULATE to listOf("計算", "求めて"),
+                Command.PLOT to listOf("グラフを描いて", "グラフを描く", "グラフを描け", "グラフをかいて", "グラフをかく", "グラフをかけ", "グラフ"),
+                Command.CALCULATE to listOf("計算", "の値"),
             ),
             of = setOf("の"),
             from = words("から"),
@@ -988,22 +1225,25 @@ class Vocabulary internal constructor(
             postpositional = true,
             commandLast = true,
             particles = setOf("を", "の", "は"),
-            endings = listOf("してください", "して下さい", "ください", "しなさい", "して", "せよ", "する"),
+            // "…の導関数を求めよ": the textbook's "find" after what is found.
+            endings = listOf("を求めてください", "を求めなさい", "を求めよ", "を求めて", "を求める", "してください", "して下さい", "ください",
+                "しなさい", "して", "せよ", "する"),
+            ignored = setOf("方程式"),
         )
 
         val KOREAN = Vocabulary(
             "ko",
             mapOf(
-                Command.SOLVE to listOf("방정식 풀기", "풀어라", "풀어", "푸시오", "풀기", "풀이"),
+                Command.SOLVE to listOf("방정식 풀기", "풀어라", "풀어", "푸시오", "풀기", "풀이", "의 해"),
                 Command.FACTOR to listOf("인수분해"),
                 Command.EXPAND to listOf("전개"),
                 Command.SIMPLIFY to listOf("간단히", "정리"),
                 Command.DERIVATIVE to listOf("도함수", "미분"),
-                Command.INTEGRAL to listOf("부정적분", "원시함수", "적분"),
-                Command.LIMIT to listOf("극한"),
+                Command.INTEGRAL to listOf("부정적분", "정적분", "원시함수", "적분"),
+                Command.LIMIT to listOf("극한값", "극한"),
                 Command.SUM to listOf("합"),
-                Command.PLOT to listOf("그래프 그리기", "그래프"),
-                Command.CALCULATE to listOf("계산", "값 구하기"),
+                Command.PLOT to listOf("그래프를 그리시오", "그래프를 그려라", "그래프를 그려", "그래프 그리기", "그래프"),
+                Command.CALCULATE to listOf("계산", "값 구하기", "의 값"),
             ),
             of = setOf("의"),
             from = words("부터", "에서"),
@@ -1014,7 +1254,9 @@ class Vocabulary internal constructor(
             postpositional = true,
             commandLast = true,
             particles = setOf("을", "를", "의", "은", "는"),
-            endings = listOf("하시오", "하세요", "해 줘", "해줘", "해라", "하기", "해"),
+            endings = listOf("를 구하시오", "을 구하시오", "를 구하세요", "을 구하세요", "를 구하여라", "을 구하여라", "를 구해", "을 구해",
+                "하여라", "해 주세요", "해주세요", "하시오", "하세요", "해 줘", "해줘", "해라", "하기", "해"),
+            ignored = setOf("방정식"),
         )
 
         val THAI = Vocabulary(
@@ -1024,11 +1266,11 @@ class Vocabulary internal constructor(
                 Command.FACTOR to listOf("แยกตัวประกอบ"),
                 Command.EXPAND to listOf("กระจาย"),
                 Command.SIMPLIFY to listOf("ทำให้อยู่ในรูปอย่างง่าย", "ลดรูป", "ทำให้ง่าย"),
-                Command.DERIVATIVE to listOf("หาอนุพันธ์", "อนุพันธ์ของ", "อนุพันธ์"),
-                Command.INTEGRAL to listOf("อินทิกรัลของ", "อินทิกรัล", "ปริพันธ์"),
-                Command.LIMIT to listOf("ลิมิตของ", "ลิมิต"),
+                Command.DERIVATIVE to listOf("หาอนุพันธ์", "อนุพันธ์ของ", "อนุพันธ์", "ดิฟ"),
+                Command.INTEGRAL to listOf("หาอินทิกรัล", "อินทิกรัลของ", "อินทิกรัล", "ปริพันธ์", "อินทิเกรต"),
+                Command.LIMIT to listOf("หาลิมิต", "ลิมิตของ", "ลิมิต"),
                 Command.SUM to listOf("ผลรวมของ", "ผลรวม"),
-                Command.PLOT to listOf("วาดกราฟ", "กราฟของ", "กราฟ", "พล็อต"),
+                Command.PLOT to listOf("วาดกราฟ", "เขียนกราฟ", "กราฟของ", "กราฟ", "พล็อต"),
                 Command.CALCULATE to listOf("คำนวณ", "หาค่า"),
             ),
             of = setOf("ของ"),
@@ -1037,21 +1279,23 @@ class Vocabulary internal constructor(
             forWords = words("สำหรับ"),
             respect = words("เทียบกับ"),
             approach = words("เมื่อ"),
+            // "จงแก้สมการ …": the imperative every exercise starts with.
+            prefixes = listOf("จง"),
         )
 
         /** Simplified and Traditional characters together: a word is the same command in either. */
         val CHINESE = Vocabulary(
             "zh",
             mapOf(
-                Command.SOLVE to listOf("解方程", "求解", "解"),
+                Command.SOLVE to listOf("解方程式", "解方程", "求解", "解"),
                 Command.FACTOR to listOf("因式分解", "分解因式"),
                 Command.EXPAND to listOf("展开", "展開"),
                 Command.SIMPLIFY to listOf("化简", "化簡", "简化", "簡化"),
-                Command.DERIVATIVE to listOf("求导数", "求導數", "求导", "求導", "导数", "導數", "微分"),
-                Command.INTEGRAL to listOf("求积分", "求積分", "不定积分", "不定積分", "原函数", "原函數", "积分", "積分"),
+                Command.DERIVATIVE to listOf("求导数", "求導數", "求导", "求導", "导函数", "導函數", "导数", "導數", "微分"),
+                Command.INTEGRAL to listOf("求积分", "求積分", "不定积分", "不定積分", "定积分", "定積分", "原函数", "原函數", "积分", "積分"),
                 Command.LIMIT to listOf("求极限", "求極限", "极限", "極限"),
                 Command.SUM to listOf("求和"),
-                Command.PLOT to listOf("画图", "畫圖", "作图", "作圖", "绘制", "繪製", "图像", "圖形"),
+                Command.PLOT to listOf("画出", "畫出", "画图", "畫圖", "作图", "作圖", "绘制", "繪製", "图像", "圖像", "图形", "圖形"),
                 Command.CALCULATE to listOf("计算", "計算", "求值", "等于多少", "等於多少"),
             ),
             of = setOf("的"),
@@ -1062,6 +1306,9 @@ class Vocabulary internal constructor(
             approach = words("当", "當"),
             commandLast = true,
             particles = setOf("的"),
+            // "求 x^3 的导数", "把 x^2-1 因式分解": a leading "find" or object marker; "当 x->0 时": 时 closes the approach.
+            ignored = setOf("求", "把", "将", "將"),
+            closers = setOf("时", "時"),
         )
 
         val ALL: List<Vocabulary> = listOf(
