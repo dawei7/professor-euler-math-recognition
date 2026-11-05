@@ -126,4 +126,30 @@ class CalculusDeepTest {
         val atOne = TextInput.read("taylor series of e^x at x = 1")
         assertEquals(Choice(Mode.SERIES, "x", point = "1"), atOne.choice)
     }
+
+    private fun critical(latex: String) = answerOf(MathCalc.calculate(latex, Choice(Mode.EXTREMA)))
+
+    /** Critical points of functions of x, y (and z), each checked and classified by the Hessian's leading minors. */
+    @Test fun criticalPoints() {
+        val cases = listOf(
+            critical("x^{3}-3xy+y^{3}") to "(0, 0) saddle 0; (1, 1) minimum -1",
+            critical("x^{3}+y^{3}-3x-12y+20") to "(-1, -2) maximum 38; (-1, 2) saddle 6; (1, -2) saddle 34; (1, 2) minimum 2",
+            critical("x^{4}+y^{4}") to "(0, 0) undecided 0",
+            critical("xye^{-x^{2}-y^{2}}") to "(-√2/2, -√2/2) maximum 1/(2e) ≈ 0.1839397206; (-√2/2, √2/2) minimum -1/(2e) ≈ -0.1839397206; " +
+                "(0, 0) saddle 0; (√2/2, -√2/2) minimum -1/(2e) ≈ -0.1839397206; (√2/2, √2/2) maximum 1/(2e) ≈ 0.1839397206",
+            critical("x^{2}+y^{2}+z^{2}-2x+4z") to "(1, 0, -2) minimum -5",
+            // A line of critical points is not said as if it were some of them.
+            critical("(x-y)^{2}") to "UNSOLVED",
+        )
+        assertEquals("", cases.filter { (got, want) -> got != want }.joinToString("\n") { (got, want) -> "$got, not $want" })
+        assertEquals(true, Mode.SURFACE in MathCalc.calculate("x^{2}-y^{2}").modes)
+        assertEquals(false, Mode.EXTREMA in MathCalc.calculate("a^{2}+b^{2}").modes)
+    }
+
+    /** An iterated integral whose inner bounds are in the outer letter. */
+    @Test fun iteratedIntegrals() = check(
+        "\\int_{0}^{1}\\int_{0}^{2}xy\\,dx\\,dy" to "1",
+        "\\int_{0}^{1}\\int_{0}^{x}xy\\,dy\\,dx" to "0.125",
+        "\\int_{0}^{1}\\int_{x^{2}}^{x}(x+y)\\,dy\\,dx" to "0.15",
+    )
 }

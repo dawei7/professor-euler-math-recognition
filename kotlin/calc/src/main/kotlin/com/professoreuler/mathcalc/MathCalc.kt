@@ -79,7 +79,17 @@ enum class Mode {
     PARTIAL_FRACTIONS,
     /** The Taylor (or Laurent) series at a point: sin x = x − x³/6 + x⁵/120 + O(x⁷). */
     SERIES,
+    /** Where a function of x, y (and z) has gradient 0, and whether each is a minimum, a maximum or a saddle. */
+    EXTREMA,
+    /** A function of x and y as a surface z = f(x, y), turned by a finger. */
+    SURFACE,
 }
+
+/** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
+data class CriticalPoint(val at: Map<String, Expr>, val kind: CriticalKind, val value: Expr)
+
+/** What the second-derivative test (the Hessian's leading minors) says of a critical point. */
+enum class CriticalKind { MINIMUM, MAXIMUM, SADDLE, UNDECIDED }
 
 /**
  * A mode, and for Solve, Derivative, Integral and Series the letter it is for; for Series also the point (in LaTeX, 0 where
@@ -156,6 +166,15 @@ sealed class Outcome {
      * x and y as the curve [implicit] = 0, and an inequality in them as the region where [implicit] [region] 0. [parameters] are
      * its other letters (y = ax² + bx + c: a, b, c), each a slider, 1 until moved ([Plot.at]).
      */
+    /**
+     * The critical points of a function of [letters]: its [gradient] and [hessian], and each point where the gradient is 0
+     * (checked by putting it in), with what the second-derivative test makes of it and the function's value there.
+     */
+    data class Critical(val letters: List<String>, val gradient: List<Expr>, val hessian: List<List<Expr>>, val points: List<CriticalPoint>) : Outcome()
+
+    /** z = [function] of [x] and [y], drawn as a surface. */
+    data class Surface(val function: Expr, val x: String, val y: String) : Outcome()
+
     data class Graph(val variable: String, val functions: List<Expr>, val implicit: Expr? = null, val parameters: List<String> = emptyList(),
         val region: Rel? = null,
         /** A curve (x(t), y(t)) in [variable] (x = cos t, y = sin t; a polar r(θ) as (r cos θ, r sin θ)). */
@@ -353,6 +372,10 @@ object MathCalc {
             // A function that is no polynomial, in one letter: its series at 0, else at 1 (ln x), where it has one.
             val seriesAt = if (letters.size == 1 && !isPolynomialIn(last)) seriesPoint(last, x) else null
             if (seriesAt != null) choices += Choice(Mode.SERIES, variable, point = seriesAt)
+            // A function of the coordinates x, y (and z): its critical points, and of x and y its surface.
+            val coordinates = letters.size in 2..3 && letters.all { it in COORDINATES }
+            if (coordinates) choices += Choice(Mode.EXTREMA)
+            if (letters.toSet() == setOf("x", "y")) choices += Choice(Mode.SURFACE)
             letters.forEach { choices += Choice(Mode.DERIVATIVE, it) }
             letters.forEach { choices += Choice(Mode.INTEGRAL, it) }
             // A graph in its main letter, the others as sliders (a x² + b x + c).
@@ -381,6 +404,8 @@ object MathCalc {
                     Mode.GRAPH -> Outcome.Graph(variable, listOf(last), parameters = letters - variable)
                     Mode.PARTIAL_FRACTIONS -> Outcome.Expression(partial ?: throw CalcException(Failure.UNREADABLE), steps)
                     Mode.SERIES -> series(last, Expr.Sym(c.letter ?: variable), c.point ?: seriesAt ?: "0", c.order)
+                    Mode.EXTREMA -> critical(last, letters)
+                    Mode.SURFACE -> Outcome.Surface(last, "x", "y")
                     else -> throw CalcException(Failure.UNREADABLE)
                 }
             }
@@ -503,6 +528,68 @@ object MathCalc {
     }
 
     /** An exact form worth showing: roots, π, e, logarithms of numbers; not sin(47°), whose decimal says more. */
+    private val COORDINATES = setOf("x", "y", "z")
+
+    /**
+     * The critical points of [f] in [names]: the gradient's zeros by the system solver (real ones, each put back into every
+     * component), each classified by the leading minors of the Hessian there; a line or plane of them is not said.
+     */
+    private fun critical(f: Expr, names: List<String>): Outcome {
+        val xs = names.map { Expr.Sym(it) }
+        val gradient = xs.map { Calculus.tidy(Calculus.derivative(f, it)) }
+        val hessian = xs.map { a -> xs.map { b -> Calculus.tidy(Calculus.derivative(Calculus.derivative(f, a), b)) } }
+        // Factors that are never 0 (e^u) taken out, so the solver sees the polynomial part: xy·e^(−x²−y²).
+        val equations = gradient.filter { !isZero(it) }.map { withoutExponentials(it) }
+        if (equations.isEmpty()) throw CalcException(Failure.UNSOLVED)
+        val solutions = Solve.system(equations, names) ?: throw CalcException(Failure.UNSOLVED)
+        // Each solution a point: a number for every letter (a solution still in letters is a whole line of them).
+        if (solutions.any { s -> names.any { n -> s[n]?.symbols()?.isNotEmpty() != false } }) throw CalcException(Failure.UNSOLVED)
+        val points = ArrayList<CriticalPoint>()
+        for (s in solutions) {
+            Budget.check()
+            if (s.values.any { it.hasI() || it.hasInfinity() }) continue
+            fun at(e: Expr): Expr = Calculus.tidy(names.fold(e) { acc, n -> acc.substitute(Expr.Sym(n), s.getValue(n)) })
+            // The gradient there is 0, exactly or in ball arithmetic.
+            if (!gradient.all { g -> at(g).let { v -> isZero(v) || Precise.nearZero(v, complex = false) == true } }) continue
+            val h = hessian.map { row -> row.map { at(it) } }
+            points += CriticalPoint(names.associateWith { s.getValue(it) }, kindOf(h), at(f))
+        }
+        return Outcome.Critical(names, gradient, hessian, points)
+    }
+
+    /** [g] divided by the powers of e that every one of its terms has: those are never 0. */
+    private fun withoutExponentials(g: Expr): Expr {
+        val terms = if (g is Expr.Add) g.terms else listOf(g)
+        val common = terms.map { t -> (if (t is Expr.Mul) t.factors else listOf(t)).filter { it is Expr.Pow && it.base == Expr.E }.toSet() }
+            .reduce { p, q -> p intersect q }
+        if (common.isEmpty()) return g
+        return Calculus.tidy(Algebra.expand(mul(g, pow(mul(common.toList()), Expr.MINUS_ONE))))
+    }
+
+    /** Positive definite: a minimum; negative definite: a maximum; neither and invertible: a saddle; singular: undecided. */
+    private fun kindOf(h: List<List<Expr>>): CriticalKind {
+        val n = h.size
+        fun minor(k: Int): Expr = Calculus.tidy(when (k) {
+            1 -> h[0][0]
+            2 -> h[0][0] * h[1][1] - h[0][1] * h[1][0]
+            else -> h[0][0] * (h[1][1] * h[2][2] - h[1][2] * h[2][1]) - h[0][1] * (h[1][0] * h[2][2] - h[1][2] * h[2][0]) +
+                h[0][2] * (h[1][0] * h[2][1] - h[1][1] * h[2][0])
+        })
+        fun sign(e: Expr): Int? {
+            if (isZero(e)) return 0
+            val v = Numeric.value(e) ?: return null
+            if (abs(v) < 1e-12 && Precise.nearZero(e, complex = false) == true) return 0
+            return if (v > 0) 1 else -1
+        }
+        val signs = (1..n).map { sign(minor(it)) ?: return CriticalKind.UNDECIDED }
+        return when {
+            signs.last() == 0 -> CriticalKind.UNDECIDED
+            signs.all { it > 0 } -> CriticalKind.MINIMUM
+            signs.withIndex().all { (k, s) -> if (k % 2 == 0) s < 0 else s > 0 } -> CriticalKind.MAXIMUM
+            else -> CriticalKind.SADDLE
+        }
+    }
+
     private fun isPolynomialIn(e: Expr): Boolean = Algebra.Kernels().let { k -> Algebra.polynomial(e, k) != null && k.isEmpty }
 
     /** Where a series is offered: at 0, else at 1 (ln x, √x), as LaTeX; null where it has neither. */

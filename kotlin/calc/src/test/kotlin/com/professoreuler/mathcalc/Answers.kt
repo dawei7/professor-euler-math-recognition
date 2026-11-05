@@ -27,6 +27,10 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
             (if (l.gained.isNotEmpty()) " gained " + l.gained.joinToString(";") { c.text(it) } else "")
     }
     is Outcome.Failed -> o.failure.name
+    is Outcome.Critical -> if (o.points.isEmpty()) "no critical points" else o.points.joinToString("; ") { p ->
+        "(" + o.letters.joinToString(", ") { c.text(p.at.getValue(it)) } + ") " + p.kind.name.lowercase() + " " + c.textValue(p.value)
+    }
+    is Outcome.Surface -> "surface " + c.text(o.function)
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))

@@ -117,6 +117,16 @@ class PreparedPlot internal constructor(
  * finds them (zeros by Solve, extrema by the derivative's zeros) and filled in numerically where it does not.
  */
 object Plot {
+    /**
+     * z = [f]([x], [y]) on an n × n grid over [x0, x1] × [y0, y1], row by row in y: NaN where f is not defined. For drawing a
+     * surface; the values are a picture's, not answers.
+     */
+    fun grid(f: Expr, x: String, y: String, x0: Double, x1: Double, y0: Double, y1: Double, n: Int): Array<DoubleArray> =
+        Array(n) { j ->
+            val yv = y0 + (y1 - y0) * j / (n - 1)
+            DoubleArray(n) { i -> Numeric.eval(f, mapOf(x to x0 + (x1 - x0) * i / (n - 1), y to yv)).let { if (it.isFinite()) it else Double.NaN } }
+        }
+
     /** How long the exact search for marks may take before the numeric one takes over. */
     private const val EXACT_MS = 1500L
     private const val MOST_MARKS = 40

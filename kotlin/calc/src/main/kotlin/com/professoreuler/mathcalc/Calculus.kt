@@ -715,6 +715,14 @@ object Calculus {
         val bv = boundValue(b)
         val numeric = Quadrature.integrate({ t -> Numeric.eval(e, mapOf(x.name to t)) }, av, bv)
         val f = antiderivative(e, x)
+        // Bounds in letters (the inner integral of ∫∫ … dy dx): F(b) − F(a), where the integrand and F are defined on all of ℝ.
+        if (f != null && (av.isNaN() || bv.isNaN()) && (a.symbols().isNotEmpty() || b.symbols().isNotEmpty())) {
+            val whole = Double.NEGATIVE_INFINITY to Double.POSITIVE_INFINITY
+            if (Analysis.gapsIn(e, x, whole.first, whole.second)?.isEmpty() == true &&
+                Analysis.gapsIn(f, x, whole.first, whole.second)?.isEmpty() == true) {
+                return Definite(tidy(f.substitute(x, b) - f.substitute(x, a)), null, f)
+            }
+        }
         if (f != null && !av.isNaN() && !bv.isNaN() && av != bv) {
             val pieces = try { piecewise(e, f, x, a, b, av, bv) } catch (c: CalcException) {
                 if (c.failure == Failure.TOO_LONG) throw c
