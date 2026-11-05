@@ -31,6 +31,14 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
         "(" + o.letters.joinToString(", ") { c.text(p.at.getValue(it)) } + ") " + p.kind.name.lowercase() + " " + c.textValue(p.value)
     }
     is Outcome.Surface -> "surface " + c.text(o.function)
+    is Outcome.FourierSeries -> "a0 = " + c.text(o.series.a0) + ", an = " + c.text(o.series.an) + ", bn = " + c.text(o.series.bn)
+    is Outcome.NumericTable -> o.table.method.name.lowercase() + " " + o.table.rows.size + " rows → " + (o.table.result?.let { "%.10f".format(java.util.Locale.ROOT, it) } ?: "none")
+    is Outcome.PolarForm -> "r = " + c.text(o.polar.modulus) + ", φ = " + c.text(o.polar.argument)
+    is Outcome.Residues -> o.poles.joinToString("; ") { "at " + c.text(it.at) + " order " + it.order + " residue " + c.text(it.residue) }
+    is Outcome.OdeSolved -> {
+        fun of(s: Ode.Solution) = s.explicit?.let { "${o.y} = " + c.text(it) } ?: ("0 = " + c.text(s.implicit!!))
+        of(o.general) + " [" + o.general.method.name.lowercase() + "]" + (o.particular?.let { " | " + of(it) } ?: "")
+    }
     is Outcome.Decompositions -> listOfNotNull(
         o.lu?.let { (p, l, u) -> "P=" + c.text(p) + " L=" + c.text(l) + " U=" + c.text(u) },
         o.qr?.let { (q, r) -> "Q=" + c.text(q) + " R=" + c.text(r) },

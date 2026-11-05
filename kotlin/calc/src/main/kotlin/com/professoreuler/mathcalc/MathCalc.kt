@@ -115,6 +115,30 @@ enum class Mode {
     LAPLACIAN,
     /** The x that makes |A·x − b| least, for a linear system with more equations than unknowns and no solution. */
     LEAST_SQUARES,
+    /** A differential equation solved, with its initial values where they are given. */
+    ODE,
+    /** The Laplace transform of f(t). */
+    LAPLACE,
+    /** f(t) whose Laplace transform is F(s). */
+    INVERSE_LAPLACE,
+    /** The Fourier series on [−L, L] (π where no L is asked for). */
+    FOURIER,
+    /** Newton's method from x₀ ([Choice.point]). */
+    NEWTON,
+    /** Bisection on [a, b] ([Choice.point] "a,b"). */
+    BISECTION,
+    /** Euler's method for y′ = f(x, y) from its initial value. */
+    EULER,
+    /** The classical Runge–Kutta method. */
+    RUNGE_KUTTA,
+    /** The trapezoidal rule for a definite integral. */
+    TRAPEZOID,
+    /** Simpson's rule. */
+    SIMPSON,
+    /** A complex number's polar form. */
+    POLAR,
+    /** A function's poles and their residues. */
+    RESIDUES,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -223,6 +247,24 @@ sealed class Outcome {
         /** P and D of A = P·D·P⁻¹ where A can be diagonalized. */
         val diagonal: Pair<Expr.Mat, Expr.Mat>? = null) : Outcome()
 
+    /**
+     * A differential equation in [y]([x]): its [general] solution, the [particular] one where initial values were given, and
+     * y′ = [slope] of a first-order one (for its slope field).
+     */
+    data class OdeSolved(val y: String, val x: String, val general: Ode.Solution, val particular: Ode.Solution?, val slope: Expr?) : Outcome()
+
+    /** A Fourier series of a function of [x]. */
+    data class FourierSeries(val x: String, val series: Transforms.Fourier) : Outcome()
+
+    /** A numerical method's table ([Numerics]). */
+    data class NumericTable(val table: Numerics.Table) : Outcome()
+
+    /** A complex number's polar form. */
+    data class PolarForm(val z: Expr, val polar: ComplexAnalysis.Polar) : Outcome()
+
+    /** A function's poles in [z] with their orders and residues. */
+    data class Residues(val z: String, val poles: List<ComplexAnalysis.Pole>) : Outcome()
+
     /** A linear system with a parameter, case by case ([LinAlg.cases]). */
     data class SystemCases(val cases: LinAlg.Cases) : Outcome()
 
@@ -323,7 +365,7 @@ object MathCalc {
             val others = if (flags.plusMinus) Parser(tokens, Flags(assumptions).also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
             Budget.within(millis) {
-                val plan = plan(statements, others, style, flags.degrees)
+                val plan = odePlan(statements, flags.odeVariable) ?: plan(statements, others, style, flags.degrees)
                 choices = plan.choices
                 // A series asked for at a point or to a power of its own: the plan's series in that letter, so taken.
                 val chosen = choice?.takeIf { it in plan.choices }
@@ -331,6 +373,8 @@ object MathCalc {
                         plan.choices.firstOrNull { it.mode == Mode.SERIES && (want.letter == null || it.letter == want.letter) }
                             ?.let { it.copy(point = want.point ?: it.point, order = want.order ?: it.order) }
                     }
+                    // A mode it does only when asked for (Newton's method, a Fourier series): the choice as asked.
+                    ?: choice?.takeIf { it.mode in plan.accepts }
                     ?: plan.likeliest
                 shown = chosen
                 plan.outcome(chosen)
@@ -365,7 +409,8 @@ object MathCalc {
     private val TWO = BigInteger.valueOf(2)
 
     /** The choices that fit a formula, the likeliest of them, and how each comes to its outcome. */
-    private class Plan(val choices: List<Choice>, val likeliest: Choice, val outcome: (Choice) -> Outcome)
+    /** What a formula can be worked out as: its [choices] (chips), the [likeliest], and modes it does only when asked ([accepts]). */
+    private class Plan(val choices: List<Choice>, val likeliest: Choice, val accepts: Set<Mode> = emptySet(), val outcome: (Choice) -> Outcome)
 
     private fun plan(statements: List<Statement>, others: List<Statement>?, style: Style, degrees: Boolean): Plan {
         if (statements.size > 1) return systemPlan(statements)
@@ -403,9 +448,21 @@ object MathCalc {
             val v = sides.last()
             val alternatives = others?.let { o -> o[0].sides.filterNotNull().lastOrNull()?.let { Calculus.evaluate(it) } }
             val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() <= Factor.MOST_PRIME }
-            val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.let { Choice(Mode.FACTOR) })
+            val complexNumber = v.hasI() && Complex.parts(v)?.second != null
+            // A definite integral with numbers for bounds: the trapezoidal and Simpson's rules beside its value.
+            val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
+                ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
+            val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.takeIf { integral == null }?.let { Choice(Mode.FACTOR) },
+                if (complexNumber) Choice(Mode.POLAR) else null, integral?.let { Choice(Mode.TRAPEZOID) }, integral?.let { Choice(Mode.SIMPSON) })
             return Plan(choices, Choice(Mode.CALCULATE)) { c ->
                 if (c.mode == Mode.FACTOR && whole != null) Outcome.Primes(whole, Factor.primes(whole.abs())!!)
+                else if (c.mode == Mode.POLAR) Outcome.PolarForm(v, ComplexAnalysis.polar(v) ?: throw CalcException(Failure.UNSOLVED))
+                else if (integral != null && (c.mode == Mode.TRAPEZOID || c.mode == Mode.SIMPSON)) {
+                    val a = Numeric.value(Calculus.evaluate(integral.a!!))!!
+                    val b = Numeric.value(Calculus.evaluate(integral.b!!))!!
+                    Outcome.NumericTable(Numerics.quadrature(Calculus.evaluate(integral.body), integral.variable, a, b, c.mode == Mode.SIMPSON,
+                        exact = if (v.hasDecimal()) null else Numeric.value(v)))
+                }
                 else value(v, steps, listOfNotNull(alternatives).filter { it != v })
             }
         }
@@ -417,9 +474,20 @@ object MathCalc {
             val last = sides.last()
             val steps = sides.zipWithNext { a, b -> Verify.same(a, b) }
             if (wroteCalculus) {
-                return Plan(listOf(Choice(Mode.CALCULATE)), Choice(Mode.CALCULATE)) {
-                    val integral = written.last() is Expr.Op && (written.last() as Expr.Op).let { it.kind == OpKind.INTEGRAL && it.a == null }
-                    Outcome.Expression(last, steps, plusC = integral)
+                val op = written.last() as? Expr.Op
+                val definite = op?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
+                    ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
+                val choices = listOfNotNull(Choice(Mode.CALCULATE), definite?.let { Choice(Mode.TRAPEZOID) }, definite?.let { Choice(Mode.SIMPSON) })
+                return Plan(choices, Choice(Mode.CALCULATE)) { c ->
+                    if (definite != null && (c.mode == Mode.TRAPEZOID || c.mode == Mode.SIMPSON)) {
+                        val a = Numeric.value(Calculus.evaluate(definite.a!!))!!
+                        val b = Numeric.value(Calculus.evaluate(definite.b!!))!!
+                        val exact = if (last.hasDecimal()) null else Numeric.value(last)
+                        Outcome.NumericTable(Numerics.quadrature(Calculus.evaluate(definite.body), definite.variable, a, b, c.mode == Mode.SIMPSON, exact = exact))
+                    } else {
+                        val integral = written.last() is Expr.Op && (written.last() as Expr.Op).let { it.kind == OpKind.INTEGRAL && it.a == null }
+                        Outcome.Expression(last, steps, plusC = integral)
+                    }
                 }
             }
             val simplified = safeSimplify(last)
@@ -439,6 +507,9 @@ object MathCalc {
             // A function that is no polynomial, in one letter: its series at 0, else at 1 (ln x), where it has one.
             val seriesAt = if (letters.size == 1 && !isPolynomialIn(last)) seriesPoint(last, x) else null
             if (seriesAt != null) choices += Choice(Mode.SERIES, variable, point = seriesAt)
+            if (letters == listOf("t")) choices += Choice(Mode.LAPLACE)
+            if (letters == listOf("s")) choices += Choice(Mode.INVERSE_LAPLACE)
+            if (letters == listOf("z") && hasPoles(last)) choices += Choice(Mode.RESIDUES)
             // A function of the coordinates x, y (and z): its critical points, and of x and y its surface.
             val coordinates = letters.size in 2..3 && letters.all { it in COORDINATES }
             if (coordinates) {
@@ -458,8 +529,17 @@ object MathCalc {
                 factorable && polynomial && asWritten -> Choice(Mode.FACTOR)
                 else -> Choice(Mode.SIMPLIFY)
             }
-            return Plan(choices, likeliest) { c ->
+            val onRequest = if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION) else emptySet()
+            return Plan(choices, likeliest, onRequest) { c ->
                 when (c.mode) {
+                    Mode.LAPLACE -> Outcome.Expression(Transforms.laplace(last, x, Expr.Sym("s")) ?: throw CalcException(Failure.UNSOLVED))
+                    Mode.INVERSE_LAPLACE -> Outcome.Expression(Transforms.inverseLaplace(last, x, Expr.Sym("t")) ?: throw CalcException(Failure.UNSOLVED))
+                    Mode.RESIDUES -> Outcome.Residues(variable, ComplexAnalysis.residues(last, x) ?: throw CalcException(Failure.UNSOLVED))
+                    Mode.FOURIER -> {
+                        val half = c.point?.let { pointOf(it) } ?: Expr.PI
+                        Outcome.FourierSeries(variable, Transforms.fourier(last, x, half) ?: throw CalcException(Failure.UNSOLVED))
+                    }
+                    Mode.NEWTON, Mode.BISECTION -> numericRoot(last, x, c)
                     Mode.SIMPLIFY -> {
                         val excluded = ArrayList<Expr>()
                         val usual = Algebra.simplify(last, excluded)
@@ -520,8 +600,10 @@ object MathCalc {
             letters.size > 1 && !formula -> Choice(Mode.COMPARE)
             else -> Choice(Mode.SOLVE, if (letters.size == 1) variable else formulaLetter(lhs, rhs, letters))
         }
-        return Plan(choices, likeliest) { c ->
+        val onRequest = if (letters.size == 1) setOf(Mode.NEWTON, Mode.BISECTION) else emptySet()
+        return Plan(choices, likeliest, onRequest) { c ->
             when (c.mode) {
+                Mode.NEWTON, Mode.BISECTION -> numericRoot(difference, Expr.Sym(variable), c)
                 Mode.COMPARE -> compareOutcome()
                 Mode.GRAPH -> when {
                     explicit -> Outcome.Graph("x", listOf(if (lhs == Expr.Sym("y")) rhs else lhs), parameters = parameters)
@@ -544,6 +626,29 @@ object MathCalc {
     }
 
     private fun Expr.isConstantInLetters() = symbols().isEmpty()
+
+    /** Whether e has a negative power of something with a letter in it: a denominator, with poles. */
+    private fun hasPoles(e: Expr): Boolean = when (e) {
+        is Expr.Pow -> e.base.symbols().isNotEmpty() && (rational(e.exp)?.signum ?: 0) < 0
+        is Expr.Mul -> e.factors.any { hasPoles(it) }
+        is Expr.Add -> e.terms.any { hasPoles(it) }
+        else -> false
+    }
+
+    /**
+     * Newton's method from the asked x₀ (1 where none is asked), or bisection on the asked [a, b] (else the first whole-number
+     * interval from −10 to 10 where f changes sign).
+     */
+    private fun numericRoot(f: Expr, x: Expr.Sym, c: Choice): Outcome {
+        val points = c.point?.split(',')?.mapNotNull { pointOf(it.trim())?.let { p -> Numeric.value(p) } }.orEmpty()
+        if (c.mode == Mode.NEWTON) return Outcome.NumericTable(Numerics.newton(f, x, points.firstOrNull() ?: 1.0))
+        val (a, b) = if (points.size == 2) points[0] to points[1] else {
+            (-10 until 10).map { it.toDouble() to it + 1.0 }.firstOrNull { (p, q) ->
+                Numeric.eval(f, mapOf(x.name to p)) * Numeric.eval(f, mapOf(x.name to q)) <= 0
+            } ?: throw CalcException(Failure.UNSOLVED)
+        }
+        return Outcome.NumericTable(Numerics.bisection(f, x, a, b) ?: throw CalcException(Failure.UNSOLVED))
+    }
 
     /** The letters a polar angle is written with. */
     private val POLAR_ANGLES = setOf("\\theta", "\\varphi", "\\phi", "θ", "φ")
@@ -936,6 +1041,63 @@ object MathCalc {
      * One line a function and the others equations in the same coordinates (x·y with x + y = 10): the extremum under those
      * constraints, by Lagrange's multipliers.
      */
+    /**
+     * A differential equation in y (or u), y′ … written in it, and lines of initial values y(0) = 1, y′(0) = 0 beside it: its
+     * solution in x (the variable of a written dy/dt, else t where the formula has t and no x).
+     */
+    private fun odePlan(statements: List<Statement>, written: String?): Plan? {
+        val unknown = Parser.ODE_UNKNOWNS.firstOrNull { name -> statements.any { s -> s.sides.filterNotNull().any { Ode.order(it, name) > 0 } } }
+            ?: return null
+        val main = statements.firstOrNull { s -> s.sides.filterNotNull().any { Ode.order(it, unknown) > 0 } && !isCondition(s, unknown) } ?: return null
+        val sides = main.sides.filterNotNull()
+        if (sides.size != 2 || main.relations != listOf(Rel.EQ)) return null
+        val equation = Calculus.evaluate(sides[0]) - Calculus.evaluate(sides[1])
+        val letters = equation.symbols()
+        val x = written ?: if ("t" in letters && "x" !in letters) "t" else "x"
+        val conditions = ArrayList<Ode.Condition>()
+        for (s in statements) {
+            if (s === main) continue
+            val condition = conditionOf(s, unknown) ?: return null
+            conditions += condition
+        }
+        val y1 = Ode.marker(unknown, 1)
+        val slope = if (Ode.order(equation, unknown) == 1) Solve.equation(equation, Expr.ZERO, y1).values.singleOrNull()?.let { Calculus.tidy(it) } else null
+        val choice = Choice(Mode.ODE)
+        val f = slope?.takeIf { !it.has(y1) }
+        val start = conditions.singleOrNull()?.takeIf { it.k == 0 }
+        val numeric = f != null && start != null && Numeric.value(start.at) != null && Numeric.value(start.value) != null
+        val choices = listOfNotNull(choice, if (numeric) Choice(Mode.RUNGE_KUTTA) else null, if (numeric) Choice(Mode.EULER) else null)
+        return Plan(choices, choice) { c ->
+            if (numeric && (c.mode == Mode.EULER || c.mode == Mode.RUNGE_KUTTA)) {
+                // From the initial value, ten steps of h = 0.1; the exact solution beside where it is found.
+                val exact = try { Ode.solve(equation, unknown, x)?.let { Ode.withConditions(equation, it, conditions, unknown, x) }?.explicit } catch (e: CalcException) {
+                    if (e.failure == Failure.TOO_LONG) throw e
+                    null
+                }
+                val h = c.order?.let { 1.0 / it } ?: 0.1
+                return@Plan Outcome.NumericTable(Numerics.ode(f!!, x, unknown, Numeric.value(start!!.at)!!, Numeric.value(start.value)!!, h, 10,
+                    c.mode == Mode.RUNGE_KUTTA, exact))
+            }
+            val general = Ode.solve(equation, unknown, x) ?: throw CalcException(Failure.UNSOLVED)
+            val particular = if (conditions.isEmpty()) null else Ode.withConditions(equation, general, conditions, unknown, x) ?: throw CalcException(Failure.UNSOLVED)
+            Outcome.OdeSolved(unknown, x, general, particular, f)
+        }
+    }
+
+    private val CONDITION = Regex("""^\s*([a-z])('*)\s*\((.+)\)\s*$""")
+
+    private fun isCondition(s: Statement, unknown: String): Boolean = conditionOf(s, unknown) != null
+
+    /** y(0) = 1, y'(0) = 0 as the line wrote it: the derivative's order, the point and the value. */
+    private fun conditionOf(s: Statement, unknown: String): Ode.Condition? {
+        if (s.relations != listOf(Rel.EQ) || s.texts.size < 2) return null
+        val m = CONDITION.find(s.texts[0].replace("\\prime", "'").replace("^{'}", "'").replace("\\left", "").replace("\\right", "")) ?: return null
+        if (m.groupValues[1] != unknown) return null
+        val at = pointOf(m.groupValues[3]) ?: return null
+        val value = s.sides.getOrNull(1)?.let { Calculus.evaluate(it) }?.takeIf { it.symbols().isEmpty() } ?: return null
+        return Ode.Condition(m.groupValues[2].length, at, value)
+    }
+
     private fun constrainedPlan(statements: List<Statement>): Plan? {
         val expressions = statements.filter { s -> s.relations.isEmpty() && s.sides.filterNotNull().size == 1 }
         if (expressions.size != 1 || statements.size < 2) return null

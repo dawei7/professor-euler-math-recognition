@@ -87,6 +87,9 @@ internal class Flags(val assumptions: Assumptions = Assumptions()) {
     /** How many angles were marked with °: an argument that has one is in degrees whatever is assumed. */
     var degreeMarks = 0
 
+    /** The variable of dy/dx (or dy/dt) where the formula wrote one: a differential equation's independent variable. */
+    var odeVariable: String? = null
+
     /** The readings the formula met that could have gone two ways, in the order met. */
     val met = LinkedHashSet<Ambiguity>()
 }
@@ -250,6 +253,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     /** (…)′: the derivative in the expression's one letter (x where it has several). */
     private fun derivativeOf(e: Expr): Expr {
+        // y′, y″ of the unknown function of a differential equation: markers, worked out by [Ode].
+        if (e is Expr.Sym && e.name.trimEnd('\'') in ODE_UNKNOWNS) return Expr.Sym(e.name + "'")
         val letters = e.symbols()
         val v = when {
             letters.size == 1 -> letters.first()
@@ -486,6 +491,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         i++
         val top = groupTokens()
         val bottom = groupTokens()
+        // dy/dx, d²y/dx²: the derivatives of a differential equation's unknown.
+        odeDerivative(top, bottom)?.let { return it }
         derivativeOperator(top, bottom)?.let { (variable, order) ->
             // A bracket with its power is the body: d/dx (2x + 1)^5; otherwise the product that follows.
             val body = if (peek() == "(") factor() else term()
@@ -493,6 +500,22 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         }
         flags.fractions = true
         return divide(parseAll(top), parseAll(bottom))
+    }
+
+    /** dy/dx and d²y/dx² (dy/dt …) of y or u: its marker y′, y″; the variable is kept in [Flags.odeVariable]. */
+    private fun odeDerivative(top: List<String>, bottom: List<String>): Expr? {
+        if (top.isEmpty() || top[0] != "d" || bottom.size < 2 || bottom[0] != "d" || !isLetter(bottom[1])) return null
+        val (order, name) = when {
+            top.size == 2 -> 1 to top[1]
+            top.size == 4 && top[1] == "^" && isDigit(top[2]) -> top[2].toInt() to top[3]
+            top.size == 6 && top[1] == "^" && top[2] == "{" && isDigit(top[3]) && top[4] == "}" -> top[3].toInt() to top[5]
+            else -> return null
+        }
+        if (name !in ODE_UNKNOWNS || order !in 1..4) return null
+        val rest = bottom.drop(2)
+        if (!(rest.isEmpty() || rest == listOf("^", order.toString()) || rest == listOf("^", "{", order.toString(), "}"))) return null
+        flags.odeVariable = bottom[1]
+        return Expr.Sym(name + "'".repeat(order))
     }
 
     /** `d` over `dx` (or ∂ over ∂x, d² over dx²): the variable and the order; otherwise null. */
@@ -835,6 +858,9 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     companion object {
         private val TIMES = setOf("\\cdot", "\\times", "*", "\\ast", "\\bullet")
+
+        /** The letters a differential equation is solved for: y′ and dy/dx of these are its derivatives. */
+        internal val ODE_UNKNOWNS = setOf("y", "u")
 
         /** The environments of a matrix. */
         private val MATRICES = setOf("pmatrix", "bmatrix", "matrix", "Bmatrix", "vmatrix")
