@@ -154,7 +154,11 @@ sealed class Outcome {
 class Calculation(val outcome: Outcome, override val decimalComma: Boolean, override val decimals: Boolean,
     override val fractions: Boolean, val choices: List<Choice> = emptyList(), val choice: Choice? = null,
     /** The formula wrote angles in degrees: solutions of trigonometric equations are given in degrees too. */
-    val degrees: Boolean = false) : Style {
+    val degrees: Boolean = false,
+    /** How the formula was read where it could be read two ways. */
+    val assumptions: Assumptions = Assumptions(),
+    /** What the formula holds that could be read two ways: each a chip ("Assuming …") that reads it the other way. */
+    val ambiguities: Set<Ambiguity> = emptySet()) : Style {
 
     val modes: List<Mode> get() = choices.map { it.mode }.distinct()
     val mode: Mode? get() = choice?.mode
@@ -207,16 +211,18 @@ object MathCalc {
      * [choice] as the learner picked it; null, or one that does not fit the formula, for the likeliest. [millis] is how long
      * it may take (the Calculator's "Try longer" gives more). [fractions] where the answer is to be written with exact
      * fractions although the formula wrote none with a bar: a line typed on a keyboard, whose `/` is its fraction bar.
+     * [assumptions] how what can be read two ways is read (the result says what it met: [Calculation.ambiguities]).
      */
-    fun calculate(latex: String, choice: Choice? = null, millis: Long = LIMIT_MS, fractions: Boolean = false): Calculation {
+    fun calculate(latex: String, choice: Choice? = null, millis: Long = LIMIT_MS, fractions: Boolean = false,
+        assumptions: Assumptions = Assumptions()): Calculation {
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
-        val flags = Flags()
+        val flags = Flags(assumptions)
         var choices = emptyList<Choice>()
         var shown: Choice? = null
         val outcome = try {
             val statements = Parser(tokens, flags).statements()
             if (fractions) flags.fractions = true
-            val others = if (flags.plusMinus) Parser(tokens, Flags().also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
+            val others = if (flags.plusMinus) Parser(tokens, Flags(assumptions).also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
             Budget.within(millis) {
                 val plan = plan(statements, others, style, flags.degrees)
@@ -232,7 +238,8 @@ object MathCalc {
         } catch (e: StackOverflowError) {
             Outcome.Failed(Failure.TOO_LARGE)
         }
-        return Calculation(outcome, flags.decimalComma, flags.decimals, flags.fractions, choices, shown, flags.degrees)
+        return Calculation(outcome, flags.decimalComma, flags.decimals, flags.fractions, choices, shown, flags.degrees, assumptions,
+            flags.met.toSet())
     }
 
     /** Several lines of working, each read on its own: checked step by step, or solved as a system ([Lines]). */
@@ -376,15 +383,6 @@ object MathCalc {
     }
 
     private fun Expr.isConstantInLetters() = symbols().isEmpty()
-
-    private fun Expr.hasPi(): Boolean = when (this) {
-        is Expr.Const -> kind == Constant.PI
-        is Expr.Add -> terms.any { it.hasPi() }
-        is Expr.Mul -> factors.any { it.hasPi() }
-        is Expr.Pow -> base.hasPi() || exp.hasPi()
-        is Expr.Fn -> args.any { it.hasPi() }
-        else -> false
-    }
 
     /** Factors cancelled from a denominator as the values they exclude: x − 1 as x ≠ 1. */
     private fun excludedValues(factors: List<Expr>): List<Pair<String, Expr>> = factors.distinct().flatMap { f ->

@@ -23,13 +23,72 @@ class Statement internal constructor(val sides: List<Expr?>, val relations: List
     class Definition(val name: String, val variable: String)
 }
 
+/**
+ * How a formula is read where it can be read two ways, as Wolfram Alpha's "Assuming …": each is a reading of its own, met while
+ * the formula is read ([Ambiguity]) and changed on the Calculator's chips. The defaults are the usual readings.
+ */
+data class Assumptions(
+    /** Angles of sin, cos, tan … written without ° (or π) are in degrees, as a calculator's DEG mode: sin 30 is 1/2, arcsin ½ is 30. */
+    val degrees: Boolean = false,
+    /** log without a base is the natural logarithm (as in much of university mathematics), not the logarithm to base 10. */
+    val naturalLog: Boolean = false,
+    /** A function's power written without brackets, sin x², is (sin x)², not sin(x²). */
+    val powerOfFunction: Boolean = false,
+    /** e is a letter, not Euler's number. */
+    val eLetter: Boolean = false,
+    /** i is a letter, not the imaginary unit. */
+    val iLetter: Boolean = false,
+) {
+    /** The other reading of [a]. */
+    fun flipped(a: Ambiguity): Assumptions = when (a) {
+        Ambiguity.ANGLES -> copy(degrees = !degrees)
+        Ambiguity.LOG -> copy(naturalLog = !naturalLog)
+        Ambiguity.FUNCTION_POWER -> copy(powerOfFunction = !powerOfFunction)
+        Ambiguity.E -> copy(eLetter = !eLetter)
+        Ambiguity.I -> copy(iLetter = !iLetter)
+    }
+
+    /** Which reading of [a] these assumptions take: true for the one that is not the usual. */
+    fun takes(a: Ambiguity): Boolean = when (a) {
+        Ambiguity.ANGLES -> degrees
+        Ambiguity.LOG -> naturalLog
+        Ambiguity.FUNCTION_POWER -> powerOfFunction
+        Ambiguity.E -> eLetter
+        Ambiguity.I -> iLetter
+    }
+}
+
+/** What a formula holds that can be read two ways ([Assumptions]). */
+enum class Ambiguity {
+    /** An angle without ° or π, as sin 30 (radians or degrees); or an inverse function's angle, as arcsin ½. */
+    ANGLES,
+
+    /** log without a base (to base 10 or e). */
+    LOG,
+
+    /** A function of a power without brackets, as sin x² (sin(x²) or (sin x)²). */
+    FUNCTION_POWER,
+
+    /** e on its own, not as the base of a power (Euler's number or a letter). */
+    E,
+
+    /** i (the imaginary unit or a letter). */
+    I,
+}
+
 /** What a formula's style was: a decimal comma, decimals, fractions, degrees, ±. Shared by the parsers of one formula. */
-internal class Flags {
+internal class Flags(val assumptions: Assumptions = Assumptions()) {
     var decimalComma = false
     var decimals = false
     var fractions = false
     var degrees = false
     var plusMinus = false
+
+    /** How many angles were marked with °: an argument that has one is in degrees whatever is assumed. */
+    var degreeMarks = 0
+
+    /** The readings the formula met that could have gone two ways, in the order met. */
+    val met = LinkedHashSet<Ambiguity>()
 }
 
 /**
@@ -194,6 +253,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         if (peek() == "\\circ" || (peek() == "{" && peek(1) == "\\circ" && peek(2) == "}")) {
             i += if (peek() == "\\circ") 1 else 3
             flags.degrees = true
+            flags.degreeMarks++
             return mul(base, Expr.PI, num(Rational.ONE / Rational.of(180)))
         }
         // A prime written as a power: f^{\prime}, f^{\prime\prime}.
@@ -446,8 +506,15 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     private fun letter(tok: String): Expr {
         if (peek() != "_") {
-            if (tok == "e" && tok !in bound) return Expr.E
-            if (tok == "i" && tok !in bound) return Expr.I
+            if (tok == "e" && tok !in bound) {
+                // eˣ is Euler's number however e is read; e on its own may be a letter.
+                if (peek() != "^") flags.met += Ambiguity.E
+                return if (flags.assumptions.eLetter) Expr.Sym(tok) else Expr.E
+            }
+            if (tok == "i" && tok !in bound) {
+                flags.met += Ambiguity.I
+                return if (flags.assumptions.iLetter) Expr.Sym(tok) else Expr.I
+            }
             return Expr.Sym(tok)
         }
         i++
@@ -465,7 +532,17 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             i++
             power = group()
         }
-        val arg = argument()
+        val marks = flags.degreeMarks
+        val (written, barePower) = argumentOf()
+        var arg = written
+        // sin x² is sin(x²), or (sin x)² as assumed.
+        if (barePower && power == null && written is Expr.Pow) {
+            flags.met += Ambiguity.FUNCTION_POWER
+            if (flags.assumptions.powerOfFunction) {
+                arg = written.base
+                power = written.exp
+            }
+        }
         val inverse = power == Expr.MINUS_ONE && name in INVERSES
         val f = when (name) {
             "sin" -> if (inverse) Func.ASIN else Func.SIN
@@ -493,10 +570,34 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             "lambertw", "W" -> Func.LAMBERTW
             else -> throw unreadable()
         }
-        val value = when {
+        // An angle without ° or π: radians, or degrees as assumed (always shown where degrees were taken).
+        val plainAngle = flags.degreeMarks == marks && !arg.hasPi()
+        val assumedDegrees = flags.assumptions.degrees
+        if (f in ANGLE_FUNCTIONS && plainAngle) {
+            if (arg.symbols().isEmpty() || assumedDegrees) flags.met += Ambiguity.ANGLES
+            if (assumedDegrees) {
+                arg = mul(arg, Expr.PI, num(Rational.ONE / Rational.of(180)))
+                flags.degrees = true
+            }
+        }
+        // log without a base: to base 10, or e as assumed. lg is always base 10.
+        val natural = name == "log" && base == null && run {
+            flags.met += Ambiguity.LOG
+            flags.assumptions.naturalLog
+        }
+        var value = when {
             f == null -> exp(arg)
+            natural -> fn(Func.LN, arg)
             f == Func.LOG -> fn(Func.LOG, base ?: num(10), arg)
             else -> fn(f, arg)
+        }
+        // An inverse function's angle in degrees, as assumed: arcsin ½ is 30.
+        if (f in INVERSE_ANGLE_FUNCTIONS) {
+            if (arg.symbols().isEmpty() || assumedDegrees) flags.met += Ambiguity.ANGLES
+            if (assumedDegrees) {
+                value = mul(value, num(Rational.of(180)), pow(Expr.PI, Expr.MINUS_ONE))
+                flags.degrees = true
+            }
         }
         return if (power != null && !inverse) pow(value, power) else value
     }
@@ -534,18 +635,26 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     }
 
     /** A function's argument: a bracket, or else the numbers, letters and powers right after its name. */
-    private fun argument(): Expr {
-        if (peek() == "(") return bracket("(", ")")
-        if (peek() == "{") return braced()
+    private fun argument(): Expr = argumentOf().first
+
+    /** [argument], and whether it was a letter's power alone without brackets (sin x²), which can be read two ways. */
+    private fun argumentOf(): Pair<Expr, Boolean> {
+        if (peek() == "(") return bracket("(", ")") to false
+        if (peek() == "{") return braced() to false
+        val start = i
         var arg = power()
+        val alone = isLetter(t.getOrNull(start)) && t.getOrNull(start + 1) == "^"
+        var factors = 1
         while (true) {
-            val next = peek() ?: return arg
+            val next = peek() ?: break
             val run = lettersFrom(i)
             val simple = isDigit(next) || next == "\\pi" || next in GREEK ||
                 (isLetter(next) && FUNCTIONS.none { run.startsWith(it) } && !run.startsWith("lim"))
-            if (!simple) return arg
+            if (!simple) break
             arg = mul(arg, power())
+            factors++
         }
+        return arg to (alone && factors == 1 && arg is Expr.Pow && (arg as Expr.Pow).base is Expr.Sym)
     }
 
     private fun lettersFrom(k: Int): String {
@@ -604,6 +713,10 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         private val FUNCTIONS = listOf("lambertw", "besselj", "digamma", "arcsin", "arccos", "arctan", "arccot", "gamma",
             "sinh", "cosh", "tanh", "erfc", "zeta", "sin", "cos", "tan", "cot", "sec", "csc", "exp", "log", "erf", "sgn", "ln", "lg")
         private val INVERSES = setOf("sin", "cos", "tan", "cot")
+
+        /** The functions of an angle, and those whose value is one: where radians and degrees differ. */
+        private val ANGLE_FUNCTIONS = setOf(Func.SIN, Func.COS, Func.TAN, Func.COT, Func.SEC, Func.CSC)
+        private val INVERSE_ANGLE_FUNCTIONS = setOf(Func.ASIN, Func.ACOS, Func.ATAN, Func.ACOT)
         /** Names written only as commands: `\operatorname{J}_{n}` (Bessel) and `\operatorname{W}` (Lambert). */
         private val COMMAND_NAMES = setOf("J", "W")
         private val FUNCTION_COMMANDS = FUNCTIONS.map { "\\$it" }.toSet() + COMMAND_NAMES.map { "\\$it" }

@@ -67,13 +67,16 @@ internal sealed class StepForm {
 object Steps {
     private val TOKEN = Regex("""\\[a-zA-Z]+|\\.|\S""")
 
-    /** The steps for [latex] in [choice] (null: the likeliest, as [MathCalc.calculate] picks it), or null where there are none. */
-    fun of(latex: String, choice: Choice? = null): List<Step>? {
-        val c = MathCalc.calculate(latex, choice)
+    /**
+     * The steps for [latex] in [choice] (null: the likeliest, as [MathCalc.calculate] picks it), read with [assumptions], or null
+     * where there are none.
+     */
+    fun of(latex: String, choice: Choice? = null, assumptions: Assumptions = Assumptions()): List<Step>? {
+        val c = MathCalc.calculate(latex, choice, assumptions = assumptions)
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
         return try {
             Budget.within(3000) {
-                val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList()).statements()
+                val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()
                 Builder(c, latex.trim().removeSuffix("=").trim()).build(statements)?.takeIf { it.size >= 2 }
             }
         } catch (e: CalcException) {

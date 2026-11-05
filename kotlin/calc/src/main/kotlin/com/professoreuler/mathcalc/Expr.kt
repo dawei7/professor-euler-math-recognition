@@ -666,6 +666,16 @@ fun Expr.has(s: Expr.Sym): Boolean = when (this) {
     else -> false
 }
 
+/** Whether [e] holds π: an angle in radians. */
+internal fun Expr.hasPi(): Boolean = when (this) {
+    is Expr.Const -> kind == Constant.PI
+    is Expr.Add -> terms.any { it.hasPi() }
+    is Expr.Mul -> factors.any { it.hasPi() }
+    is Expr.Pow -> base.hasPi() || exp.hasPi()
+    is Expr.Fn -> args.any { it.hasPi() }
+    else -> false
+}
+
 /** The letters in [e], in alphabetical order. */
 fun Expr.symbols(): Set<String> {
     val out = sortedSetOf<String>()
