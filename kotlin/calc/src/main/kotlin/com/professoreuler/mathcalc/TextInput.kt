@@ -207,6 +207,14 @@ object TextInput {
                     out.append(' ')
                     i++
                 }
+                // LaTeX in the line (a reading from the pen pad, or typed by one who knows it) is kept as it is: \frac, \sin.
+                c == '\\' -> {
+                    var j = i + 1
+                    while (j < s.length && (s[j] in 'a'..'z' || s[j] in 'A'..'Z')) j++
+                    if (j == i + 1) j = minOf(i + 2, s.length)
+                    emit(s.substring(i, j))
+                    i = j
+                }
                 c in 'a'..'z' || c in 'A'..'Z' -> {
                     var j = i
                     while (j < s.length && (s[j] in 'a'..'z' || s[j] in 'A'..'Z')) j++

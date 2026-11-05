@@ -28,6 +28,8 @@ class TextInputTest {
             "x1+x2" to "x_{1}+x_{2}", "log10(100)" to "\\log_{10}(100)", "a<=b" to "a<=b", "x != 2" to "x \\ne 2",
             "2^-3" to "2^{-3}", "x^(n+1)" to "x^{n+1}", "abs(x-1)" to "\\left|x-1\\right|", "3x²" to "3x^{2}",
             "sin x" to "\\sin x", "gamma(5)" to "\\Gamma(5)", "2^3^2" to "2^{3^{2}}", "2*x" to "2\\cdot x",
+            // LaTeX, as the pen pad reads it, stays as it is.
+            "\\frac{1}{2}+\\sin x" to "\\frac{1}{2}+\\sin x", "x^{2}-\\sqrt{4}" to "x^{2}-\\sqrt{4}", "a\\,b" to "a\\,b",
         )
         val wrong = cases.mapNotNull { (text, expected) -> TextInput.latex(text).takeIf { it != expected }?.let { "$text: $it, not $expected" } }
         assertEquals("", wrong.joinToString("\n"))
