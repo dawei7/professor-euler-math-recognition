@@ -82,6 +82,16 @@ object Solve {
     private fun roots(f0: Expr, x: Expr.Sym, out: Found, depth: Int) {
         if (depth > 6) return
         val f = normalizeExponentials(f0, x)
+        // A factor that is never 0 changes nothing about where f is 0: −x·e^(−x) + e^(−x) is 0 where 1 − x is. Without this the
+        // numbers alone found "zeros" all along the tail where e^(−x) is tiny.
+        // (Looked for in the equation as given: normalizing the exponentials writes e^(−x) as (e^(−x))¹.)
+        neverZeroFactor(f0, x)?.let { g ->
+            val reduced = Calculus.tidy(f0 / g)
+            if (reduced.has(x) && reduced != f0) {
+                roots(reduced, x, out, depth + 1)
+                return
+            }
+        }
         // A fraction: its numerator's roots (where the denominator is not 0, which check sees).
         val kernels = Algebra.Kernels()
         val fraction = Algebra.fraction(f, kernels)
@@ -148,6 +158,16 @@ object Solve {
             return
         }
         numericRoots(f, x, out)
+    }
+
+    /** An exponential of x (a positive base to a power with x) that is a factor of every term of [f]: it is never 0. */
+    private fun neverZeroFactor(f: Expr, x: Expr.Sym): Expr? {
+        val terms = if (f is Expr.Add) f.terms else listOf(f)
+        fun factors(t: Expr) = if (t is Expr.Mul) t.factors else listOf(t)
+        fun exponential(e: Expr) = e is Expr.Pow && e.exp.has(x) && !e.base.has(x) &&
+            (e.base == Expr.E || rational(e.base)?.let { it.signum > 0 && it != Rational.ONE } == true)
+        val candidates = factors(terms[0]).filter(::exponential)
+        return candidates.firstOrNull { c -> terms.all { t -> c in factors(t) } }
     }
 
     /** a^(2x) as (a^x)², so a polynomial in aˣ shows: e^(2x) − 3eˣ + 2 is u² − 3u + 2. */

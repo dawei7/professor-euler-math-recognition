@@ -10,6 +10,9 @@ enum class PanelKind {
 
     /** A number's certified digits, as many as asked for. */
     DIGITS,
+
+    /** A function's curve sketch: domain, zeros, symmetry, extrema, inflection points, monotony, asymptotes ([Analysis]). */
+    FUNCTION,
 }
 
 /** A panel of the report before it is worked out: its kind and, for a choice, which one. */
@@ -21,6 +24,9 @@ sealed class PanelResult {
 
     /** [value]'s digits, [digits] of each part; [style] how the input wrote its numbers (a decimal comma). */
     data class Digits(val value: PreciseValue, val digits: Int, val style: Style) : PanelResult()
+
+    /** A function's [facts], written as the input wrote its numbers ([calculation]'s style). */
+    class Function(val facts: FunctionFacts, val calculation: Calculation) : PanelResult()
 
     data class Failed(val failure: Failure) : PanelResult()
 }
@@ -60,8 +66,13 @@ object Reports {
         panels += Panel(PanelKind.RESULT, result.choice)
         if (constant != null) panels += Panel(PanelKind.DIGITS)
         val others = result.choices.filter { it != result.choice }
-        // A graph is worth seeing early, as Wolfram Alpha shows its plots.
+        // A graph is worth seeing early, as Wolfram Alpha shows its plots; a function's curve sketch beside it.
         others.filter { it.mode == Mode.GRAPH }.forEach { panels += Panel(PanelKind.CHOICE, it) }
+        result.choices.firstOrNull { it.mode == Mode.GRAPH }?.let { graph ->
+            // Only of an expression in one letter: an equation's graph has two sides, and no curve sketch.
+            val function = try { inDomain(complex) { expressionOf(latex) } } catch (e: CalcException) { null }
+            if (function != null && function.symbols().size == 1 && !function.hasOp()) panels += Panel(PanelKind.FUNCTION, graph)
+        }
         others.filter { it.mode != Mode.GRAPH }.forEach { panels += Panel(PanelKind.CHOICE, it) }
         return Report(latex, complex, result, panels, constant, fractions)
     }
@@ -74,6 +85,18 @@ object Reports {
     fun compute(report: Report, panel: Panel, millis: Long = MathCalc.LIMIT_MS, digits: Int = FIRST_DIGITS): PanelResult = when (panel.kind) {
         PanelKind.RESULT -> PanelResult.Calculated(report.result)
         PanelKind.CHOICE -> PanelResult.Calculated(inDomain(report.complex) { MathCalc.calculate(report.latex, panel.choice, millis, report.fractions) })
+        PanelKind.FUNCTION -> try {
+            val letter = panel.choice?.letter
+            val f = if (letter == null) null else inDomain(report.complex) { expressionOf(report.latex) }
+            val facts = f?.let { Budget.within(millis) { Analysis.of(it, Expr.Sym(letter!!)) } }
+            if (facts == null) PanelResult.Failed(Failure.UNSOLVED) else PanelResult.Function(facts, report.result)
+        } catch (x: CalcException) {
+            PanelResult.Failed(x.failure)
+        } catch (x: ArithmeticException) {
+            PanelResult.Failed(Failure.UNDEFINED)
+        } catch (x: StackOverflowError) {
+            PanelResult.Failed(Failure.TOO_LARGE)
+        }
         PanelKind.DIGITS -> {
             val e = report.constant
             if (e == null) {
@@ -116,6 +139,17 @@ object Reports {
         null
     } catch (e: StackOverflowError) {
         null
+    }
+
+    /** The formula as one expression (no equation), its calculus worked out: what a curve sketch is of. */
+    private fun expressionOf(latex: String): Expr? {
+        val tokens = MathCalc.TOKEN.findAll(latex).map { it.value }.toList()
+        val statements = Parser(tokens).statements()
+        if (statements.size != 1 || statements[0].definition != null) return null
+        val sides = statements[0].sides
+        val written = sides.filterNotNull()
+        if (written.isEmpty() || (written.size > 1 && sides.last() != null)) return null
+        return Budget.within(MathCalc.LIMIT_MS) { Calculus.evaluate(written.last()) }
     }
 
     private fun hasReal(e: Expr): Boolean = when (e) {

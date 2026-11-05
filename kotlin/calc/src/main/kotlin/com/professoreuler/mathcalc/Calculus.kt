@@ -521,6 +521,19 @@ object Calculus {
         if (depth > 6) return null
         if (!e.has(x)) return e
         if (a.hasInfinity()) {
+            // ∞/∞ by L'Hôpital in x itself, with e^(−x) as 1/eˣ: x·e^(−x) is x/eˣ, then 1/eˣ → 0. (Through t = 1/x it took
+            // more rounds than are allowed.)
+            val (top, bottom) = quotientAtInfinity(e, x)
+            if (!isOne(bottom) && top.has(x) && bottom.has(x)) {
+                val tl = exactLimit(top, x, a, side, depth + 1)
+                val bl = exactLimit(bottom, x, a, side, depth + 1)
+                val infinite = { v: Expr? -> v == Expr.INF || v == neg(Expr.INF) }
+                if (infinite(tl) && infinite(bl)) {
+                    val dt = tidy(diff(top, x))
+                    val db = tidy(diff(bottom, x))
+                    if (!isZero(db)) exactLimit(tidy(dt / db), x, a, side, depth + 1)?.let { return it }
+                }
+            }
             // x → ±∞ as t → 0⁺ with x = ±1/t.
             val sign = if (a == Expr.INF) 1 else -1
             val t = Expr.Sym("\u0001t")
@@ -541,6 +554,29 @@ object Calculus {
                 inner == Expr.INF -> Expr.INF
                 inner == neg(Expr.INF) -> Expr.ZERO
                 else -> tidy(exp(inner))
+            }
+        }
+        // ln u and aᵘ (a > 1, e included) by where u goes: ln u → −∞ as u → 0 (from above, where ln is defined), ∞ as u → ∞;
+        // aᵘ → ∞ as u → ∞ and 0 as u → −∞.
+        if (e is Expr.Fn && e.f == Func.LN) {
+            val inner = exactLimit(e.args[0], x, a, side, depth + 1) ?: return null
+            return when {
+                inner == Expr.INF -> Expr.INF
+                isZero(inner) -> neg(Expr.INF)
+                inner.hasInfinity() -> null
+                else -> tidy(ln(inner)).takeIf { Numeric.value(it)?.isFinite() == true }
+            }
+        }
+        if (e is Expr.Pow && !e.base.has(x) && e.exp.has(x)) {
+            val base = Numeric.value(e.base)
+            if (base != null && base > 1) {
+                val inner = exactLimit(e.exp, x, a, side, depth + 1) ?: return null
+                return when {
+                    inner == Expr.INF -> Expr.INF
+                    inner == neg(Expr.INF) -> Expr.ZERO
+                    inner.hasInfinity() -> null
+                    else -> tidy(pow(e.base, inner))
+                }
             }
         }
         // A fraction: cancelled, then substituted.
@@ -593,6 +629,24 @@ object Calculus {
             abs(near[1]) > abs(near[0]) * 20 -> if (near[1] > 0) Double.POSITIVE_INFINITY else Double.NEGATIVE_INFINITY
             else -> near[1]
         }
+    }
+
+    /** As [numeratorDenominator], with a power whose exponent in x is negative (e^(−x)) put below as its reciprocal. */
+    private fun quotientAtInfinity(e: Expr, x: Expr.Sym): Pair<Expr, Expr> {
+        val factors = if (e is Expr.Mul) e.factors else listOf(e)
+        val top = ArrayList<Expr>()
+        val bottom = ArrayList<Expr>()
+        for (f in factors) {
+            val r = if (f is Expr.Pow) rational(f.exp) else null
+            val negativeExponent = f is Expr.Pow && r == null && f.exp.has(x) && !f.base.has(x) &&
+                (splitCoefficient(f.exp).first as? Expr.Num)?.value?.signum == -1
+            when {
+                f is Expr.Pow && r != null && r.signum < 0 -> bottom += pow(f.base, num(-r))
+                negativeExponent -> bottom += pow((f as Expr.Pow).base, neg(f.exp))
+                else -> top += f
+            }
+        }
+        return mul(top) to mul(bottom)
     }
 
     private fun numeratorDenominator(e: Expr): Pair<Expr, Expr> {
