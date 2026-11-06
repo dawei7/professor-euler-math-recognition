@@ -51,7 +51,7 @@ internal object FourierTransform {
     fun transform(f: Expr, t: Expr.Sym, w: Expr.Sym): Expr {
         val raw = forward(f, t, w)
         val result = polished(raw)
-        if (!checked(f, t, result, w, inverse = false)) throw CalcException(Failure.UNSOLVED)
+        if (!checked(f, t, result, w, inverse = false)) throw CalcException(Failure.UNVERIFIED)
         return result
     }
 
@@ -59,7 +59,7 @@ internal object FourierTransform {
     fun inverse(big: Expr, w: Expr.Sym, t: Expr.Sym): Expr {
         val raw = forward(big, w, S)
         val result = polished(tidy(raw.substitute(S, neg(t)) / (Expr.TWO * Expr.PI)))
-        if (!checked(big, w, result, t, inverse = true)) throw CalcException(Failure.UNSOLVED)
+        if (!checked(big, w, result, t, inverse = true)) throw CalcException(Failure.UNVERIFIED)
         return result
     }
 

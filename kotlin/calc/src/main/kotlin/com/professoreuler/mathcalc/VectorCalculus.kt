@@ -84,7 +84,7 @@ internal object VectorCalculus {
             val check = Cubature.integrate({ s -> lineValue(first, field, flux, coords, curve, t, s) }, av, bv)
             val v = Numeric.value(value)
             if (check != null && v != null && abs(v - check.value) > max(1e-6 * max(1.0, abs(v)), 10 * check.error)) {
-                throw CalcException(Failure.UNSOLVED)
+                throw CalcException(Failure.UNVERIFIED)
             }
         }
         // A gradient field: the potential's difference between the ends, where it is continuous along the curve.
@@ -96,7 +96,7 @@ internal object VectorCalculus {
                 val continuous = av != null && bv != null && continuousAlong(composed, t, av, bv)
                 if (continuous) {
                     val ends = tidy(end(composed, t, b) - end(composed, t, a))
-                    if (!sameValue(ends, value)) throw CalcException(Failure.UNSOLVED)
+                    if (!sameValue(ends, value)) throw CalcException(Failure.UNVERIFIED)
                 } else {
                     potential = null
                 }
@@ -232,7 +232,7 @@ internal object VectorCalculus {
         if (shown != null && (integrand.symbols() - params).isEmpty()) {
             val check = Cubature.nested({ env -> surfaceValue(first, field, surface, u, v, env) }, ranges)
             if (check != null && abs(shown - check.value) > max(1e-6 * max(1.0, abs(shown)), 10 * check.error)) {
-                throw CalcException(Failure.UNSOLVED)
+                throw CalcException(Failure.UNVERIFIED)
             }
         }
         return SurfaceWork(u, v, surface, ru, rv, normal, area, integrand, ranges, value)
@@ -305,11 +305,11 @@ internal object VectorCalculus {
         val h = Expr.Sym("\u0000h")
         val g = along(f, coords, point.indices.map { point[it] + h * unit[it] })
         val second = tidy(Calculus.derivative(g, h).substitute(h, Expr.ZERO))
-        if (!sameValue(value, second)) throw CalcException(Failure.UNSOLVED)
+        if (!sameValue(value, second)) throw CalcException(Failure.UNVERIFIED)
         if (value.symbols().isEmpty()) {
             val v = Numeric.value(value) ?: throw CalcException(Failure.UNDEFINED)
-            val quotient = oneSided(g, h) ?: throw CalcException(Failure.UNSOLVED)
-            if (abs(v - quotient) > 1e-5 * max(1.0, abs(v))) throw CalcException(Failure.UNSOLVED)
+            val quotient = oneSided(g, h) ?: throw CalcException(Failure.UNVERIFIED)
+            if (abs(v - quotient) > 1e-5 * max(1.0, abs(v))) throw CalcException(Failure.UNVERIFIED)
         }
         return DirectionalWork(gradient, atPoint, length, unit, value)
     }
@@ -366,12 +366,12 @@ internal object VectorCalculus {
         val normal = whole(gradient)
         val equation = tidy(add(COORDINATES.indices.map { normal[it] * (COORDINATES[it] - p3[it]) }))
         // The point is on it, and the function changes only to second order along directions in it.
-        if (!LinAlg.isNull(tidy(along(equation, COORDINATES, p3)))) throw CalcException(Failure.UNSOLVED)
+        if (!LinAlg.isNull(tidy(along(equation, COORDINATES, p3)))) throw CalcException(Failure.UNVERIFIED)
         val h = Expr.Sym("\u0000h")
         for (d in inPlane(normal)) {
             val g = along(big, COORDINATES, p3.indices.map { p3[it] + h * d[it] })
             val slope = tidy(Calculus.derivative(g, h).substitute(h, Expr.ZERO))
-            if (!LinAlg.isNull(slope)) throw CalcException(Failure.UNSOLVED)
+            if (!LinAlg.isNull(slope)) throw CalcException(Failure.UNVERIFIED)
         }
         return Geometry.Plane(listOf(LinAlg.column(p3)), LinAlg.column(normal), equation)
     }
