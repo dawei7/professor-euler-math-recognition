@@ -74,6 +74,8 @@ object Reports {
         if (constant != null && result.choice?.mode != Mode.UNITS && result.choice?.mode != Mode.VENN && result.choice?.mode != Mode.COMPLEX_PLOT) {
             panels += Panel(PanelKind.DIGITS)
         }
+        // An applied function's formula is no number of its answer (volumex(2, 0, 1) is 4π, not 2).
+        if (result.choice?.mode in Applied.MODES) panels.removeAll { it.kind == PanelKind.DIGITS }
         val others = result.choices.filter { it != result.choice }
         // A graph is worth seeing early, as Wolfram Alpha shows its plots (a surface first); a function's curve sketch beside it.
         others.filter { it.mode == Mode.SURFACE }.forEach { panels += Panel(PanelKind.CHOICE, it) }

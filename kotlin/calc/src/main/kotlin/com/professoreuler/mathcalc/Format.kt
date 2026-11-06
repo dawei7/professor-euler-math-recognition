@@ -10,6 +10,12 @@ import java.math.MathContext
 internal object Format {
     const val DIGITS = 10
 
+    /** The most digits an exact integer is shown with. */
+    const val MAX_DIGITS = 1000
+
+    /** The most digits a fraction is shown with, numerator and denominator together. */
+    const val MAX_FRACTION_DIGITS = 40
+
     /** An expression in LaTeX or in the sheets' math shorthand. */
     fun expr(e: Expr, c: Style, latex: Boolean): String = Write(c, latex).expr(e)
 
@@ -104,7 +110,19 @@ internal object Format {
         val approx = if (latex) "\\approx " else "≈ "
         val r = n.rational ?: return approx + decimal(BigDecimal(n.double), c, latex)
         if (r.isInteger) {
-            return if (r.num.abs().toString().length <= 15) r.num.toString() else approx + decimal(BigDecimal(r.num), c, latex)
+            // An exact integer is exact: all its digits (2^100 = 1267650600228229401496703205376), with its size beside them
+            // where it has more than 15; beyond [MAX_DIGITS] its decimal alone, whose power of ten says how many digits it has.
+            val length = r.num.abs().toString().length
+            return when {
+                length <= 15 -> r.num.toString()
+                length <= MAX_DIGITS -> r.num.toString() + " " + approx + decimal(BigDecimal(r.num), c, latex)
+                else -> approx + decimal(BigDecimal(r.num), c, latex)
+            }
+        }
+        // A fraction too long to read (binompdf(100, 0.02, 1), 170 digits over 170): its decimal, the exact value kept in the
+        // outcome (Num.Exact) for its digits on request.
+        if (r.num.abs().toString().length + r.den.toString().length > MAX_FRACTION_DIGITS) {
+            return approx + decimal(BigDecimal(r.num).divide(BigDecimal(r.den), MathContext(DIGITS)), c, latex)
         }
         // A fraction nobody reads, its numerator or denominator longer than 15 digits as a whole number is (an interest compounded
         // monthly for ten years): its decimal, as for such a whole number; the exact value stays in the outcome and its digits.

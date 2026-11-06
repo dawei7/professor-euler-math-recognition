@@ -67,6 +67,20 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Partial differential equations: the type and the canonical form; separation of variables.
+    PDE_COEFFICIENTS, PDE_DISCRIMINANT, PDE_HYPERBOLIC, PDE_PARABOLIC, PDE_ELLIPTIC, PDE_CHARACTERISTIC, PDE_NEW_VARIABLES, PDE_CANONICAL,
+    PDE_SEPARATE, PDE_EIGENVALUES, PDE_OTHER_FACTOR, PDE_SUPERPOSE, PDE_FOURIER_COEFFICIENTS, PDE_PARTIAL_SUMS, PDE_FINITE, PDE_STEADY_STATE,
+    // Rank, trace, null space, column space, characteristic polynomial, adjugate ([AppliedSteps]).
+    RANK_ECHELON, RANK_MINOR, RANK_CASE, TRACE_SUM, NULL_FREE, COLUMN_PIVOTS, CHARPOLY_DET, ADJ_COFACTORS, ADJ_TRANSPOSE, ADJ_CHECK,
+    // Tangent and normal, arc length, area, volumes, mean value.
+    DERIVATIVE_OF, TANGENT_POINT, TANGENT_SLOPE, TANGENT_FORMULA, NORMAL_SLOPE, NORMAL_FORMULA, NORMAL_VERTICAL, ARC_FORMULA, ARC_SQUARE,
+    INTEGRAL_NUMERIC, AREA_CROSSINGS, AREA_PIECE, AREA_PIECES, VOLUME_DISCS, VOLUME_SHELLS, MEAN_FORMULA,
+    // Linear programs.
+    LP_CORNERS, LP_VALUES, LP_SIMPLEX, LP_DUAL, LP_UNBOUNDED, LP_INFEASIBLE,
+    // Graphs: shortest paths, spanning trees, a topological order, a maximum flow, walks.
+    GRAPH_SOURCE, GRAPH_VISIT, GRAPH_LOWER, GRAPH_ROUND, GRAPH_ROUND_STABLE, GRAPH_NEGATIVE_CYCLE, GRAPH_DISTANCES_CHECK,
+    GRAPH_PATH, GRAPH_SORT_EDGES, GRAPH_TAKE_EDGE, GRAPH_SKIP_EDGE, GRAPH_PRIM_START, GRAPH_PRIM_EDGE, GRAPH_TREE_CHECK,
+    GRAPH_TOPO_TAKE, GRAPH_TOPO_CYCLE, GRAPH_TOPO_CHECK, GRAPH_AUGMENT, GRAPH_MIN_CUT, GRAPH_ADJACENCY, GRAPH_MATRIX_POWER,
     // Financial mathematics: the formulas of interest, annuities and loans, the values put in, the internal rate of return,
     // and the tables of loans and depreciation.
     FIN_SIMPLE_INTEREST, FIN_COMPOUND, FIN_COMPOUND_SUBPERIODS, FIN_CONTINUOUS, FIN_DISCOUNT, FIN_RATE, FIN_PERIODS, FIN_EFFECTIVE,
@@ -101,6 +115,9 @@ object Steps {
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
+        PdeSteps.of(c)?.let { return it }
+        AppliedSteps.of(c, latex, assumptions)?.let { return it }
+        NetworkSteps.of(c, latex)?.let { return it }
         FinanceSteps.of(c, latex)?.let { return it }
         return try {
             Budget.within(3000) {
