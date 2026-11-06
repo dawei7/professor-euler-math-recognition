@@ -91,6 +91,11 @@ enum class Failure {
     NOT_DISTRIBUTION,
     /** A result that did not pass its check (a second computation disagreed): it is not shown. */
     UNVERIFIED,
+    /**
+     * The Jacobi or Gauss–Seidel method for a system with a 0 on its diagonal: equation i cannot be solved for its unknown i
+     * (written in another order, it may be).
+     */
+    ZERO_DIAGONAL,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -396,6 +401,29 @@ enum class Mode {
     MARKOV,
     /** A list's modes: mode(x₁, x₂, …) ([Describe]). */
     MODES,
+    /** The secant method from two starting values ([Choice.point] "x₀,x₁"). */
+    SECANT,
+
+    /** Fixed-point iteration x = g(x) from a start ([Choice.point]). */
+    FIXED_POINT,
+
+    /** The Jacobi method for a linear system A·x = b. */
+    JACOBI,
+
+    /** The Gauss–Seidel method for a linear system A·x = b. */
+    GAUSS_SEIDEL,
+
+    /** A square matrix's condition number ‖A‖·‖A⁻¹‖ in the norm [Choice.point] (1, 2, ∞ or F; 2 where none is asked). */
+    CONDITION,
+
+    /** A vector's or a matrix's norm ([Choice.point]: 1, 2, ∞, F, or for a vector a whole p ≥ 3; 2 where none is asked). */
+    NORM,
+
+    /** Gram–Schmidt: vectors made orthonormal. */
+    GRAM_SCHMIDT,
+
+    /** The orthogonal projection of a vector onto another, or onto the span of several. */
+    PROJECTION,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -692,6 +720,14 @@ sealed class Outcome {
     data class FinanceSchedule(val schedule: Finance.Schedule) : Outcome()
     /** A statistical procedure: a hypothesis test, a confidence interval or a fitted curve, as named values ([StatResult]). */
     data class Statistical(val result: StatResult) : Outcome()
+    /**
+     * An iteration x ← G(x) to a solution, fixed-point iteration or the Jacobi or Gauss–Seidel method ([Iterative.Iteration]):
+     * its table, its result where it converged and was checked, the exact solution and the error, and the convergence tests.
+     */
+    data class Iterated(val iteration: Iterative.Iteration) : Outcome()
+
+    /** Vectors made orthonormal by Gram–Schmidt ([Orthogonal.Basis]): the orthogonal uₖ, the orthonormal eₖ, those left out. */
+    data class Orthonormalized(val basis: Orthogonal.Basis) : Outcome()
 }
 
 /**
@@ -789,6 +825,8 @@ object MathCalc {
             Budget.within(millis) {
                 // The applied functions (rank, tangentline, maximize …), asked for by their call, are worked out on their own.
                 if (logic == null) Applied.outcome(statements, choice)?.let { o -> choices = listOf(choice!!); shown = choice; return@within o }
+                // A function of [Iterative] asked for (jacobimethod, secant, cond, gramschmidt …): worked out as its call says.
+                iterativePlan(statements, choice)?.let { mine -> choices = mine.choices; shown = choice; return@within mine.outcome(choice!!) }
                 val plan = if (logic != null) logicPlan(logic)
                     else if (command != null) Choice(command.mode).let { c -> Plan(listOf(c), c) { Learning.work(command, flags) } }
                     else pdePlan(statements) ?: odePlan(statements, flags.odeVariable) ?: odeSystemPlan(statements, flags.odeVariable)
@@ -1171,6 +1209,15 @@ object MathCalc {
             } ?: throw CalcException(Failure.UNSOLVED)
         }
         return Outcome.NumericTable(Numerics.bisection(f, x, a, b) ?: throw CalcException(Failure.UNSOLVED))
+    }
+
+    /**
+     * The secant method, fixed-point iteration, the Jacobi and Gauss–Seidel methods, norms and condition numbers, Gram–Schmidt
+     * and projections, where [choice] asks for one of them ([Iterative.plan]); null otherwise.
+     */
+    private fun iterativePlan(statements: List<Statement>, choice: Choice?): Plan? {
+        val work = Iterative.plan(statements, choice) ?: return null
+        return Plan(work.choices, choice!!, work.choices.map { it.mode }.toSet()) { c -> work.outcome(c) }
     }
 
     /** The letters a polar angle is written with. */
@@ -1742,7 +1789,9 @@ object MathCalc {
         val numeric = f != null && start != null && Numeric.value(start.at) != null && Numeric.value(start.value) != null
         val choices = listOfNotNull(choice, if (numeric) Choice(Mode.RUNGE_KUTTA) else null, if (numeric) Choice(Mode.EULER) else null,
             if (numeric) Choice(Mode.DORMAND_PRINCE) else null, if (f != null) Choice(Mode.SLOPE_FIELD) else null)
-        val accepts = setOf(Mode.DORMAND_PRINCE, Mode.ODE_SERIES, Mode.SLOPE_FIELD)
+        val accepts = setOf(Mode.DORMAND_PRINCE, Mode.ODE_SERIES, Mode.SLOPE_FIELD) +
+            // euler(…, b, h): the method to the end and with the step asked for.
+            (if (numeric) setOf(Mode.EULER, Mode.RUNGE_KUTTA) else emptySet())
         return Plan(choices, choice, accepts) { c ->
             if (c.mode == Mode.SLOPE_FIELD) return@Plan Outcome.DirectionField(Fields.slope(f ?: throw CalcException(Failure.UNSOLVED), x, unknown))
             if (c.mode == Mode.ODE_SERIES) {
@@ -1765,8 +1814,11 @@ object MathCalc {
                     if (e.failure == Failure.TOO_LONG) throw e
                     null
                 }
-                val h = c.order?.let { 1.0 / it } ?: 0.1
-                return@Plan Outcome.NumericTable(Numerics.ode(f!!, x, unknown, Numeric.value(start!!.at)!!, Numeric.value(start.value)!!, h, 10,
+                val from = Numeric.value(start!!.at)!!
+                // To x₀ + 1 in ten steps of h = 0.1, to b in ten steps, or to b in steps of h ([Numerics.steps]).
+                val (h, steps) = if (c.point == null) (c.order?.let { 1.0 / it } ?: 0.1) to 10
+                    else Numerics.steps(from, c.point.split(',').map { p -> pointOf(p)?.let { Numeric.value(it) } ?: throw CalcException(Failure.ARGUMENTS) })
+                return@Plan Outcome.NumericTable(Numerics.ode(f!!, x, unknown, from, Numeric.value(start.value)!!, h, steps,
                     c.mode == Mode.RUNGE_KUTTA, exact))
             }
             val general = Ode.solve(equation, unknown, x) ?: throw CalcException(Failure.UNSOLVED)

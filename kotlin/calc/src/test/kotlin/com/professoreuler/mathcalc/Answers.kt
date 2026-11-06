@@ -189,6 +189,21 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
         } + (r.alternative?.let { " " + it.name.lowercase() } ?: "") + (r.reject?.let { if (it) " reject" else " keep" } ?: "") +
             (r.model?.let { " y = " + c.text(it) } ?: "") + (if (r.warnings.isNotEmpty()) " warn " + r.warnings.joinToString(",") { it.name.lowercase() } else "")
     }
+    is Outcome.Iterated -> o.iteration.let { it ->
+        it.table.method.name.lowercase() + " " + it.table.rows.size + " rows → " +
+            (it.result?.joinToString(", ") { v -> "%.10g".format(java.util.Locale.ROOT, v) } ?: "none") +
+            (it.exact?.let { e -> " exact " + e.joinToString(", ") { v -> c.text(v) } } ?: "") +
+            it.tests.joinToString("") { t -> " | " + test(c, t) }
+    }
+    is Outcome.Orthonormalized -> o.basis.orthonormal.joinToString(" | ") { c.text(it) } +
+        (if (o.basis.dependent.isNotEmpty()) " (dependent " + o.basis.dependent.joinToString(", ") { "v${it + 1}" } + ")" else "")
+}
+
+private fun test(c: Calculation, t: Iterative.Test): String = when (t) {
+    is Iterative.Test.Dominance -> if (t.holds) "dominant" else "not dominant in row ${t.row!! + 1}"
+    is Iterative.Test.Radius -> "ρ = " + (t.exact?.let { c.text(it) + " ≈ " } ?: "") + t.digits + (if (t.below) " < 1" else " ≥ 1")
+    is Iterative.Test.Slope -> "|g'| at " + c.text(t.at) + " = " + (t.exact?.let { c.text(it) } ?: (t.digits?.toString() ?: "?")) + " " +
+        t.kind.name.lowercase()
 }
 
 private fun graphFacts(f: Networks.Facts): String = listOfNotNull(

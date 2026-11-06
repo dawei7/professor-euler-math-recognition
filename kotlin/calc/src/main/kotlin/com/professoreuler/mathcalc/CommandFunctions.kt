@@ -25,6 +25,16 @@ object CommandFunctions {
         CALL,
         /** Arguments the function reads itself ([StatCommands]): lists, matrices, points, numbers and words, in its order. */
         ARGS,
+        /** secant(f, x₀, x₁), fixedpoint(g, x₀): exactly the starting values the method takes ([Function.params]), each a number. */
+        STARTS,
+        /** norm(A), norm(A, p), cond(A), cond(A, p): the norm, 1, 2, ∞ or F (of a vector also a whole p ≥ 3); 2 where none is given. */
+        NORM,
+        /** jacobimethod(A, b), jacobimethod(A, b, x₀), or jacobimethod(equations, x₀): the matrix or the equations, then the vectors. */
+        SYSTEM,
+        /** gramschmidt(v₁, v₂, …), projection(v, u₁, …): every argument a vector, one to a line. */
+        VECTORS,
+        /** euler(f, y(x₀) = y₀), euler(…, b), euler(…, b, h): where the method ends and its step, numbers. */
+        STEP,
     }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
@@ -63,8 +73,8 @@ object CommandFunctions {
         Function("newton", Mode.NEWTON, Shape.START, listOf("x₀")),
         Function("bisection", Mode.BISECTION, Shape.INTERVAL, listOf("a", "b")),
         Function("dsolve", Mode.ODE, Shape.FORMULA),
-        Function("euler", Mode.EULER, Shape.FORMULA),
-        Function("rungekutta", Mode.RUNGE_KUTTA, Shape.FORMULA),
+        Function("euler", Mode.EULER, Shape.STEP, listOf("b", "h")),
+        Function("rungekutta", Mode.RUNGE_KUTTA, Shape.STEP, listOf("b", "h")),
         Function("trapezoid", Mode.TRAPEZOID, Shape.BOUNDS, listOf("x", "a", "b")),
         Function("simpson", Mode.SIMPSON, Shape.BOUNDS, listOf("x", "a", "b")),
         Function("polar", Mode.POLAR, Shape.FORMULA),
@@ -139,6 +149,14 @@ object CommandFunctions {
         Function("stationary", Mode.STATIONARY, Shape.ARGS),
         Function("markov", Mode.MARKOV, Shape.ARGS),
         Function("mode", Mode.MODES, Shape.LIST),
+        Function("secant", Mode.SECANT, Shape.STARTS, listOf("x₀", "x₁")),
+        Function("fixedpoint", Mode.FIXED_POINT, Shape.STARTS, listOf("x₀")),
+        Function("jacobimethod", Mode.JACOBI, Shape.SYSTEM, listOf("b", "x₀")),
+        Function("gaussseidel", Mode.GAUSS_SEIDEL, Shape.SYSTEM, listOf("b", "x₀")),
+        Function("cond", Mode.CONDITION, Shape.NORM, listOf("p")),
+        Function("norm", Mode.NORM, Shape.NORM, listOf("p")),
+        Function("gramschmidt", Mode.GRAM_SCHMIDT, Shape.VECTORS),
+        Function("projection", Mode.PROJECTION, Shape.VECTORS),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -171,6 +189,7 @@ object CommandFunctions {
         if (f.shape == Shape.NETWORK) return Networks.typed(f.name, args) ?: refused(f, inner)
         if (f.shape == Shape.CALL) return Typed(call(f.name, args.map { TextInput.latex(it) }), Choice(f.mode!!))
         if (f.shape == Shape.ARGS) return Typed(args.joinToString(", ") { TextInput.latex(it) }, Choice(f.mode!!))
+        if (f.shape in ITERATIVE) return iterative(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
         // Lines after the formula only where the function takes them (a system, initial values, constraints): gradient(f, x = 1)
@@ -342,6 +361,68 @@ object CommandFunctions {
         }
     }
 
+    /** The shapes of [Iterative]'s functions. */
+    private val ITERATIVE = setOf(Shape.STARTS, Shape.NORM, Shape.SYSTEM, Shape.VECTORS, Shape.STEP)
+
+    /**
+     * A call of one of [Iterative]'s functions, read; null where it has arguments its function does not take: a start that is
+     * no number or one too many, a norm that is none of 1, 2, ∞, F (or a whole p), a system without its b.
+     */
+    private fun iterative(f: Function, args: List<String>): Typed? {
+        val l = TextInput
+        val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
+        val rest = args.drop(1).filterNot { hasRelation(it) }
+        return when (f.shape) {
+            // The starts, each a number: secant(f, 1, 2), never a letter.
+            Shape.STARTS -> {
+                if (lines.size != 1 || rest.size != f.params.size) return null
+                val points = rest.map { s ->
+                    val latex = l.latex(s).trim()
+                    latex.takeIf { l.letterOf(s) == null && ',' !in it && Iterative.numberOf(it) != null } ?: return null
+                }
+                Typed(l.latex(args[0]), Choice(f.mode!!, point = points.joinToString(",")))
+            }
+            Shape.NORM -> {
+                if (lines.size != 1 || rest.size > 1) return null
+                val p = rest.firstOrNull()?.let { normOf(l.latex(it).trim()) ?: return null }
+                Typed(l.latex(args[0]), Choice(f.mode!!, point = p))
+            }
+            // The matrix (or the equations) as the formula's lines, the vectors b and x₀ in the point.
+            Shape.SYSTEM -> {
+                if (lines.size == 1 && rest.isEmpty()) return null
+                Typed(l.latex(lines.joinToString("; ")), Choice(f.mode!!, point = rest.joinToString(";") { l.latex(it).trim() }.ifEmpty { null }))
+            }
+            Shape.VECTORS -> if (rest.size != args.size - 1) null else Typed(l.latex(args.joinToString("; ")), Choice(f.mode!!))
+            // The equation and its initial value as lines; the end b and the step h, numbers, in the point.
+            Shape.STEP -> {
+                if (rest.size > 2) return null
+                val points = rest.map { s ->
+                    val latex = l.latex(s).trim()
+                    latex.takeIf { l.letterOf(s) == null && ',' !in it && Iterative.numberOf(it) != null } ?: return null
+                }
+                Typed(l.latex(lines.joinToString("; ")), Choice(f.mode!!, point = points.joinToString(",").ifEmpty { null }))
+            }
+            else -> null
+        }
+    }
+
+    /** A norm as a call writes it: 1, 2, ∞ (inf), F (Frobenius), or a whole p from 3 to 100. */
+    private fun normOf(latex: String): String? = when {
+        latex in Norms.MATRIX -> latex
+        latex.toIntOrNull()?.let { it in 3..100 } == true -> latex
+        else -> null
+    }
+
+    /** The arguments of a call of one of [Iterative]'s functions, from its reading; null for the other functions. */
+    private fun iterativeArguments(f: Function, c: Choice, l: String): List<String>? = when (f.shape) {
+        Shape.STARTS -> cases(l) + (c.point?.split(',') ?: emptyList())
+        Shape.NORM -> listOf(l, c.point ?: "2")
+        Shape.SYSTEM -> cases(l) + (c.point?.split(';') ?: emptyList())
+        Shape.VECTORS -> cases(l)
+        Shape.STEP -> cases(l) + (c.point?.split(',') ?: emptyList())
+        else -> null
+    }
+
     /** The functions of points whose points are the rows of one matrix (a line's and a plane's are vectors, one to a line). */
     private val MATRIX_POINTS = setOf(Mode.REGRESSION, Mode.INTERPOLATION, Mode.SPLINE)
 
@@ -449,6 +530,7 @@ object CommandFunctions {
         val f = BY_MODE[c.mode] ?: return null
         // A call its function reads itself is written as it is.
         if (f.shape == Shape.CALL) return l.takeIf { it.startsWith("\\operatorname{${f.name}}") }
+        iterativeArguments(f, c, l)?.let { return call(f.name, it) }
         val lines = cases(l)
         val one = lines.size == 1
         val args: List<String> = when (f.shape) {
