@@ -37,6 +37,8 @@ object CommandFunctions {
         STEP,
         /** The integrals over curves, surfaces and regions in coordinates, the derivatives at a point, the Fourier transform ([MultiCalls]). */
         MULTI,
+        /** A whole number (or its numeral) and a base: tobase(255, 16), frombase(FF, 16) ([Bases]). */
+        BASE,
     }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
@@ -169,6 +171,8 @@ object CommandFunctions {
         Function("tangentplane", Mode.TANGENT_PLANE, Shape.MULTI, listOf("P")),
         Function("fouriertransform", Mode.FOURIER_TRANSFORM, Shape.MULTI, listOf("t")),
         Function("invfouriertransform", Mode.INVERSE_FOURIER_TRANSFORM, Shape.MULTI, listOf("ω")),
+        Function("tobase", Mode.TO_BASE, Shape.BASE, listOf("b")),
+        Function("frombase", Mode.FROM_BASE, Shape.BASE, listOf("b")),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -197,6 +201,7 @@ object CommandFunctions {
         val args = arguments(inner)?.map { it.trim() } ?: return refused(f, inner)
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
         if (f.shape == Shape.MULTI) return MultiCalls.read(f, args) ?: refused(f, inner)
+        if (f.shape == Shape.BASE) return Bases.read(f.mode!!, args) ?: refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         if (f.shape == Shape.APPLIED) return Applied.read(f, args) ?: refused(f, inner)
         if (f.shape == Shape.NETWORK) return Networks.typed(f.name, args) ?: refused(f, inner)
@@ -568,6 +573,7 @@ object CommandFunctions {
             // A graph's call is its own LaTeX ([Networks]).
             Shape.NETWORK -> return l.takeIf { Networks.callOf(it)?.first == f.name }
             Shape.ARGS -> runCatching { StatCommands.pieces(l) }.getOrNull() ?: return null
+            Shape.BASE -> Bases.arguments(c, l) ?: return null
             else -> return null
         }
         return call(f.name, args)

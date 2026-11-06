@@ -59,7 +59,9 @@ class StepsTest {
 
 
     private val NUMBERS = listOf("interpolate((1, 2), (2, 3), (3, 5))", "spline((0, 0), (1, 1), (2, 0))", "multorder(3, 7)",
-        "primroot(41)", "discretelog(5, 2, 13)")
+        "primroot(41)", "discretelog(5, 2, 13)",
+        // Other bases, and the gcd and lcm of polynomials.
+        "tobase(255, 2)", "frombase(FF, 16)", "lcm(x^2 - 1, x^2 + 2x + 1)")
 
     /** Machine learning's steps ([LearningSteps]), typed as their functions. */
     private val LEARNING = listOf("softmax([1, 2, 3])", "entropy([1/2, 1/4, 1/4], 2)", "crossentropy([1/2, 1/2], [1/4, 3/4], 2)",

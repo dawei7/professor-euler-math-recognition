@@ -117,18 +117,19 @@ class TextInputTest {
      */
     @Test
     fun unknownNamesAreRefused() = check(listOf(
-        "round(2.5)" to "FAILED UNKNOWN_FUNCTION",
-        "round\\left(2.5\\right)" to "FAILED UNKNOWN_FUNCTION",
+        "rnd(2.5)" to "FAILED UNKNOWN_FUNCTION",
+        "rnd\\left(2.5\\right)" to "FAILED UNKNOWN_FUNCTION",
         // As the editor writes them: a function's bracket is \left( … \right).
         "floor\\left(-2.5\\right)" to "-3",
         "ceil\\left(2.1\\right)" to "3",
         "sqrt\\left(12\\right)" to "2√3 ≈ 3.464101615",
         "abs\\left(-7\\right)" to "7",
-        "max(1, 5, 3)" to "FAILED UNKNOWN_FUNCTION",
-        "re(3 + 4i)" to "FAILED UNKNOWN_FUNCTION",
+        "maximum(1, 5, 3)" to "FAILED UNKNOWN_FUNCTION",
+        "real(3 + 4i)" to "FAILED UNKNOWN_FUNCTION",
+        // The inverse hyperbolic functions have one name each, ISO 80000-2's arsinh: asinh and arcsinh are refused.
         "asinh(1)" to "FAILED UNKNOWN_FUNCTION",
         "arcsinh(1)" to "FAILED UNKNOWN_FUNCTION",
-        "beta(2, 3)" to "FAILED UNKNOWN_FUNCTION",
+        "betafunction(2, 3)" to "FAILED UNKNOWN_FUNCTION",
         "2det([[1, 2], [3, 4]])" to "FAILED COMMAND_INSIDE",
         "gcd(12)" to "FAILED ARGUMENTS",
         "binom(5)" to "FAILED ARGUMENTS",

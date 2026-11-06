@@ -22,6 +22,18 @@ enum class Func(val latex: String, val text: String) {
     BESSELJ("\\operatorname{J}", "besselj"),
     /** Lambert's W, its principal branch W₀. */
     LAMBERTW("\\operatorname{W}", "lambertw"),
+    /** The other hyperbolic functions, and the inverse hyperbolic ones under their ISO 80000-2 names ([MoreFunctions]). */
+    COTH("\\coth", "coth"), SECH("\\operatorname{sech}", "sech"), CSCH("\\operatorname{csch}", "csch"),
+    ASINH("\\operatorname{arsinh}", "arsinh"), ACOSH("\\operatorname{arcosh}", "arcosh"), ATANH("\\operatorname{artanh}", "artanh"),
+    ACOTH("\\operatorname{arcoth}", "arcoth"),
+    /** arcsec x = arccos(1/x) and arccsc x = arcsin(1/x), for |x| ≥ 1. */
+    ASEC("\\operatorname{arcsec}", "arcsec"), ACSC("\\operatorname{arccsc}", "arccsc"),
+    /** The exponential, sine and cosine integrals. */
+    EI("\\operatorname{Ei}", "Ei"), SI("\\operatorname{Si}", "Si"), CI("\\operatorname{Ci}", "Ci"),
+    /** Bessel's Y (the second kind) of a whole order: args are (order, x). */
+    BESSELY("\\operatorname{Y}", "bessely"),
+    /** The complete elliptic integrals of the first and second kind, of the modulus k: K(k), E(k). */
+    ELLIPTICK("\\operatorname{K}", "elliptick"), ELLIPTICE("\\operatorname{E}", "elliptice"),
 }
 
 /** π, e, the imaginary unit, and ∞ (only as a bound or a limit's point or value). */
@@ -568,8 +580,12 @@ private fun known(f: Func, args: List<Expr>): Expr? {
                 val flipped = fn(f, mul(Expr.Num(-k.value), rest))
                 return if (f == Func.COSH) flipped else neg(flipped)
             }
+            // At a logarithm, exactly: sinh(ln 2) = (2 − 1/2)/2 = 3/4.
+            MoreFunctions.atLogarithm(f, x)?.let { return it }
         }
         Func.GAMMA, Func.DIGAMMA, Func.ERF, Func.ERFC, Func.ZETA, Func.BESSELJ, Func.LAMBERTW -> return SpecialValues.known(f, args)
+        Func.COTH, Func.SECH, Func.CSCH, Func.ASINH, Func.ACOSH, Func.ATANH, Func.ACOTH, Func.ASEC, Func.ACSC, Func.EI, Func.SI, Func.CI,
+        Func.BESSELY, Func.ELLIPTICK, Func.ELLIPTICE -> return MoreFunctions.known(f, args)
     }
     return null
 }
@@ -1093,6 +1109,8 @@ object Numeric {
                 val v = a[1]
                 if (x != kotlin.math.floor(x) || kotlin.math.abs(x) > 1000) Double.NaN else special(v) { Special.besselJ(x.toLong(), it, SPECIAL_BITS) }
             }
+            Func.COTH, Func.SECH, Func.CSCH, Func.ASINH, Func.ACOSH, Func.ATANH, Func.ACOTH, Func.ASEC, Func.ACSC, Func.EI, Func.SI, Func.CI,
+            Func.BESSELY, Func.ELLIPTICK, Func.ELLIPTICE -> MoreFunctions.double(f, a)
         }
     }
 

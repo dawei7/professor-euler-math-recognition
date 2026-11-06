@@ -187,6 +187,10 @@ class CommandFunctionsTest {
         "tangentplane(x^2 + y^2 + z^2 = 14, (1, 2, 3))",
         "fouriertransform(e^(-abs(t)))",
         "invfouriertransform(2/(1 + omega^2))",
+        "tobase(255, 2)",
+        "tobase(2^10 + 1, 16)",
+        "frombase(FF, 16)",
+        "frombase(11111111, 2)",
     )
 
     @Test

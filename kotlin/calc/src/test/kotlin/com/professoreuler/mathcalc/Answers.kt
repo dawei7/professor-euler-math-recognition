@@ -197,6 +197,7 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.Orthonormalized -> o.basis.orthonormal.joinToString(" | ") { c.text(it) } +
         (if (o.basis.dependent.isNotEmpty()) " (dependent " + o.basis.dependent.joinToString(", ") { "v${it + 1}" } + ")" else "")
+    is Outcome.InBase -> "${o.value} = ${o.digits}_${o.base}"
 }
 
 private fun test(c: Calculation, t: Iterative.Test): String = when (t) {

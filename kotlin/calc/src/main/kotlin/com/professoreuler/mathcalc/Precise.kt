@@ -216,6 +216,7 @@ object Precise {
             if (r.num > BigInteger.valueOf(Limits.MAX_FACTORIAL.toLong())) throw CalcException(Failure.TOO_LARGE)
             return CBall(Ball.of(Special.factorial(r.num.toLong())).rounded(w))
         }
+        if (f in ADDED) return MoreFunctions.ball(f, args.map { eval(it, w, complex, env) }, w, complex)
         if (f == Func.BESSELJ) {
             val order = rational(args[0])?.takeIf { it.isInteger }?.num ?: throw CalcException(Failure.UNDEFINED)
             if (order.bitLength() > 31) throw CalcException(Failure.TOO_LARGE)
@@ -274,8 +275,14 @@ object Precise {
                 )
             }
             Func.LOG, Func.FACTORIAL, Func.BESSELJ -> throw IllegalStateException()
+            Func.COTH, Func.SECH, Func.CSCH, Func.ASINH, Func.ACOSH, Func.ATANH, Func.ACOTH, Func.ASEC, Func.ACSC, Func.EI, Func.SI,
+            Func.CI, Func.BESSELY, Func.ELLIPTICK, Func.ELLIPTICE -> throw IllegalStateException()
         }
     }
+
+    /** The functions [MoreFunctions] works out. */
+    private val ADDED = setOf(Func.COTH, Func.SECH, Func.CSCH, Func.ASINH, Func.ACOSH, Func.ATANH, Func.ACOTH, Func.ASEC, Func.ACSC,
+        Func.EI, Func.SI, Func.CI, Func.BESSELY, Func.ELLIPTICK, Func.ELLIPTICE)
 
     private fun abs(x: Ball): Ball = when {
         x.isPositive || x.isExactZero -> x

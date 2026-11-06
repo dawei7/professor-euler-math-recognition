@@ -102,6 +102,8 @@ enum class StepKey {
     // Multiple integrals, line and surface integrals, directional derivatives and tangent planes.
     MULTI_COORDINATES, MULTI_INNER, MULTI_NUMERIC, INTEGRATE_FROM_TO, LINE_VELOCITY, LINE_SPEED, LINE_DOT, LINE_NORMAL, LINE_POTENTIAL,
     SURF_PARTIALS, SURF_NORMAL, SURF_AREA, SURF_DOT, DIR_GRADIENT, DIR_AT, DIR_UNIT, DIR_DOT, TP_GRAPH, TP_NORMAL, TP_EQUATION,
+    // Other bases, and the gcd and lcm of polynomials ([FunctionSteps]).
+    BASE_DIVIDE, BASE_REMAINDERS, BASE_PLACE_VALUES, GCD_DIVIDE, GCD_LAST, LCM_PRODUCT,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -130,6 +132,7 @@ object Steps {
         IterativeSteps.of(c, latex, assumptions)?.let { return it }
         // The later areas, from what their outcomes hold.
         StatSteps.of(c, latex)?.let { return it }
+        FunctionSteps.of(c, latex)?.let { return it }
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
         PdeSteps.of(c)?.let { return it }
