@@ -75,6 +75,22 @@ object Verify {
         return null
     }
 
+    /**
+     * A value of the letters where one of [a] and [b] is defined and the other is not, or null where none was found: ln(ab) at
+     * a = b = −1 is 0, ln a + ln b is not defined there. Isolated points (x = 1 in (x² − 1)/(x − 1)) are never met.
+     */
+    fun domainDifferenceAt(a: Expr, b: Expr): Map<String, Double>? {
+        if (a == b) return null
+        val letters = (a.symbols() + b.symbols()).toList()
+        val complex = a.hasI() || b.hasI()
+        val random = java.util.Random(31L * letters.hashCode() + 23)
+        for (attempt in 0 until TRIES * 6) {
+            val env = letters.associateWith { point(random, attempt) }
+            if (at(a, env, complex).finite != at(b, env, complex).finite) return env
+        }
+        return null
+    }
+
     /** Whether enough points had both sides defined to say they are the same. */
     private fun comparable(a: Expr, b: Expr): Boolean {
         if (a == b) return true

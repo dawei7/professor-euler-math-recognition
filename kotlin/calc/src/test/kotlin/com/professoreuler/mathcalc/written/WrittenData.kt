@@ -67,7 +67,7 @@ internal object WrittenData {
             val rr = (m * sxy - sx * sy).toDouble() / sqrt(rden)
             out += Task(area, "regression(${pts.joinToString(", ") { "(${it.first}, ${it.second})" }})", "y = ${slope}x + $intercept", judge = { c ->
                 val l = (c.outcome as? Outcome.Regression)?.line
-                l != null && rational(l.slope)?.let { Q.of(it.num, it.den) } == slope && rational(l.intercept)?.let { Q.of(it.num, it.den) } == intercept && close(value(l.r), rr)
+                l != null && rational(l.slope)?.let { Q.of(it.num, it.den) } == slope && rational(l.intercept)?.let { Q.of(it.num, it.den) } == intercept && l.r?.let { close(value(it), rr) } == true
             })
         }
         // Distributions: binomial exactly; Poisson and the normal ones in doubles, the normal by the test's own quadrature.

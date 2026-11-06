@@ -67,7 +67,7 @@ object Reports {
         } else {
             first
         }
-        val result = if (wanted == null) chosen else inDomain(complex) { asked(latex, wanted, chosen, assumptions) }
+        val result = if (wanted == null) chosen else asked(wanted, chosen)
         val constant = if (result.outcome is Outcome.Failed) null else inDomain(complex) { constantOf(latex, assumptions) }
         val panels = ArrayList<Panel>()
         panels += Panel(PanelKind.RESULT, result.choice)
@@ -75,6 +75,8 @@ object Reports {
         if (constant != null && result.choice?.mode != Mode.UNITS && result.choice?.mode != Mode.VENN && result.choice?.mode != Mode.COMPLEX_PLOT) {
             panels += Panel(PanelKind.DIGITS)
         }
+        // An applied function's formula is no number of its answer (volumex(2, 0, 1) is 4π, not 2).
+        if (result.choice?.mode in Applied.MODES) panels.removeAll { it.kind == PanelKind.DIGITS }
         val others = result.choices.filter { it != result.choice }
         // A graph is worth seeing early, as Wolfram Alpha shows its plots (a surface first); a function's curve sketch beside it.
         others.filter { it.mode == Mode.SURFACE }.forEach { panels += Panel(PanelKind.CHOICE, it) }
@@ -129,35 +131,15 @@ object Reports {
         }
     }
 
-    /** Functions whose choice the likeliest answer stands for where the formula does not offer it: calculate(x²) simplifies. */
-    private val STANDING = setOf(Mode.CALCULATE, Mode.SIMPLIFY, Mode.EXPAND, Mode.FACTOR, Mode.PARTIAL_FRACTIONS, Mode.GRAPH, Mode.SOLVE,
-        // A system that has a solution is solved exactly: that is its least-squares solution, with residual 0.
-        Mode.LEAST_SQUARES)
-
     /**
-     * What a function asked for, where the formula's choices do not include it: never another choice's answer in its place
-     * (laplace(1) is no 1, inverse(x) no x, the det of a 2 × 3 matrix no row reduction, the derivative of y² by x no y²). A formula
-     * without the function's letter has its own answer: its derivative is 0, its antiderivative the formula times the letter, its
-     * series the formula, and a number's Laplace transform the number over s. Another function fails, this formula being one it
-     * does not take; solve fails for a letter the equation does not hold.
+     * solve for a letter the equation does not hold is refused, never solved for another letter in its place (solve(x² = 4, y)
+     * is no x = ±2). Every other operation asked for by name MathCalc does or refuses itself.
      */
-    private fun asked(latex: String, wanted: Choice, result: Calculation, assumptions: Assumptions): Calculation {
-        val same = result.choice?.mode == wanted.mode && (wanted.letter == null || result.choice?.letter == wanted.letter)
-        if (result.outcome is Outcome.Failed || same) return result
-        if (wanted.mode in STANDING && !(wanted.mode == Mode.SOLVE && wanted.letter != null)) return result
-        val f = try { expressionOf(latex, assumptions) } catch (e: CalcException) { null }
-        val x = Expr.Sym(wanted.letter ?: "x")
-        val plain = f != null && f !is Expr.Mat && !f.hasOp() && !f.hasInfinity()
-        val outcome = when {
-            wanted.mode == Mode.DERIVATIVE && plain && !f!!.has(x) -> Outcome.Expression(Expr.ZERO)
-            wanted.mode == Mode.INTEGRAL && plain && !f!!.has(x) -> Outcome.Expression(Calculus.tidy(mul(f, x)), plusC = true)
-            wanted.mode == Mode.SERIES && plain && !f!!.has(x) -> Outcome.Expression(f)
-            wanted.mode == Mode.LAPLACE && plain && f!!.symbols().isEmpty() -> Outcome.Expression(Calculus.tidy(f / Expr.Sym("s")))
-            f is Expr.Mat -> Outcome.Failed(if (f.size != f.columns) Failure.SIZES else Failure.TOO_LARGE)
-            else -> Outcome.Failed(Failure.ARGUMENTS)
-        }
-        return Calculation(outcome, result.decimalComma, result.decimals, result.fractions, result.choices, wanted, result.degrees,
-            result.assumptions, result.ambiguities)
+    private fun asked(wanted: Choice, result: Calculation): Calculation {
+        if (wanted.mode != Mode.SOLVE || wanted.letter == null || result.outcome is Outcome.Failed) return result
+        if (result.choice?.mode != Mode.SOLVE || result.choice?.letter == wanted.letter) return result
+        return Calculation(Outcome.Failed(Failure.ARGUMENTS), result.decimalComma, result.decimals, result.fractions, result.choices, wanted,
+            result.degrees, result.assumptions, result.ambiguities)
     }
 
     /** The formula's value as a constant expression (no letters, its calculus worked out), if it is one. */

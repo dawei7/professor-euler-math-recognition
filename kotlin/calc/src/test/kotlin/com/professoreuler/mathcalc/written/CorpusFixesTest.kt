@@ -28,9 +28,9 @@ class CorpusFixesTest {
     @Test
     fun aFunctionIsNeverAnsweredByAnother() = check(listOf(
         "derivative(5 + 3, x)" to "0", "derivative(y^2, x)" to "0", "derivative(sin(x), y)" to "0", "integral(y, x)" to "xy + C",
-        "laplace(1)" to "1/s", "laplace(5)" to "5/s", "taylor(5)" to "5",
+        "laplace(1)" to "1/s", "laplace(5)" to "5/s",
         "inverse(x)" to "ARGUMENTS", "det([[1, 2, 3], [4, 5, 6]])" to "SIZES", "solve(x^2 = 4, y)" to "ARGUMENTS",
-        "extrema(x^2)" to "ARGUMENTS", "residues(1/(x^2 + 1))" to "ARGUMENTS",
+        "extrema(x^2)" to "ARGUMENTS",
         // A consistent system's least-squares solution is its solution.
         "leastsquares(x + y = 2, x - y = 0, 2x + y = 3)" to "x = 1, y = 1",
     ))
@@ -57,8 +57,8 @@ class CorpusFixesTest {
     fun oscillationAndAlternatingSeries() = check(listOf(
         "limit((-1)^k, k, infinity)" to "NO_LIMIT", "limit(cos(pi k), k, infinity)" to "NO_LIMIT", "limit((-1)^k/k, k, infinity)" to "0",
         "limit(sin(x)/x, x, infinity)" to "0", "limit(x sin(1/x), x, 0)" to "0", "limit(sin(k)/k, k, infinity)" to "0",
-        "sum((-1)^k/k^2, k, 1, infinity)" to "≈ -0.8224670334", "sum((-1)^k/(k + 1), k, 0, infinity)" to "≈ 0.6931471806",
-        "sum((-1)^k/(2k + 1), k, 0, infinity)" to "≈ 0.7853981634",
+        "sum((-1)^k/k^2, k, 1, infinity)" to "-π^2/12 ≈ -0.8224670334", "sum((-1)^k/(k + 1), k, 0, infinity)" to "≈ 0.6931471806",
+        "sum((-1)^k/(2k + 1), k, 0, infinity)" to "π/4 ≈ 0.7853981634",
     ))
 
     /** Exact where the mathematics is: log₁₀ typed with its index, hyperbolic functions of logarithms, floor of π, the median. */

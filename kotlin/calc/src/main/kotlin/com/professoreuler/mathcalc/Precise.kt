@@ -124,6 +124,57 @@ object Precise {
         return lo.takeIf { it == hi }
     }
 
+    /**
+     * Whether the constant [e] is certainly not 0: true where its ball excludes 0 at some precision up to [maxBits] (tanh 20 − 1,
+     * erfc 10, sinh 10 − 75242407/6832: tiny, never 0); false where it is exactly 0 or still holds 0 at [maxBits], as close
+     * to 0 as that tells; null where the balls cannot take it. A double that comes out 1 or 0 is no proof of either.
+     */
+    internal fun certainlyNonzero(e: Expr, maxBits: Int = 2048, complex: Boolean = true): Boolean? {
+        var bits = 64
+        while (bits <= maxBits) {
+            try {
+                val z = eval(e, bits, complex, emptyMap())
+                if (!z.re.containsZero() || !z.im.containsZero()) return true
+                if (z.re.isExactZero && z.im.isExactZero) return false
+            } catch (x: Imprecise) {
+                // decide again with more bits
+            } catch (x: CalcException) {
+                if (x.failure == Failure.TOO_LONG) throw x
+                return null
+            } catch (x: ArithmeticException) {
+                return null
+            }
+            bits *= 2
+            Budget.check()
+        }
+        return false
+    }
+
+    /**
+     * The sign of the real constant [e] where the balls decide it up to [maxBits]: −1 or 1 where the ball lies on one side of 0,
+     * 0 where it is exactly 0; null where it still holds 0 at [maxBits] or cannot be taken (or is not real).
+     */
+    internal fun signOf(e: Expr, maxBits: Int = 2048): Int? {
+        var bits = 64
+        while (bits <= maxBits) {
+            try {
+                val z = eval(e, bits, false, emptyMap())
+                if (z.re.isExactZero) return 0
+                if (!z.re.containsZero()) return z.re.mid.signum
+            } catch (x: Imprecise) {
+                // decide again with more bits
+            } catch (x: CalcException) {
+                if (x.failure == Failure.TOO_LONG) throw x
+                return null
+            } catch (x: ArithmeticException) {
+                return null
+            }
+            bits *= 2
+            Budget.check()
+        }
+        return null
+    }
+
     /** The value of a constant expression as a complex ball at [prec] bits; [env] gives letters their values. */
     internal fun eval(e: Expr, prec: Int, complex: Boolean, env: Map<String, CBall>): CBall {
         Budget.check()

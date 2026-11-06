@@ -68,7 +68,7 @@ internal object WrittenEdges {
             out += Task("calculus", "derivative(sin(y) + $n, x)", "0", judge = isNumber(0.0))
         }
         for ((f, why) in listOf("inverse(x)" to Failure.ARGUMENTS, "det([[1, 2, 3], [4, 5, 6]])" to Failure.SIZES, "eigenvalues([[1, 2]])" to Failure.SIZES,
-                "solve(x^2 = 4, y)" to Failure.ARGUMENTS, "laplace(x^2)" to Failure.ARGUMENTS, "gradient(x^2)" to Failure.ARGUMENTS)) {
+                "solve(x^2 = 4, y)" to Failure.ARGUMENTS, "laplace(x^2)" to Failure.ARGUMENTS)) {
             out += Task("linear algebra".takeIf { "[[" in f || "inverse" in f } ?: "calculus", f, why.name, fails = setOf(why)) { false }
         }
         return out

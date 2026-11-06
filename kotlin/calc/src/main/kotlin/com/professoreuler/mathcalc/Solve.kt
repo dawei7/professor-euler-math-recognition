@@ -24,6 +24,11 @@ class Solutions internal constructor(
     val conditions: List<Expr> = emptyList(),
     /** Angles in degrees, as the formula wrote its own: 30 for 30°, the families' step 360. */
     val degrees: Boolean = false,
+    /**
+     * More values solve it than [values] lists: a whole interval (|x| = x for every x ≥ 0), found where the equation holds at
+     * points none of its solutions is near. Such a list is never shown; the solution set is taken as intervals instead.
+     */
+    internal val incomplete: Boolean = false,
 ) {
     /** The same solutions, marked as angles in degrees: sin(x°) = 1/2 gives x = 30 + 360k, shown as 30° + k·360°. */
     internal fun markedDegrees(): Solutions =
@@ -57,8 +62,10 @@ object Solve {
     fun equation(lhs: Expr, rhs: Expr, x: Expr.Sym): Solutions {
         val f = lhs - rhs
         if (!f.has(x)) {
-            return if (isZero(f) || (f.isConstant() && Numeric.value(f)?.let { abs(it) < 1e-12 } == true)) Solutions(x.name, always = true)
-            else Solutions(x.name)
+            // A constant difference is 0 only where the balls cannot tell it from 0: x + tanh 20 = x + 1 has no solution.
+            val zero = isZero(f) || (f.isConstant() && Numeric.value(f)?.let { abs(it) < 1e-12 } == true &&
+                Precise.certainlyNonzero(f) != true)
+            return if (zero) Solutions(x.name, always = true) else Solutions(x.name)
         }
         // Every value, where both sides are defined: (x+1)² = x² + 2x + 1, sin²x + cos²x = 1.
         if (f.symbols() == setOf(x.name) && (isZero(Algebra.expand(f)) || Verify.same(f, Expr.ZERO))) {
@@ -66,7 +73,88 @@ object Solve {
         }
         val found = Found()
         roots(f, x, found, depth = 0)
-        return check(lhs, rhs, x, found)
+        val solutions = check(lhs, rhs, x, found)
+        // Every solution listed is put back in (check); that none is lost is checked too, at points along the line: a case that
+        // reduced to 0 = 0 (|x| = x for x ≥ 0, √(x²) = x) leaves no candidates for all the values it holds for.
+        if (solutions.many || solutions.periodic.isNotEmpty() || solutions.always || !lostSome(f, x, solutions.values)) return solutions
+        return Solutions(x.name, values = solutions.values, rejected = solutions.rejected, numeric = solutions.numeric, incomplete = true)
+    }
+
+    /**
+     * Whether [f] is 0 (to the balls as well, not only to a double) at two neighbouring points of the line that none of [values]
+     * is near: then the equation holds on more than the values found.
+     */
+    private fun lostSome(f: Expr, x: Expr.Sym, values: List<Expr>): Boolean {
+        val known = values.mapNotNull { Numeric.value(it) }
+        fun doubleZero(p: Rational): Boolean {
+            val d = p.toDouble()
+            if (known.any { abs(it - d) < 1e-6 }) return false
+            val v = Numeric.eval(f, mapOf(x.name to d))
+            return v.isFinite() && abs(v) <= 1e-12 * max(1.0, abs(d))
+        }
+        fun ballZero(p: Rational): Boolean = try { Precise.certainlyNonzero(f.substitute(x, num(p)), maxBits = 512) == false } catch (e: CalcException) {
+            if (e.failure == Failure.TOO_LONG) throw e
+            false
+        }
+        // Nearest 0 first, where a tiny value (erf x − 1 is 0 to a double from x ≈ 6) is still cheap to tell from 0; a few such
+        // looks at most: on an interval of solutions every point is one, the first as well.
+        var looks = 0
+        for (j in (-24..24).sortedBy { kotlin.math.abs(it) }) {
+            val p = Rational.of(java.math.BigInteger.valueOf(j * 1000L + 137), java.math.BigInteger.valueOf(2000))
+            val q = p + Rational.of(java.math.BigInteger.ONE, java.math.BigInteger.valueOf(97))
+            if (!doubleZero(p) || !doubleZero(q)) continue
+            if (looks++ >= 4) return false
+            if (ballZero(p) && ballZero(q)) return true
+        }
+        return false
+    }
+
+    /**
+     * The solution set of lhs = rhs as intervals, where it holds on whole intervals ([Solutions.incomplete]): by the signs
+     * between its points ([inequality] with =), each interval checked at points inside it and each gap between them at a point
+     * of its own, in ball arithmetic. Null where that cannot be decided.
+     */
+    fun intervalSolutions(lhs: Expr, rhs: Expr, x: Expr.Sym): IntervalSet? {
+        val set = inequality(lhs, Rel.EQ, rhs, x) ?: return null
+        if (set.intervals.none { it.lower != it.upper }) return null
+        val f = lhs - rhs
+        fun zero(p: Rational): Boolean? = try { Precise.certainlyNonzero(f.substitute(x, num(p)), maxBits = 512)?.not() } catch (e: CalcException) {
+            if (e.failure == Failure.TOO_LONG) throw e
+            null
+        }
+        fun near(e: Expr?): Rational? = e?.let { Numeric.value(it) }?.let { Rational.near(it, 1_000_000, 1e-3) ?: Rational.of(Math.round(it * 1000)) / Rational.of(1000) }
+        for (i in set.intervals) {
+            val lo = i.lower?.let { Numeric.value(it) }
+            val hi = i.upper?.let { Numeric.value(it) }
+            if (lo != null && hi != null && lo == hi) {
+                if (!solves(lhs, rhs, x, i.lower!!)) return null
+                continue
+            }
+            // Three points inside, each exactly a solution.
+            val a = lo ?: ((hi ?: 0.0) - 10)
+            val b = hi ?: ((lo ?: 0.0) + 10)
+            for (t in listOf(0.25, 0.5, 0.75)) {
+                val p = near(Expr.Real(a + (b - a) * t)) ?: return null
+                if (zero(p) != true) return null
+            }
+        }
+        // Between the intervals (and beyond them) a point that is no solution.
+        val bounds = set.intervals.flatMap { listOfNotNull(it.lower, it.upper) }.mapNotNull { Numeric.value(it) }.distinct().sorted()
+        val gaps = ArrayList<Double>()
+        if (bounds.isNotEmpty()) { gaps += bounds.first() - 1.37; gaps += bounds.last() + 1.37 }
+        for ((p, q) in bounds.zipWithNext()) gaps += (p + q) / 2
+        for (g in gaps) {
+            val inside = set.intervals.any { i ->
+                val lo = i.lower?.let { Numeric.value(it) }
+                val hi = i.upper?.let { Numeric.value(it) }
+                (lo == null || g > lo - 1e-12) && (hi == null || g < hi + 1e-12)
+            }
+            if (inside) continue
+            val p = near(Expr.Real(g)) ?: return null
+            val v = Numeric.eval(f, mapOf(x.name to p.toDouble()))
+            if (v.isFinite() && zero(p) != false) return null
+        }
+        return set
     }
 
     /** Candidates while an equation is worked on. */
@@ -492,6 +580,42 @@ object Solve {
             }
             Func.TAN -> family(fn(Func.ATAN, rhs), K * Expr.PI)
             Func.COT -> family(fn(Func.ACOT, rhs), K * Expr.PI)
+            // sec u = c is cos u = 1/c, csc u = c is sin u = 1/c: their families of solutions (none for c = 0).
+            Func.SEC, Func.CSC -> {
+                if (rv != null && abs(rv) < 1e-300) return
+                if (isZero(rhs)) return
+                inverse(Expr.Fn(if (lhs.f == Func.SEC) Func.COS else Func.SIN, lhs.args), Expr.ONE / rhs, x, out, depth)
+            }
+            // sinh u = c: u = ln(c + √(c² + 1)), the one real solution.
+            Func.SINH -> isolate(u, ln(add(rhs, sqrt(add(pow(rhs, Expr.TWO), Expr.ONE)))), x, out, depth + 1)
+            // cosh u = c: u = ±ln(c + √(c² − 1)) for c > 1, u = 0 for c = 1, none below 1 (decided in ball arithmetic).
+            Func.COSH -> when (constantSign(add(rhs, Expr.MINUS_ONE))) {
+                1 -> {
+                    val a = ln(add(rhs, sqrt(add(pow(rhs, Expr.TWO), Expr.MINUS_ONE))))
+                    isolate(u, a, x, out, depth + 1)
+                    isolate(u, neg(a), x, out, depth + 1)
+                }
+                0 -> isolate(u, Expr.ZERO, x, out, depth + 1)
+                else -> {}
+            }
+            // tanh u = c: u = ln((1 + c)/(1 − c))/2 for |c| < 1; none for |c| ≥ 1, as tanh lies strictly between −1 and 1
+            // (tanh x = 1 has no solution, though tanh 20 is 1 as a double).
+            Func.TANH -> if (constantSign(add(Expr.ONE, neg(pow(rhs, Expr.TWO)))) == 1) {
+                isolate(u, mul(Expr.HALF, ln((Expr.ONE + rhs) / (Expr.ONE - rhs))), x, out, depth + 1)
+            }
+            // erf and erfc are strictly increasing and decreasing: erf u = 0 at u = 0 alone (erfc u = 1 likewise); another value
+            // of their range (−1, 1) and (0, 2) at one point, found numerically; none outside it.
+            Func.ERF, Func.ERFC -> {
+                val c = if (lhs.f == Func.ERF) rhs else Calculus.tidy(Expr.ONE - rhs)
+                if (isZero(c)) { isolate(u, Expr.ZERO, x, out, depth + 1); return }
+                if (constantSign(add(Expr.ONE, neg(pow(c, Expr.TWO)))) != 1) return
+                val cv = Numeric.value(c) ?: return
+                // So close to ±1 that a double cannot find the point: not claimed either way.
+                if (abs(cv) > 1 - 1e-12) throw CalcException(Failure.UNSOLVED)
+                val root = monotoneRoot({ v -> Numeric.function(Func.ERF, listOf(v)) - cv }, -6.0, 6.0) ?: throw CalcException(Failure.UNSOLVED)
+                out.numeric = true
+                isolate(u, Expr.Real(root), x, out, depth + 1)
+            }
             Func.LN -> isolate(u, exp(rhs), x, out, depth + 1)
             Func.LOG -> isolate(u, pow(lhs.args[0], rhs), x, out, depth + 1)
             Func.ABS -> {
@@ -504,6 +628,30 @@ object Solve {
             Func.ATAN -> isolate(u, fn(Func.TAN, rhs), x, out, depth + 1)
             else -> numericRoots(lhs - rhs, x, out)
         }
+    }
+
+    /**
+     * The sign of a constant, decided in ball arithmetic ([Precise.signOf]); a constant whose sign the balls cannot decide is not
+     * guessed: [Failure.UNSOLVED]. Not a constant: [Failure.SEVERAL_UNKNOWNS].
+     */
+    private fun constantSign(e: Expr): Int {
+        if (!e.isConstant()) throw CalcException(Failure.SEVERAL_UNKNOWNS)
+        rational(e)?.let { return it.signum }
+        return Precise.signOf(e) ?: throw CalcException(Failure.UNSOLVED)
+    }
+
+    /** The one root of an increasing function [g] in [a, b] by bisection, to a double's precision; null without a sign change. */
+    private fun monotoneRoot(g: (Double) -> Double, a0: Double, b0: Double): Double? {
+        var a = a0
+        var b = b0
+        if (g(a) > 0 || g(b) < 0) return null
+        repeat(200) {
+            Budget.check()
+            val m = (a + b) / 2
+            if (m == a || m == b) return m
+            if (g(m) < 0) a = m else b = m
+        }
+        return (a + b) / 2
     }
 
     /** f = c·F(A) + rest, rest free of x, F a logarithm or a power of a number: (A, F⁻¹(−rest/c)). */
@@ -613,7 +761,8 @@ object Solve {
 
     private fun exactlyZero(f: Expr, x: Expr.Sym, r: Rational): Boolean = try {
         val v = f.substitute(x, num(r))
-        isZero(v) || (Numeric.value(v)?.let { abs(it) <= 1e-12 } == true)
+        // A fraction near a numeric root is that root only where f there is 0 to the balls too, not merely to a double.
+        isZero(v) || (Numeric.value(v)?.let { abs(it) <= 1e-12 } == true && Precise.certainlyNonzero(v) == false)
     } catch (e: CalcException) {
         false
     }
@@ -904,12 +1053,70 @@ object Solve {
         return listOf(letters.withIndex().associate { (k, v) -> v to num(m[pivots.indexOf(k)][n]) })
     }
 
+    /**
+     * A linear system with infinitely many solutions (x + y = 1, 2x + 2y = 2): its family, the letters of the free columns
+     * as parameters t (t₁, t₂, … for several; another letter where the system has t), each pivot letter in them; the whole
+     * family put back into every equation, which must hold for every value of the parameters. Null where the system is not
+     * linear, has one solution or none, or the check fails.
+     */
+    fun linearFamily(equations: List<Expr>, letters: List<String>): Map<String, Expr>? {
+        val n = letters.size
+        val rows = equations.map { e ->
+            val expanded = Algebra.expand(e)
+            val row = ArrayList<Rational>()
+            var rest: Expr = expanded
+            for (v in letters) {
+                val c = coefficientsIn(expanded, Expr.Sym(v)) ?: return null
+                if (c.size > 2) return null
+                val a = if (c.size == 2) rational(c[1]) ?: return null else Rational.ZERO
+                row += a
+                rest = rest - mul(num(a), Expr.Sym(v))
+            }
+            row += -(rational(Algebra.expand(rest)) ?: return null)
+            row.toMutableList()
+        }.toMutableList()
+        var rank = 0
+        val pivots = ArrayList<Int>()
+        for (col in 0 until n) {
+            val p = (rank until rows.size).firstOrNull { rows[it][col].signum != 0 } ?: continue
+            rows[p] = rows[rank].also { rows[rank] = rows[p] }
+            val lead = rows[rank][col]
+            for (j in 0..n) rows[rank][j] = rows[rank][j] / lead
+            for (r in rows.indices) if (r != rank && rows[r][col].signum != 0) {
+                val k = rows[r][col]
+                for (j in 0..n) rows[r][j] = rows[r][j] - k * rows[rank][j]
+            }
+            pivots += col
+            rank++
+        }
+        for (r in rank until rows.size) if (rows[r][n].signum != 0) return null
+        if (rank == n) return null
+        val free = (0 until n).filter { it !in pivots }
+        val base = listOf("t", "s", "r", "u", "v", "w").firstOrNull { b -> letters.none { it == b || it.startsWith(b + "_") } } ?: return null
+        val names = if (free.size == 1) listOf(base) else free.indices.map { "${base}_${it + 1}" }
+        val parameters = free.zip(names).toMap()
+        val solution = LinkedHashMap<String, Expr>()
+        for ((k, v) in letters.withIndex()) {
+            solution[v] = parameters[k]?.let { Expr.Sym(it) } ?: run {
+                val row = rows[pivots.indexOf(k)]
+                Algebra.expand(add(listOf(num(row[n])) + free.map { j -> mul(num(-row[j]), Expr.Sym(parameters.getValue(j))) }))
+            }
+        }
+        // The family put back: every equation 0 for every value of the parameters, as polynomials in them.
+        for (e in equations) {
+            var put: Expr = e
+            for ((v, value) in solution) put = put.substitute(Expr.Sym(v), value)
+            if (!isZero(Algebra.expand(put))) return null
+        }
+        return solution
+    }
+
     private fun substitution(equations: List<Expr>, letters: List<String>, depth: Int): List<Map<String, Expr>>? {
         if (depth > 4) return null
         if (letters.size == 1) {
             val x = Expr.Sym(letters[0])
             val sets = equations.map { equation(it, Expr.ZERO, x) }
-            if (sets.any { it.many || it.periodic.isNotEmpty() }) return null
+            if (sets.any { it.many || it.periodic.isNotEmpty() || it.incomplete }) return null
             val first = sets.firstOrNull { !it.always } ?: return null
             return first.values.filter { v -> equations.all { solves(it, Expr.ZERO, x, v) } }.map { mapOf(letters[0] to it) }
         }
