@@ -14,6 +14,9 @@ object Discrete {
     private val ZERO = BigInteger.ZERO
     private val ONE = BigInteger.ONE
 
+    /** `TWO` is Java 9: Android has it only from version 13. */
+    private val TWO = BigInteger.valueOf(2)
+
     // ---------------------------------------------------------------------------------------------------------------------
     // Number functions, worked out where they are written.
 
@@ -115,7 +118,7 @@ object Discrete {
             }
             "prevprime" -> {
                 var n = whole(args[0]) - ONE
-                if (n < BigInteger.TWO) throw CalcException(Failure.UNDEFINED)
+                if (n < TWO) throw CalcException(Failure.UNDEFINED)
                 while (!NumberTheory.isPrime(n)) { Budget.check(); n -= ONE }
                 big(n)
             }
@@ -277,15 +280,15 @@ object Discrete {
     }
 
     fun facts(n: BigInteger): Facts? {
-        if (n < BigInteger.TWO || n.bitLength() > 110) return null
+        if (n < TWO || n.bitLength() > 110) return null
         val f = NumberTheory.factor(n) ?: return null
         val prime = f.size == 1 && f[0].second == 1
         var next = n + ONE
         while (!NumberTheory.isPrime(next)) { Budget.check(); next += ONE }
         var previous: BigInteger? = n - ONE
-        while (previous != null && previous >= BigInteger.TWO && !NumberTheory.isPrime(previous)) { Budget.check(); previous -= ONE }
-        if (previous != null && previous < BigInteger.TWO) previous = null
-        val root = n.sqrt()
+        while (previous != null && previous >= TWO && !NumberTheory.isPrime(previous)) { Budget.check(); previous -= ONE }
+        if (previous != null && previous < TWO) previous = null
+        val root = NumberTheory.isqrt(n)
         return Facts(n, prime, f, NumberTheory.divisorCount(f), NumberTheory.divisors(f, 64), NumberTheory.sigma(f), NumberTheory.phi(f),
             NumberTheory.mu(f), previous, next, root * root == n)
     }
@@ -339,7 +342,7 @@ object Discrete {
         var modulus = ONE
         val parts = ArrayList<Congruences.Part>()
         for ((c, m) in coefficients) {
-            if (m < BigInteger.TWO) return null
+            if (m < TWO) return null
             val (own, step) = one(c, m) ?: return null
             parts += Congruences.Part(c, m, own, step)
             val combined = LinkedHashSet<BigInteger>()

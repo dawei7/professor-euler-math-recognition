@@ -9,7 +9,8 @@ import java.math.BigInteger
  * by multiplying back or putting it in.
  */
 object NumberTheory {
-    private val TWO = BigInteger.TWO
+    /** `BigInteger.TWO` and `BigInteger.sqrt` are Java 9: Android has them only from version 13. */
+    private val TWO = BigInteger.valueOf(2)
     private val BASES = listOf(2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41).map { BigInteger.valueOf(it.toLong()) }
     private val CERTAIN_BELOW = BigInteger("3317044064679887385961981")
 
@@ -172,7 +173,7 @@ object NumberTheory {
     /** The smallest x, y > 0 with x² − d·y² = 1, by the continued fraction of √d; null for a square d or one too large. */
     fun pell(d: BigInteger): Pair<BigInteger, BigInteger>? {
         if (d.signum() <= 0 || d.bitLength() > 40) return null
-        val a0 = d.sqrt()
+        val a0 = isqrt(d)
         if (a0 * a0 == d) return null
         var m = BigInteger.ZERO
         var dd = BigInteger.ONE
@@ -189,6 +190,23 @@ object NumberTheory {
             q0 = q1.also { q1 = a * q1 + q0 }
         }
         return null
+    }
+
+    /** ⌊√n⌋ of n ≥ 0, by Newton's method in whole numbers (`BigInteger.sqrt` is not on Android before 13). */
+    fun isqrt(n: BigInteger): BigInteger {
+        if (n.signum() < 0) throw ArithmeticException("negative")
+        if (n.bitLength() < 52) return BigInteger.valueOf(kotlin.math.sqrt(n.toDouble()).toLong()).let { r ->
+            var x = r
+            while (x * x > n) x -= BigInteger.ONE
+            while ((x + BigInteger.ONE) * (x + BigInteger.ONE) <= n) x += BigInteger.ONE
+            x
+        }
+        var x = BigInteger.ONE.shiftLeft((n.bitLength() + 1) / 2)
+        while (true) {
+            val y = (x + n / x).shiftRight(1)
+            if (y >= x) return x
+            x = y
+        }
     }
 
     /** n in base [base] (2 to 36), with letters for digits beyond 9. */

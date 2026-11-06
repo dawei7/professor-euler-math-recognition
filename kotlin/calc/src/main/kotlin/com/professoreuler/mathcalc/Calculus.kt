@@ -276,7 +276,7 @@ object Calculus {
      */
     private fun quadraticPower(q: Expr, p: Expr, x: Expr.Sym): Expr? {
         val r = rational(p) ?: return null
-        if (r.isInteger || r.den != java.math.BigInteger.TWO) return null
+        if (r.isInteger || r.den != java.math.BigInteger.valueOf(2)) return null
         val c = Solve.coefficientsIn(Algebra.expand(q), x) ?: return null
         if (c.size != 3 || c.any { it.has(x) } || isZero(c[2])) return null
         val u = add(x, tidy(c[1] / (Expr.TWO * c[2])))
@@ -335,7 +335,7 @@ object Calculus {
             val k = (f as? Expr.Pow)?.let { rational(it.exp) }
             when {
                 f is Expr.Pow && f.base == x && k != null && k.isInteger && k.signum > 0 -> m += k.num.toInt()
-                f is Expr.Pow && f.base.has(x) && k != null && k.den == java.math.BigInteger.TWO && q == null -> { q = f.base; r = k }
+                f is Expr.Pow && f.base.has(x) && k != null && k.den == java.math.BigInteger.valueOf(2) && q == null -> { q = f.base; r = k }
                 !f.has(x) -> others += f
                 else -> return null
             }
