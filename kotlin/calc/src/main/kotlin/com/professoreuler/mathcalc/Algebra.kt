@@ -316,6 +316,49 @@ object Algebra {
         return best
     }
 
+    /**
+     * cosh² u replaced by 1 + sinh² u (or sinh² u by cosh² u − 1) where that makes the expression smaller: cosh² x − sinh² x
+     * is 1, as sin² + cos² is.
+     */
+    fun hyperbolic(e: Expr): Expr {
+        var best = e
+        val angles = LinkedHashSet<Expr>()
+        fun walk(x: Expr) {
+            if (x is Expr.Fn && (x.f == Func.SINH || x.f == Func.COSH)) angles += x.args[0]
+            when (x) {
+                is Expr.Add -> x.terms.forEach(::walk)
+                is Expr.Mul -> x.factors.forEach(::walk)
+                is Expr.Pow -> { walk(x.base); walk(x.exp) }
+                is Expr.Fn -> x.args.forEach(::walk)
+                else -> Unit
+            }
+        }
+        walk(e)
+        for (u in angles) for (toSinh in listOf(true, false)) {
+            val from = fn(if (toSinh) Func.COSH else Func.SINH, u)
+            val other = pow(fn(if (toSinh) Func.SINH else Func.COSH, u), Expr.TWO)
+            val square = if (toSinh) add(Expr.ONE, other) else add(other, Expr.MINUS_ONE)
+            fun swap(x: Expr): Expr {
+                if (x is Expr.Pow && x.base == from) {
+                    val n = integer(x.exp)
+                    if (n != null && n.signum() > 0 && !n.testBit(0)) return pow(square, num(n.toLong() / 2))
+                }
+                return x.mapChildren(::swap)
+            }
+            val expanded = expand(swap(e))
+            if (expanded.size() < best.size()) best = expanded
+        }
+        return best
+    }
+
+    private fun hasHyperbolic(e: Expr): Boolean = when (e) {
+        is Expr.Fn -> e.f == Func.SINH || e.f == Func.COSH || e.args.any(::hasHyperbolic)
+        is Expr.Add -> e.terms.any(::hasHyperbolic)
+        is Expr.Mul -> e.factors.any(::hasHyperbolic)
+        is Expr.Pow -> hasHyperbolic(e.base) || hasHyperbolic(e.exp)
+        else -> false
+    }
+
     private fun trigArguments(e: Expr): Set<Expr> {
         val out = LinkedHashSet<Expr>()
         fun walk(x: Expr) {
@@ -398,6 +441,7 @@ object Algebra {
         attempt { rationalize(base) }
         attempt { combineLogs(base) }
         attempt { pythagoras(expand(base)) }
+        if (hasHyperbolic(base)) attempt { hyperbolic(expand(base)).takeIf { it != base } }
         attempt { cancel(sinCos(base))?.let { pythagoras(it) } }
         val best = candidates.filter { it == e || Verify.replaces(e, it) }.minWithOrNull(compareBy<Expr> { complexity(it) })
         return best ?: e

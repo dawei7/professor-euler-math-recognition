@@ -8,7 +8,7 @@ import kotlin.math.abs
  * integral. The table is what the method gives (doubles), not an exact answer; where an exact value is known its error is shown.
  */
 object Numerics {
-    enum class Method { NEWTON, BISECTION, EULER, RUNGE_KUTTA, TRAPEZOID, SIMPSON, DORMAND_PRINCE }
+    enum class Method { NEWTON, BISECTION, EULER, RUNGE_KUTTA, TRAPEZOID, SIMPSON, DORMAND_PRINCE, GRADIENT_DESCENT, VALUE_ITERATION }
 
     /** A method's table: its [columns] (names in LaTeX) and [rows]; its [result], and the [exact] value where it is known. */
     class Table(val method: Method, val columns: List<String>, val rows: List<List<Double>>, val result: Double?, val exact: Double? = null)
@@ -89,6 +89,9 @@ object Numerics {
             val h = (b - a) / n
             var sum = f(e, x.name, a) + f(e, x.name, b)
             for (k in 1 until n) sum += f(e, x.name, a + k * h) * (if (simpson) (if (k % 2 == 1) 4 else 2) else 2)
+            // A rule takes the integrand's values at its points, the ends among them: where one is not defined (ln x at 0, 1/x at
+            // 0), it has no value, never a NaN shown as a result.
+            if (!sum.isFinite()) throw CalcException(Failure.UNDEFINED)
             last = if (simpson) sum * h / 3 else sum * h / 2
             rows += if (exact != null) listOf(n.toDouble(), last, last - exact) else listOf(n.toDouble(), last)
             n *= 2

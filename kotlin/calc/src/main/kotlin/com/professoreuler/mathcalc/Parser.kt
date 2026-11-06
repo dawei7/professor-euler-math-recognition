@@ -95,6 +95,12 @@ internal class Flags(val assumptions: Assumptions = Assumptions()) {
 
     /** The modulus of each line written as a congruence (x ≡ 2 (mod 3), x mod 3 = 2), by the line's index. */
     val moduli = HashMap<Int, BigInteger>()
+
+    /**
+     * What the formula divides by, with letters in it, as written: a quotient's canonical form cancels a·b² against a⁶b³ at once,
+     * so the values where the formula as written is not defined (a = 0, b = 0) are known only from here.
+     */
+    val denominators = ArrayList<Expr>()
 }
 
 /**
@@ -218,7 +224,9 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     fun expression(): Expr {
         var left = when (peek()) {
-            "-" -> { i++; negative(term()) }
+            // A leading minus belongs to the first factor: the same for products and quotients, and for mod the sign of its
+            // number, −7 mod 3 = (−7) mod 3 = 2, as Python and most calculators read it.
+            "-" -> { i++; term(negated = true) }
             "+" -> { i++; term() }
             "\\pm" -> { i++; flags.plusMinus = true; mul(num(pmSign.toLong()), term()) }
             "\\mp" -> { i++; flags.plusMinus = true; mul(num(-pmSign.toLong()), term()) }
@@ -235,8 +243,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         }
     }
 
-    private fun term(): Expr {
-        var left = factor()
+    private fun term(negated: Boolean = false): Expr {
+        var left = if (negated) negative(factor()) else factor()
         while (true) {
             val op = peek() ?: return left
             // (\mod 7) after a side is its line's modulus, and so is mod after ≡.
@@ -285,6 +293,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         if (b is Expr.Mat) throw CalcException(Failure.SIZES)
         if (a is Expr.Mat) return LinAlg.scale(a, pow(b, Expr.MINUS_ONE))
         if (isZero(b)) throw CalcException(Failure.DIVISION_BY_ZERO)
+        if (b.symbols().isNotEmpty() && flags.denominators.size < 32) flags.denominators += b
         return mul(a, pow(b, Expr.MINUS_ONE))
     }
 
@@ -534,6 +543,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             tok == "\\int" -> integral()
             tok == "\\sum" || tok == "\\prod" -> sumOrProduct(tok == "\\sum")
             tok == "\\lim" -> { i++; limit() }
+            tok.length > 1 && tok[0] == '\\' && tok.substring(1) in Learning.FUNCTIONS -> { i++; learning(tok.substring(1)) }
             isLetter(tok) -> letters()
             else -> throw unreadable()
         }
@@ -562,9 +572,12 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         val bottom = groupTokens()
         // dy/dx, d²y/dx²: the derivatives of a differential equation's unknown.
         odeDerivative(top, bottom)?.let { return it }
+        // ∂u/∂t, ∂²u/∂x²: the partial derivatives of a partial differential equation's unknown, its markers u_t, u_xx.
+        Pde.partial(top, bottom)?.let { return it }
         derivativeOperator(top, bottom)?.let { (variable, order) ->
-            // A bracket with its power is the body: d/dx (2x + 1)^5; otherwise the product that follows.
-            val body = if (peek() == "(") factor() else term()
+            // d/dx takes everything after it on its side, as a typed "d/dx 3x^2 + 2x" does: 6x + 2, never 6x + 2x; a bracket
+            // after it is part of that (d/dx (x^2) + 1 is 2x, typed or from the editor alike).
+            val body = expression()
             return op(OpKind.DERIVATIVE, body, Expr.Sym(variable), num(order.toLong()))
         }
         flags.fractions = true
@@ -591,15 +604,23 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     private fun derivativeOperator(top: List<String>, bottom: List<String>): Pair<String, Int>? {
         val d = setOf("d", "\\partial")
         if (top.isEmpty() || top[0] !in d || bottom.size < 2 || bottom[0] !in d || !isLetter(bottom[1])) return null
-        val order = when {
-            top.size == 1 -> 1
-            top.size == 3 && top[1] == "^" && isDigit(top[2]) -> top[2].toInt()
-            top.size == 5 && top[1] == "^" && top[2] == "{" && isDigit(top[3]) && top[4] == "}" -> top[3].toInt()
+        // The order as one digit (d^2) or as digits in braces (d^{10}): each digit is a token of its own.
+        val order = if (top.size == 1) 1 else orderOf(top.drop(1)) ?: return null
+        val rest = bottom.drop(2)
+        val ok = rest.isEmpty() || orderOf(rest) == order
+        return if (ok && order >= 1) bottom[1] to order else null
+    }
+
+    /** ^2 or ^{12} as its number; null where the tokens are no such power. */
+    private fun orderOf(tokens: List<String>): Int? {
+        if (tokens.size < 2 || tokens[0] != "^") return null
+        val digits = when {
+            tokens.size == 2 && isDigit(tokens[1]) -> tokens.subList(1, 2)
+            tokens.size >= 4 && tokens[1] == "{" && tokens.last() == "}" -> tokens.subList(2, tokens.size - 1)
             else -> return null
         }
-        val rest = bottom.drop(2)
-        val ok = rest.isEmpty() || rest == listOf("^", order.toString()) || rest == listOf("^", "{", order.toString(), "}")
-        return if (ok) bottom[1] to order else null
+        if (digits.isEmpty() || digits.size > 3 || !digits.all { isDigit(it) }) return null
+        return digits.joinToString("").toInt()
     }
 
     // Integrals, sums, products and limits.
@@ -712,6 +733,12 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     private fun letters(): Expr {
         numberFunction()?.let { return it }
         physicalConstant()?.let { return it }
+        // sigmoid(x), softmax([1, 2, 3]) written in letters.
+        val word = buildString { while (length < 20 && isLetter(t.getOrNull(i + length))) append(t[i + length]) }
+        if (word in Learning.FUNCTIONS && peek(word.length) == "(") {
+            i += word.length
+            return learning(word)
+        }
         val run = lettersFrom(i)
         if (run.startsWith("lim") && peek(3) == "_") {
             i += 3
@@ -766,6 +793,32 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         if (name.isEmpty() || t.getOrNull(k) != ")" || unit?.isEmpty() == true || unit?.contains(",") == true) throw CalcException(Failure.ARGUMENTS)
         i = k + 1
         return PhysicalConstants.inFormula(name.toString(), unit)
+    }
+
+    /**
+     * A function of [Learning] at its bracket: its arguments separated by commas (a vector's commas inside its own brackets), each
+     * worked out, then the function; one that does not take them fails with [Failure.ARGUMENTS].
+     */
+    private fun learning(name: String): Expr {
+        if (peek() != "(") throw CalcException(Failure.ARGUMENTS)
+        i++
+        val args = ArrayList<Expr>()
+        listDepth++
+        try {
+            while (true) {
+                if (peek() == ")") throw CalcException(Failure.ARGUMENTS)
+                args += Calculus.evaluate(expression())
+                when (peek()) {
+                    "," -> i++
+                    ")" -> { i++; break }
+                    ";" -> throw CalcException(Failure.ARGUMENTS)
+                    else -> throw unreadable()
+                }
+            }
+        } finally {
+            listDepth--
+        }
+        return Learning.call(name, args)
     }
 
     /** (a, b, c) of a function: separated by commas, and by nothing else (a semicolon there fails: [Failure.ARGUMENTS]). */
@@ -1058,6 +1111,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                             val name = inside.joinToString("")
                             when {
                                 name in FUNCTIONS || name in COMMAND_NAMES -> out += "\\$name"
+                                // sigmoid, softmax, entropy …: a function of machine learning ([Learning]).
+                                name in Learning.FUNCTIONS -> out += "\\$name"
                                 // A command's call that could not be read is no product of its letters, and neither is a
                                 // command inside a formula or a name the calculator does not know.
                                 s == "\\operatorname" && name in CommandFunctions.NAMES ->
