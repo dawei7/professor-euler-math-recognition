@@ -94,6 +94,14 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
+    is Outcome.FinanceSchedule -> o.schedule.let { s ->
+        val m = Finance::money
+        val first = s.rows.first()
+        val end = s.rows.last()
+        s.plan.name.lowercase() + " ${s.rows.size} rows" + (s.regular?.let { " regular " + m(it) } ?: "") +
+            (s.last?.let { " last " + m(it) } ?: "") + " first " + first.drop(1).joinToString("/") { m(it) } +
+            " end " + m(end.last()) + " totals " + s.columns.indices.mapNotNull { j -> s.totals[j]?.let { s.columns[j].name.lowercase() + " " + m(it) } }.joinToString(", ")
+    }
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))

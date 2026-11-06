@@ -191,6 +191,21 @@ enum class Mode {
 
     /** The plane through three points. */
     PLANE,
+
+    /** An annuity loan's repayment table ([Finance.annuityLoan]). */
+    AMORTIZATION,
+
+    /** An equal-principal loan's repayment table ([Finance.equalPrincipal]). */
+    EQUAL_PRINCIPAL,
+
+    /** A straight-line depreciation table ([Finance.straightLine]). */
+    STRAIGHT_LINE,
+
+    /** A declining-balance depreciation table ([Finance.decliningBalance]). */
+    DECLINING_BALANCE,
+
+    /** The internal rates of return of cash flows ([Finance.irr]). */
+    IRR,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -374,6 +389,9 @@ sealed class Outcome {
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
 
     data class Failed(val failure: Failure) : Outcome()
+
+    /** A loan's repayment table or an asset's depreciation table, every amount to the cent ([Finance.Schedule]). */
+    data class FinanceSchedule(val schedule: Finance.Schedule) : Outcome()
 }
 
 /**
@@ -878,7 +896,7 @@ object MathCalc {
         if (data && values.all { rational(it) != null }) choices += Choice(Mode.SEQUENCE)
         val points = !vector && numeric && m.columns == 2 && m.size >= 3
         if (points) choices += Choice(Mode.REGRESSION)
-        val accepts = if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()
+        val accepts = if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) + Finance.MODES else emptySet()
         val likeliest = when {
             data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
             literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)
@@ -924,6 +942,7 @@ object MathCalc {
                     val eigen = LinAlg.eigen(m) ?: throw CalcException(Failure.UNSOLVED)
                     Outcome.Eigenvalues(LinAlg.characteristic(m), eigen, LinAlg.diagonalization(m, eigen))
                 }
+                in Finance.MODES -> Finance.outcome(c.mode, m)
                 else -> throw CalcException(Failure.UNREADABLE)
             }
         }

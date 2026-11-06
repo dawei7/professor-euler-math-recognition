@@ -67,6 +67,11 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("amortization", Mode.AMORTIZATION, Shape.LIST),
+        Function("equalprincipal", Mode.EQUAL_PRINCIPAL, Shape.LIST),
+        Function("straightline", Mode.STRAIGHT_LINE, Shape.LIST),
+        Function("decliningbalance", Mode.DECLINING_BALANCE, Shape.LIST),
+        Function("irr", Mode.IRR, Shape.LIST),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
