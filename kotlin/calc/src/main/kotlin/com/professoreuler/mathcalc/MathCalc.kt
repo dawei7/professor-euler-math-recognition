@@ -48,6 +48,26 @@ enum class Failure {
     UNKNOWN_FUNCTION,
     /** A command's function (solve, det …) inside a formula, as 2·det(A): it takes a line of its own. */
     COMMAND_INSIDE,
+    /** constant(…) of a name that is no constant of the calculator ([PhysicalConstants.NAMES]). */
+    UNKNOWN_CONSTANT,
+    /**
+     * A measured constant (G, mₑ …) beside letters or in an equation: it is known only to its published digits, so it is worked
+     * out only in a number, whose uncertainty follows from them; or a number whose uncertainty cannot be bounded that way.
+     */
+    MEASURED_CONSTANT,
+    /** A function the domain colouring cannot evaluate at complex points (⌊z⌋, Γ, calculus not worked out). */
+    NO_COMPLEX_VALUES,
+    /**
+     * A power series asked for at a singular point of a differential equation, where its leading coefficient is 0 or another
+     * has no Taylor series (x²y″ + y = 0 at 0): a series there needs Frobenius' method, which the calculator does not have.
+     */
+    SINGULAR_POINT,
+    /** A number without a primitive root: primroot(n) of an n that is not 2, 4, pᵏ or 2pᵏ (p an odd prime), as 8 or 15. */
+    NO_PRIMITIVE_ROOT,
+    /** No power of g is a modulo n: discretelog(a, g, n) has no solution, as 2ˣ ≡ 3 (mod 7). */
+    NO_DISCRETE_LOG,
+    /** Points of an interpolation or a spline with the same x: no function passes through both (or a point given twice). */
+    SAME_X,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -191,6 +211,37 @@ enum class Mode {
 
     /** The plane through three points. */
     PLANE,
+
+    /** A physical constant on its own, constant(speedoflight): its value, unit and uncertainty ([PhysicalConstants]). */
+    CONSTANT,
+
+    /** A complex function's domain colouring with its zeros and poles ([ComplexPlot]). */
+    COMPLEX_PLOT,
+
+    /** A Venn diagram of a formula of sets in one to three sets ([VennDiagram]). */
+    VENN,
+    /** A matrix's singular value decomposition A = U·Σ·Vᵀ. */
+    SVD,
+
+    /** A square matrix's Jordan normal form A = P·J·P⁻¹. */
+    JORDAN,
+
+    /** A linear differential equation's power series solution at an ordinary point ([Choice.point], [Choice.order]). */
+    ODE_SERIES,
+
+    /** The Dormand–Prince method with adaptive steps for y′ = f(x, y), to the end [Choice.point] (x₀ + 1 where none is asked). */
+    DORMAND_PRINCE,
+
+    /** The slope field of y′ = f(x, y). */
+    SLOPE_FIELD,
+
+    /** The phase portrait of x′ = f(x, y), y′ = g(x, y), with its equilibria. */
+    PHASE_PORTRAIT,
+    /** The polynomial through points, by Newton's divided differences and Lagrange's form. */
+    INTERPOLATION,
+
+    /** The natural cubic spline through points. */
+    SPLINE,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -374,6 +425,46 @@ sealed class Outcome {
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
 
     data class Failed(val failure: Failure) : Outcome()
+
+    /** A physical constant ([PhysicalConstants.Entry]) in [unit] (its own, or the one asked for) and its [quantity] there. */
+    data class PhysicalConstant(val constant: PhysicalConstants.Entry, val unit: String, val quantity: PhysicalConstants.Quantity) : Outcome()
+
+    /**
+     * A number worked out from physical constants ([constants], their names): its [quantity], exact where only exact constants
+     * are in it, else the value with a bound of its standard uncertainty, both rounded as CODATA rounds (6.6743(15) × 10⁻¹¹).
+     */
+    data class PhysicalValue(val quantity: PhysicalConstants.Quantity, val constants: List<String>) : Outcome()
+
+    /** A complex function's domain colouring: the function compiled, its square, its zeros and poles ([ComplexPlot.plot]). */
+    data class DomainColoring(val plot: ComplexPlot.Plot) : Outcome()
+
+    /** A Venn diagram: its sets and which of its regions belong to the formula ([VennDiagram.of]). */
+    data class Venn(val diagram: VennDiagram.Diagram) : Outcome()
+    /** A matrix's singular value decomposition A = U·Σ·Vᵀ, exact or in certified decimals ([MatrixForms.svd]). */
+    data class SingularValues(val svd: MatrixForms.Svd) : Outcome()
+
+    /** A square matrix's Jordan normal form A = P·J·P⁻¹ ([MatrixForms.jordan]). */
+    data class JordanForm(val jordan: MatrixForms.Jordan) : Outcome()
+
+    /** A system of linear differential equations x′ = A·x + b solved, with its initial values where given ([OdeSystems.solve]). */
+    data class OdeSystemSolved(val system: OdeSystems.Solution) : Outcome()
+
+    /** A linear differential equation's power series solution at an ordinary point ([SeriesOde.solve]). */
+    data class SeriesSolved(val solution: SeriesOde.Solution) : Outcome()
+
+    /** A boundary value problem: one solution, none, or infinitely many ([BoundaryValue.solve]). */
+    data class BoundaryValueSolved(val problem: BoundaryValue.Problem) : Outcome()
+
+    /** A slope field or a phase portrait, with its equilibria and their kinds ([Fields]). */
+    data class DirectionField(val field: Fields.Field) : Outcome()
+    /**
+     * The polynomial through points ([Interpolation.interpolate]): multiplied out, in Newton's form and by Lagrange's basis
+     * polynomials, with its table of divided differences.
+     */
+    data class Interpolated(val interpolant: Interpolation.Interpolant) : Outcome()
+
+    /** The natural cubic spline through points ([Interpolation.spline]): a cubic on each interval between two of them. */
+    data class SplineThrough(val spline: Interpolation.Spline) : Outcome()
 }
 
 /**
@@ -449,6 +540,8 @@ object MathCalc {
      */
     fun calculate(latex: String, choice: Choice? = null, millis: Long = LIMIT_MS, fractions: Boolean = false,
         assumptions: Assumptions = Assumptions()): Calculation {
+        // A picture asked for by name, and physical constants, are worked out on their own.
+        Additions.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags(assumptions)
         var choices = emptyList<Choice>()
@@ -462,7 +555,8 @@ object MathCalc {
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
             Budget.within(millis) {
                 val plan = if (logic != null) logicPlan(logic)
-                    else odePlan(statements, flags.odeVariable) ?: plan(statements, others, style, flags.degrees, flags.moduli)
+                    else odePlan(statements, flags.odeVariable) ?: odeSystemPlan(statements, flags.odeVariable)
+                        ?: plan(statements, others, style, flags.degrees, flags.moduli)
                 choices = plan.choices
                 // A series asked for at a point or to a power of its own: the plan's series in that letter, so taken.
                 val chosen = choice?.takeIf { it in plan.choices }
@@ -557,23 +651,27 @@ object MathCalc {
                 } else e
             }
             val alternatives = others?.let { o -> o[0].sides.filterNotNull().lastOrNull()?.let { Calculus.evaluate(it) } }
-            val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() <= Factor.MOST_PRIME }
+            val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() < NumberTheory.MOST_FACTORED }
             val complexNumber = v.hasI() && Complex.parts(v)?.second != null
             // A definite integral with numbers for bounds: the trapezoidal and Simpson's rules beside its value.
             val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
                 ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
-            val facts = integer(v)?.takeIf { it >= TWO && it.bitLength() <= 110 && integral == null }
+            val facts = integer(v)?.takeIf { it >= TWO && it < NumberTheory.MOST_FACTORED && integral == null }
             val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.takeIf { integral == null }?.let { Choice(Mode.FACTOR) },
                 facts?.let { Choice(Mode.NUMBER_FACTS) },
                 if (complexNumber) Choice(Mode.POLAR) else null, integral?.let { Choice(Mode.TRAPEZOID) }, integral?.let { Choice(Mode.SIMPSON) })
-            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS)) { c ->
+            // A whole number of 41 digits or more is too large to take apart: factor(n) and facts(n) say so.
+            val unfactored = integer(v)?.let { it.abs() >= NumberTheory.MOST_FACTORED } == true
+            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS) + (if (unfactored) setOf(Mode.FACTOR, Mode.NUMBER_FACTS) else emptySet())) { c ->
+                if (unfactored && (c.mode == Mode.FACTOR || c.mode == Mode.NUMBER_FACTS)) throw CalcException(Failure.TOO_LARGE)
                 if (c.mode == Mode.UNITS) {
                     val from = c.letter ?: throw CalcException(Failure.UNREADABLE)
                     val to = c.point ?: throw CalcException(Failure.UNREADABLE)
                     Outcome.Converted(v, from, to, Units.convert(v, from, to) ?: throw CalcException(Failure.UNREADABLE))
                 }
                 else if (c.mode == Mode.NUMBER_FACTS && facts != null) Outcome.NumberFacts(Discrete.facts(facts) ?: throw CalcException(Failure.TOO_LARGE))
-                else if (c.mode == Mode.FACTOR && whole != null) Outcome.Primes(whole, Factor.primes(whole.abs())!!)
+                else if (c.mode == Mode.FACTOR && whole != null) Outcome.Primes(whole, Factor.primes(whole.abs())
+                    ?: NumberTheory.factor(whole.abs()) ?: throw CalcException(Failure.TOO_LARGE))
                 else if (c.mode == Mode.POLAR) Outcome.PolarForm(v, ComplexAnalysis.polar(v) ?: throw CalcException(Failure.UNSOLVED))
                 else if (integral != null && (c.mode == Mode.TRAPEZOID || c.mode == Mode.SIMPSON)) {
                     val a = Numeric.value(Calculus.evaluate(integral.a!!))!!
@@ -628,6 +726,7 @@ object MathCalc {
             if (letters == listOf("t")) choices += Choice(Mode.LAPLACE)
             if (letters == listOf("s")) choices += Choice(Mode.INVERSE_LAPLACE)
             if (letters == listOf("z") && hasPoles(last)) choices += Choice(Mode.RESIDUES)
+            if (letters == listOf("z")) choices += Choice(Mode.COMPLEX_PLOT, "z")
             // A function of the coordinates x, y (and z): its critical points, and of x and y its surface.
             val coordinates = letters.size in 2..3 && letters.all { it in COORDINATES }
             if (coordinates) {
@@ -865,6 +964,10 @@ object MathCalc {
         if (!vector) choices += Choice(Mode.ROW_REDUCE)
         if (!vector && m.size >= m.columns && m.size <= 6) choices += Choice(Mode.DECOMPOSE)
         if (square && m.size <= 4) choices += Choice(Mode.MATRIX_EXP)
+        // The singular values of a matrix of numbers, and the Jordan form of a square one.
+        val ofNumbers = m.symbols().isEmpty() && !m.hasI()
+        if (!vector && ofNumbers) choices += Choice(Mode.SVD)
+        if (square && ofNumbers && m.size <= 6) choices += Choice(Mode.JORDAN)
         // A vector field: as many entries as coordinates, in x, y (and z).
         val coordinates = listOf("x", "y", "z").take(m.size)
         val field = vector && m.size in 2..3 && m.symbols().isNotEmpty() && m.symbols().all { it in coordinates }
@@ -882,7 +985,9 @@ object MathCalc {
         if (data && values.all { rational(it) != null }) choices += Choice(Mode.SEQUENCE)
         val points = !vector && numeric && m.columns == 2 && m.size >= 3
         if (points) choices += Choice(Mode.REGRESSION)
-        val accepts = if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()
+        if (points) choices += Interpolation.offered(m)
+        val accepts = (if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()) +
+            setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE)
         val likeliest = when {
             data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
             literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)
@@ -906,6 +1011,8 @@ object MathCalc {
                     val ys = m.rows.map { it[1] }
                     Outcome.Regression(xs, ys, Stats.regression(xs, ys) ?: throw CalcException(Failure.UNSOLVED))
                 }
+                Mode.INTERPOLATION -> Outcome.Interpolated(Interpolation.interpolate(m))
+                Mode.SPLINE -> Outcome.SplineThrough(Interpolation.spline(m))
                 // The rows as points: (1, 2) and (3, 4) written as [[1, 2], [3, 4]].
                 Mode.LINE, Mode.PLANE -> pointsChoices(m.rows.map { LinAlg.column(it) })?.let { plan ->
                     plan.outcome(Choice(c.mode))
@@ -921,6 +1028,8 @@ object MathCalc {
                     d
                 }
                 Mode.MATRIX_EXP -> Outcome.Expression(LinAlg.exp(m) ?: throw CalcException(Failure.UNSOLVED))
+                Mode.SVD -> Outcome.SingularValues(MatrixForms.svd(m))
+                Mode.JORDAN -> Outcome.JordanForm(MatrixForms.jordan(m) ?: throw CalcException(Failure.UNSOLVED))
                 Mode.DIVERGENCE -> Outcome.Expression(LinAlg.divergence(m, coordinates))
                 Mode.CURL -> Outcome.Expression(LinAlg.curl(m, coordinates))
                 Mode.JACOBIAN -> Outcome.Expression(LinAlg.jacobian(m, coordinates))
@@ -1206,14 +1315,16 @@ object MathCalc {
      * solution in x (the variable of a written dy/dt, else t where the formula has t and no x).
      */
     private fun odePlan(statements: List<Statement>, written: String?): Plan? {
-        val unknown = Parser.ODE_UNKNOWNS.firstOrNull { name -> statements.any { s -> s.sides.filterNotNull().any { Ode.order(it, name) > 0 } } }
+        val unknown = (Parser.ODE_UNKNOWNS + Parser.SYSTEM_UNKNOWNS).firstOrNull { name -> statements.any { s -> s.sides.filterNotNull().any { Ode.order(it, name) > 0 } } }
             ?: return null
         val main = statements.firstOrNull { s -> s.sides.filterNotNull().any { Ode.order(it, unknown) > 0 } && !isCondition(s, unknown) } ?: return null
         val sides = main.sides.filterNotNull()
         if (sides.size != 2 || main.relations != listOf(Rel.EQ)) return null
         val equation = Calculus.evaluate(sides[0]) - Calculus.evaluate(sides[1])
         val letters = equation.symbols()
-        val x = written ?: if ("t" in letters && "x" !in letters) "t" else "x"
+        // x(t), z(t): the unknowns of a system, in t also on their own (x'' + 4x = 0).
+        val x = written ?: if (unknown in Parser.SYSTEM_UNKNOWNS || ("t" in letters && "x" !in letters)) "t" else "x"
+        if (x == unknown) return null
         val conditions = ArrayList<Ode.Condition>()
         for (s in statements) {
             if (s === main) continue
@@ -1226,8 +1337,25 @@ object MathCalc {
         val f = slope?.takeIf { !it.has(y1) }
         val start = conditions.singleOrNull()?.takeIf { it.k == 0 }
         val numeric = f != null && start != null && Numeric.value(start.at) != null && Numeric.value(start.value) != null
-        val choices = listOfNotNull(choice, if (numeric) Choice(Mode.RUNGE_KUTTA) else null, if (numeric) Choice(Mode.EULER) else null)
-        return Plan(choices, choice) { c ->
+        val choices = listOfNotNull(choice, if (numeric) Choice(Mode.RUNGE_KUTTA) else null, if (numeric) Choice(Mode.EULER) else null,
+            if (numeric) Choice(Mode.DORMAND_PRINCE) else null, if (f != null) Choice(Mode.SLOPE_FIELD) else null)
+        val accepts = setOf(Mode.DORMAND_PRINCE, Mode.ODE_SERIES, Mode.SLOPE_FIELD)
+        return Plan(choices, choice, accepts) { c ->
+            if (c.mode == Mode.SLOPE_FIELD) return@Plan Outcome.DirectionField(Fields.slope(f ?: throw CalcException(Failure.UNSOLVED), x, unknown))
+            if (c.mode == Mode.ODE_SERIES) {
+                val at = c.point?.let { pointOf(it) ?: throw CalcException(Failure.ARGUMENTS) }
+                return@Plan Outcome.SeriesSolved(SeriesOde.solve(equation, unknown, x, conditions, at, c.order ?: 6))
+            }
+            if (c.mode == Mode.DORMAND_PRINCE) {
+                if (!numeric) throw CalcException(Failure.UNSOLVED)
+                val exact = try { Ode.solve(equation, unknown, x)?.let { Ode.withConditions(equation, it, conditions, unknown, x) }?.explicit } catch (e: CalcException) {
+                    if (e.failure == Failure.TOO_LONG) throw e
+                    null
+                }
+                val from = Numeric.value(start!!.at)!!
+                val to = c.point?.let { p -> pointOf(p)?.let { Numeric.value(it) } ?: throw CalcException(Failure.ARGUMENTS) } ?: (from + 1)
+                return@Plan Outcome.NumericTable(Adaptive.dormandPrince(f!!, x, unknown, from, Numeric.value(start.value)!!, to, exact))
+            }
             if (numeric && (c.mode == Mode.EULER || c.mode == Mode.RUNGE_KUTTA)) {
                 // From the initial value, ten steps of h = 0.1; the exact solution beside where it is found.
                 val exact = try { Ode.solve(equation, unknown, x)?.let { Ode.withConditions(equation, it, conditions, unknown, x) }?.explicit } catch (e: CalcException) {
@@ -1239,8 +1367,32 @@ object MathCalc {
                     c.mode == Mode.RUNGE_KUTTA, exact))
             }
             val general = Ode.solve(equation, unknown, x) ?: throw CalcException(Failure.UNSOLVED)
+            // Values at two points: a boundary value problem, with one solution, none or infinitely many.
+            if (BoundaryValue.isBoundary(conditions)) return@Plan Outcome.BoundaryValueSolved(BoundaryValue.solve(equation, general, conditions, unknown, x))
             val particular = if (conditions.isEmpty()) null else Ode.withConditions(equation, general, conditions, unknown, x) ?: throw CalcException(Failure.UNSOLVED)
             Outcome.OdeSolved(unknown, x, general, particular, f)
+        }
+    }
+
+    /**
+     * Lines that are a system of first-order differential equations in two or more unknowns (x′ = …, y′ = …): solved where it is
+     * linear with constant coefficients, and in the plane with its phase portrait.
+     */
+    private fun odeSystemPlan(statements: List<Statement>, written: String?): Plan? {
+        val r = OdeSystems.read(statements, written) ?: return null
+        val linear = OdeSystems.linear(r) != null
+        val plane = r.unknowns.size == 2 && r.slopes.none { it.has(Expr.Sym(r.t)) } && r.letters.isEmpty()
+        val solve = Choice(Mode.ODE)
+        val portrait = Choice(Mode.PHASE_PORTRAIT)
+        val choices = listOfNotNull(if (linear) solve else null, if (plane) portrait else null)
+        val likeliest = if (linear || !plane) solve else portrait
+        return Plan(choices.ifEmpty { listOf(solve) }, likeliest, setOf(Mode.ODE, Mode.PHASE_PORTRAIT)) { c ->
+            if (c.mode == Mode.PHASE_PORTRAIT) {
+                if (!plane) throw CalcException(Failure.UNSOLVED)
+                Outcome.DirectionField(Fields.phase(r.slopes[0], r.slopes[1], r.unknowns[0], r.unknowns[1], r.t))
+            } else {
+                Outcome.OdeSystemSolved(OdeSystems.solve(r))
+            }
         }
     }
 
@@ -1315,7 +1467,9 @@ object MathCalc {
     /** Logic and sets: a truth table and the simplest forms, or sets written out worked out. */
     private fun logicPlan(r: Logic.Reading): Plan = when (r) {
         is Logic.Reading.Literal -> Plan(listOf(Choice(Mode.CALCULATE)), Choice(Mode.CALCULATE)) { Outcome.SetValue(r.elements) }
-        is Logic.Reading.Formula -> Plan(listOf(Choice(Mode.LOGIC)), Choice(Mode.LOGIC)) { Outcome.LogicTable(Logic.analyse(r)) }
+        is Logic.Reading.Formula -> Plan(listOfNotNull(Choice(Mode.LOGIC),
+            Choice(Mode.VENN).takeIf { r.sets && r.right == null && Logic.variables(r.left).size in 1..VennDiagram.MOST_SETS }),
+            Choice(Mode.LOGIC)) { Outcome.LogicTable(Logic.analyse(r)) }
     }
 
     /** Lines that are congruences (each with its modulus): solved together, or checked where they hold no letter. */

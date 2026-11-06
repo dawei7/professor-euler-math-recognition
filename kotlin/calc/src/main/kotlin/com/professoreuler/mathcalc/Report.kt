@@ -72,7 +72,9 @@ object Reports {
         val panels = ArrayList<Panel>()
         panels += Panel(PanelKind.RESULT, result.choice)
         // A value converted between units has its digits in its own answer.
-        if (constant != null && result.choice?.mode != Mode.UNITS) panels += Panel(PanelKind.DIGITS)
+        if (constant != null && result.choice?.mode != Mode.UNITS && result.choice?.mode != Mode.VENN && result.choice?.mode != Mode.COMPLEX_PLOT) {
+            panels += Panel(PanelKind.DIGITS)
+        }
         val others = result.choices.filter { it != result.choice }
         // A graph is worth seeing early, as Wolfram Alpha shows its plots (a surface first); a function's curve sketch beside it.
         others.filter { it.mode == Mode.SURFACE }.forEach { panels += Panel(PanelKind.CHOICE, it) }
