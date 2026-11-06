@@ -67,6 +67,11 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Gram–Schmidt and projections; norms and condition numbers; fixed-point iteration; the Jacobi and Gauss–Seidel methods.
+    ORTHO_FIRST, ORTHO_SUBTRACT, ORTHO_DEPENDENT, ORTHO_NORMALIZE, ORTHO_CHECK, PROJ_BASIS, PROJ_COEFFICIENT, PROJ_REST,
+    NORM_VECTOR, NORM_COLUMNS, NORM_ROWS, NORM_FROBENIUS, NORM_GRAM, NORM_SPECTRAL, COND_INVERSE, COND_PRODUCT, COND_SINGULAR,
+    FP_DERIVATIVE, FP_ATTRACTING, FP_REPELLING, FP_NEUTRAL, JACOBI_ROW, SEIDEL_ROW, ITER_DOMINANT, ITER_NOT_DOMINANT,
+    ITER_RADIUS_BELOW, ITER_RADIUS_ABOVE, ITER_EXACT,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -92,6 +97,7 @@ object Steps {
     fun of(latex: String, choice: Choice? = null, assumptions: Assumptions = Assumptions()): List<Step>? {
         val c = MathCalc.calculate(latex, choice, assumptions = assumptions)
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
+        IterativeSteps.of(c, latex, assumptions)?.let { return it }
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }

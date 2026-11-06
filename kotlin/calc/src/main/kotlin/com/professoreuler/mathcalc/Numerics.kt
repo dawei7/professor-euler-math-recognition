@@ -8,7 +8,7 @@ import kotlin.math.abs
  * integral. The table is what the method gives (doubles), not an exact answer; where an exact value is known its error is shown.
  */
 object Numerics {
-    enum class Method { NEWTON, BISECTION, EULER, RUNGE_KUTTA, TRAPEZOID, SIMPSON, DORMAND_PRINCE }
+    enum class Method { NEWTON, BISECTION, EULER, RUNGE_KUTTA, TRAPEZOID, SIMPSON, DORMAND_PRINCE, SECANT, FIXED_POINT, JACOBI, GAUSS_SEIDEL }
 
     /** A method's table: its [columns] (names in LaTeX) and [rows]; its [result], and the [exact] value where it is known. */
     class Table(val method: Method, val columns: List<String>, val rows: List<List<Double>>, val result: Double?, val exact: Double? = null)
@@ -96,5 +96,26 @@ object Numerics {
         val columns = if (exact != null) listOf("n", "T_n", "T_n - I") else listOf("n", "T_n")
         val named = if (simpson) columns.map { it.replace("T_n", "S_n") } else columns
         return Table(if (simpson) Method.SIMPSON else Method.TRAPEZOID, named, rows, last, exact)
+    }
+
+    /** The most steps of Euler's and the Runge–Kutta method a call may ask for. */
+    const val MOST_STEPS = 1000
+
+    /**
+     * The steps of Euler's or the Runge–Kutta method from [from] as a call asks for them: to b ([params] = [b]) in ten steps, or
+     * to b in steps of h ([b, h]), where (b − x₀)/h is a whole number from 1 to [MOST_STEPS]: h (made to end exactly at b) and
+     * their number. Any other end or step fails ([Failure.ARGUMENTS]; too many steps [Failure.TOO_LARGE]).
+     */
+    fun steps(from: Double, params: List<Double>): Pair<Double, Int> {
+        val b = params.getOrNull(0) ?: throw CalcException(Failure.ARGUMENTS)
+        if (params.size > 2 || !b.isFinite() || b == from) throw CalcException(Failure.ARGUMENTS)
+        if (params.size == 1) return (b - from) / 10 to 10
+        val h = params[1]
+        if (!h.isFinite() || h == 0.0) throw CalcException(Failure.ARGUMENTS)
+        val n = (b - from) / h
+        val k = Math.round(n)
+        if (k < 1 || abs(n - k) > 1e-9 * maxOf(1.0, abs(n))) throw CalcException(Failure.ARGUMENTS)
+        if (k > MOST_STEPS) throw CalcException(Failure.TOO_LARGE)
+        return (b - from) / k to k.toInt()
     }
 }
