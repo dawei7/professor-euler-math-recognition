@@ -877,7 +877,10 @@ object Solve {
             val va = Numeric.value(a)
             val vb = Numeric.value(b)
             if (va == null || vb == null) return false
-            if (abs(va - vb) > 1e-9 * max(1.0, max(abs(va), abs(vb)))) return false
+            // Where doubles cancel, ball arithmetic decides: 10⁸ − √(10¹⁶ − 1) solves x² − 2·10⁸x + 1 = 0, though in doubles it is 0.
+            if (abs(va - vb) > 1e-9 * max(1.0, max(abs(va), abs(vb)))) {
+                return v !is Expr.Num && !lhs.hasOp() && !rhs.hasOp() && Precise.nearZero(add(a, neg(b)), complex = true) == true
+            }
             // A root of radicals or cosines (Cardano, a casus irreducibilis): its residual is checked in ball arithmetic too.
             if (v !is Expr.Num && !lhs.hasOp() && !rhs.hasOp()) Precise.nearZero(add(a, neg(b)), complex = true) != false else true
         } catch (e: CalcException) {

@@ -562,9 +562,19 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             if (k is Expr.Num && !isOne(k)) return mul(Expr.Num(k.value.abs()), fn(Func.ABS, rest))
             Complex.parts(x)?.let { (re, im) -> if (im != null) return sqrt(add(mul(re, re), mul(im, im))) }
         }
-        Func.SIGN -> rational(x)?.let { return Expr.Num(Rational.of(it.signum.toLong())) }
-        Func.FLOOR -> rational(x)?.let { return Expr.Num(Rational.of(floorOf(it))) }
-        Func.CEIL -> rational(x)?.let { return Expr.Num(Rational.of(floorOf(-it).negate())) }
+        Func.SIGN -> {
+            rational(x)?.let { return Expr.Num(Rational.of(it.signum.toLong())) }
+            Precise.whole(x, Func.SIGN)?.let { return Expr.Num(Rational.of(it)) }
+        }
+        Func.FLOOR -> {
+            rational(x)?.let { return Expr.Num(Rational.of(floorOf(it))) }
+            // Of a number written with roots, π or functions, where ball arithmetic is sure of it: ⌊π⌋ = 3, ⌈√10⌉ = 4.
+            Precise.whole(x, Func.FLOOR)?.let { return Expr.Num(Rational.of(it)) }
+        }
+        Func.CEIL -> {
+            rational(x)?.let { return Expr.Num(Rational.of(floorOf(-it).negate())) }
+            Precise.whole(x, Func.CEIL)?.let { return Expr.Num(Rational.of(it)) }
+        }
         Func.FACTORIAL -> rational(x)?.let { r ->
             if (!r.isInteger || r.signum < 0) throw CalcException(Failure.UNDEFINED)
             if (r.num > BigInteger.valueOf(Limits.MAX_FACTORIAL.toLong())) throw CalcException(Failure.TOO_LARGE)
@@ -574,6 +584,15 @@ private fun known(f: Func, args: List<Expr>): Expr? {
         }
         Func.SINH, Func.COSH, Func.TANH -> {
             if (isZero(x)) return if (f == Func.COSH) Expr.ONE else Expr.ZERO
+            // Of a logarithm, by q = eˣ: sinh(ln 2) = (2 − 1/2)/2 = 3/4, cosh(3 ln 2) = 65/16, tanh(ln 3) = (9 − 1)/(9 + 1) = 4/5.
+            if (x.hasLn()) rational(pow(Expr.E, x))?.takeIf { it.signum > 0 }?.let { q ->
+                val inverse = Rational.ONE / q
+                return Expr.Num(when (f) {
+                    Func.SINH -> (q - inverse) / Rational.of(2)
+                    Func.COSH -> (q + inverse) / Rational.of(2)
+                    else -> (q - inverse) / (q + inverse)
+                })
+            }
             // Odd and even as sin and cos: sinh(−x) = −sinh x, cosh(−x) = cosh x, tanh(−x) = −tanh x.
             val (k, rest) = splitCoefficient(x)
             if (k is Expr.Num && k.value.signum < 0) {
@@ -740,6 +759,15 @@ internal fun Expr.hasPi(): Boolean = when (this) {
     is Expr.Mul -> factors.any { it.hasPi() }
     is Expr.Pow -> base.hasPi() || exp.hasPi()
     is Expr.Fn -> args.any { it.hasPi() }
+    else -> false
+}
+
+/** Whether a natural logarithm is in it. */
+private fun Expr.hasLn(): Boolean = when (this) {
+    is Expr.Fn -> f == Func.LN || args.any { it.hasLn() }
+    is Expr.Add -> terms.any { it.hasLn() }
+    is Expr.Mul -> factors.any { it.hasLn() }
+    is Expr.Pow -> base.hasLn() || exp.hasLn()
     else -> false
 }
 

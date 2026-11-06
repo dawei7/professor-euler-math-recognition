@@ -76,7 +76,8 @@ internal object Sums {
         // A test that fails to take a limit shows nothing: no verdict from it.
         val terms = try { Calculus.limit(t, k, Expr.INF, null) } catch (e: CalcException) { null }
         // The terms do not go to 0: no sum.
-        if (terms != null && !isZero(terms) && Numeric.value(terms)?.let { it != 0.0 } != false) return Verdict.Diverges
+        // Only an exact limit shows it; a decimal one is values at large k.
+        if (terms != null && !terms.hasDecimal() && !isZero(terms) && Numeric.value(terms)?.let { it != 0.0 } != false) return Verdict.Diverges
         if (terms == null && Numeric.value(t.substitute(k, num(100000))).let { it != null && abs(it) > 1e-3 }) return Verdict.Unknown
         // A rational function of k: like 1/k^(degree difference).
         rationalDegrees(t, k)?.let { (difference, sign) ->

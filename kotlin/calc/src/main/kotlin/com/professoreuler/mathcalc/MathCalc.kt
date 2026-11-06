@@ -993,7 +993,9 @@ object MathCalc {
      * simplify(2 + 3) calculates, factor(x + 1) and expand(x + 1) are x + 1, solve(5) and plot(5) show the number.
      */
     private val INTERCHANGEABLE = setOf(Mode.CALCULATE, Mode.SIMPLIFY, Mode.EXPAND, Mode.FACTOR, Mode.PARTIAL_FRACTIONS, Mode.COMPARE,
-        Mode.SOLVE, Mode.GRAPH)
+        Mode.SOLVE, Mode.GRAPH,
+        // A system with a solution is solved exactly: that is its least-squares solution, with residual 0.
+        Mode.LEAST_SQUARES)
 
     /**
      * The letters a function of several variables is taken in (its gradient, Laplacian, Jacobian): the coordinates x, y, z it
@@ -1430,13 +1432,16 @@ object MathCalc {
         if (v is Expr.Num) return Outcome.Value(Num.Exact(v.value), steps, others = others)
         // A number found numerically is its decimal: never a fraction it happens to lie near, nor 0 where it is tiny.
         if (v is Expr.Real) return Outcome.Value(Num.Approx(v.value), steps, exact = v, others = others)
-        val d = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
+        val double = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
         // A number in another form (sin² 1 + cos² 1) exactly where it simplifies to one and the balls agree (looked for only
         // where its double lies near a fraction); a double near a fraction is never taken for it.
-        if (Rational.near(d) != null) {
+        if (Rational.near(double) != null) {
             val simple = try { Algebra.simplify(v) } catch (e: CalcException) { v }
             if (simple is Expr.Num && Precise.certainlyNonzero(add(v, neg(simple))) == false) return Outcome.Value(Num.Exact(simple.value), steps, others = others)
         }
+        // Its value from ball arithmetic, to 17 certified digits where the balls take it: a double's loses its digits where terms
+        // cancel (e^(10⁻¹⁰) − 1). Shown to ten, kept to a double's precision.
+        val d = Precise.decimal(v, 17)?.toDouble() ?: double
         val shown = Algebra.rationalize(v)
         return Outcome.Value(Num.Approx(d), steps, exact = shown.takeIf { niceExact(it) }, others = others)
     }

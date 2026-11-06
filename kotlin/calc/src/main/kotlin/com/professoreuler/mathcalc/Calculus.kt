@@ -835,6 +835,7 @@ object Calculus {
 
     private val BOUNDED_AT_INFINITY = setOf(Func.ATAN, Func.TANH, Func.ERF, Func.ERFC)
 
+
     /** A definite integral: exact where it could be, its value, the antiderivative used. */
     class Definite(val exact: Expr?, val value: Double?, val antiderivative: Expr?, val diverges: Boolean = false)
 
@@ -904,6 +905,8 @@ object Calculus {
         // Gruntz's algorithm for exp-log functions: (e^(1/x − e^(−x)) − e^(1/x))/e^(−x) → −1, (eˣ + x)^(1/x) → e.
         Gruntz.limit(e, x, a, side)?.let { if (agrees(it)) return it else disagreed = true }
         if (disagreed || !numericFallback) return null
+        // A value as near 0 as the samples' own error is no limit that can be named (sin x/x at x = 10¹⁰ is −4.9·10⁻¹¹).
+        if (numeric != null && numeric.isFinite() && abs(numeric) < 1e-9) return null
         return numeric?.let { if (it.isInfinite()) (if (it > 0) Expr.INF else neg(Expr.INF)) else Expr.Real(it) }
     }
 
@@ -952,7 +955,9 @@ object Calculus {
             e.f == Func.ABS && bounded(e.args[0], x)
         e is Expr.Add -> e.terms.all { bounded(it, x) }
         e is Expr.Mul -> e.factors.all { bounded(it, x) }
-        e is Expr.Pow -> integer(e.exp)?.let { it.signum() > 0 } == true && bounded(e.base, x)
+        e is Expr.Pow -> integer(e.exp)?.let { it.signum() > 0 } == true && bounded(e.base, x) ||
+            // |(−1)ᵏ| = 1: (−1)ᵏ/k at ∞ is squeezed to 0.
+            e.base == Expr.MINUS_ONE
         else -> false
     }
 
@@ -1205,11 +1210,11 @@ object Calculus {
 
     /** Values at points ever nearer a: where they settle, their limit; ±∞ where they grow without bound. */
     private fun numericLimit(e: Expr, x: Expr.Sym, a: Expr, side: Int?): Double? {
-        fun seq(sign: Int): Double? {
+        fun seq(sign: Int, offset: Double = 0.0): Double? {
             val values = ArrayList<Double>()
             for (k in 2..10) {
                 val t = if (a.hasInfinity()) {
-                    (if (a == Expr.INF) 1.0 else -1.0) * Math.pow(10.0, k.toDouble())
+                    (if (a == Expr.INF) 1.0 else -1.0) * (Math.pow(10.0, k.toDouble()) + offset)
                 } else (Numeric.value(a) ?: return null) + sign * Math.pow(10.0, -k.toDouble())
                 val v = Numeric.eval(e, mapOf(x.name to t))
                 // 0/0 of rounding, nearer a than the digits reach: the values before it are the ones to go by. An infinite
@@ -1237,11 +1242,20 @@ object Calculus {
             val prev = values[trusted - 2]
             return if (abs(last - prev) <= 1e-5 * max(1.0, abs(last))) last else null
         }
+        if (a.hasInfinity()) {
+            val v = seq(1) ?: return null
+            fun agree(w: Double) = if (v.isInfinite() || w.isInfinite()) v == w else abs(v - w) <= 1e-5 * max(1.0, abs(v))
+            // At the next whole numbers too, and between them: (−1)ᵏ and cos(πk) are 1 at every 10ᵏ, and have no limit.
+            val next = seq(1, 1.0)
+            if (next == null || !agree(next)) return null
+            val between = seq(1, 0.37)
+            if (between != null && !agree(between)) return null
+            return v
+        }
         return when (side) {
             -1 -> seq(-1)
             1 -> seq(1)
             else -> {
-                if (a.hasInfinity()) return seq(1)
                 val l = seq(-1) ?: return null
                 val r = seq(1) ?: return null
                 if (l.isInfinite() || r.isInfinite()) return if (l == r) l else null

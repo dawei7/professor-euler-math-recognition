@@ -62,11 +62,12 @@ object Reports {
         assumptions: Assumptions = Assumptions()): Report {
         val first = inDomain(complex) { MathCalc.calculate(latex, wanted, millis, fractions, assumptions) }
         // Words that name a mode but no letter ("derivative of x² y") take that mode for the formula's likeliest letter.
-        val result = if (wanted != null && wanted.letter == null && first.choice?.mode != wanted.mode) {
+        val chosen = if (wanted != null && wanted.letter == null && first.choice?.mode != wanted.mode) {
             first.choices.firstOrNull { it.mode == wanted.mode }?.let { c -> inDomain(complex) { MathCalc.calculate(latex, c, millis, fractions, assumptions) } } ?: first
         } else {
             first
         }
+        val result = if (wanted == null) chosen else asked(wanted, chosen)
         val constant = if (result.outcome is Outcome.Failed) null else inDomain(complex) { constantOf(latex, assumptions) }
         val panels = ArrayList<Panel>()
         panels += Panel(PanelKind.RESULT, result.choice)
@@ -128,6 +129,17 @@ object Reports {
                 }
             }
         }
+    }
+
+    /**
+     * solve for a letter the equation does not hold is refused, never solved for another letter in its place (solve(x² = 4, y)
+     * is no x = ±2). Every other operation asked for by name MathCalc does or refuses itself.
+     */
+    private fun asked(wanted: Choice, result: Calculation): Calculation {
+        if (wanted.mode != Mode.SOLVE || wanted.letter == null || result.outcome is Outcome.Failed) return result
+        if (result.choice?.mode != Mode.SOLVE || result.choice?.letter == wanted.letter) return result
+        return Calculation(Outcome.Failed(Failure.ARGUMENTS), result.decimalComma, result.decimals, result.fractions, result.choices, wanted,
+            result.degrees, result.assumptions, result.ambiguities)
     }
 
     /** The formula's value as a constant expression (no letters, its calculus worked out), if it is one. */
