@@ -688,7 +688,7 @@ object MathCalc {
             val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() < NumberTheory.MOST_FACTORED }
             val complexNumber = v.hasI() && Complex.parts(v)?.second != null
             // A definite integral with numbers for bounds: the trapezoidal and Simpson's rules beside its value.
-            val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
+            val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null && !Multiple.isNested(it) }
                 ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
             val facts = integer(v)?.takeIf { it >= TWO && it < NumberTheory.MOST_FACTORED && integral == null }
             val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.takeIf { integral == null }?.let { Choice(Mode.FACTOR) },
@@ -725,7 +725,7 @@ object MathCalc {
             val steps = sides.zipWithNext { a, b -> Verify.same(a, b) }
             if (wroteCalculus) {
                 val op = written.last() as? Expr.Op
-                val definite = op?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
+                val definite = op?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null && !Multiple.isNested(it) }
                     ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
                 val choices = listOfNotNull(Choice(Mode.CALCULATE), definite?.let { Choice(Mode.TRAPEZOID) }, definite?.let { Choice(Mode.SIMPSON) })
                 return Plan(choices, Choice(Mode.CALCULATE)) { c ->
