@@ -38,6 +38,15 @@ class StepsTest {
         "x^{2}+y^{2}-4x+6y=12" to null, "y^{2}=8x" to Choice(Mode.CONIC),
         "\\operatorname{constant}(electronmass)\\cdot \\operatorname{constant}(speedoflight)^{2}" to null,
         "\\operatorname{constant}(speedoflight, km/h)" to null,
+        // Financial mathematics: each formula, the tables and the internal rate of return.
+        "futurevalue(1000, 5\\%, 10)" to null, "futurevalue(1000, 5\\%, 10, 12)" to null, "futurevalue(1000, 5\\%, 10, \\infty )" to null,
+        "presentvalue(5000, 4\\%, 10)" to null, "simpleinterest(2000, 3\\%, 0.5)" to null, "interestrate(1000, 1500, 8)" to null,
+        "periods(1000, 2000, 5\\%)" to null, "effectiverate(6\\%, 12)" to null, "nominalrate(5\\%, 12)" to null,
+        "annuityfv(100, 0.25\\%, 120)" to null, "annuitypv(500, 5\\%, 20)" to null, "annuityduepv(500, 5\\%, 20)" to null,
+        "loanpayment(10000, 5\\%, 4)" to null, "loanterm(10000, 5\\%, 1000)" to null, "npv(8\\%, -1000, 300, 400, 500)" to null,
+        "[10000, 5\\%, 4]" to Choice(Mode.AMORTIZATION), "[10000, 5\\%, 4]" to Choice(Mode.EQUAL_PRINCIPAL),
+        "[10000, 1000, 5]" to Choice(Mode.STRAIGHT_LINE), "[10000, 20\\%, 5]" to Choice(Mode.DECLINING_BALANCE),
+        "[-100, 230, -132]" to Choice(Mode.IRR), "[100, 200]" to Choice(Mode.IRR),
     ) + APPLIED
 
 
@@ -342,6 +351,14 @@ class StepsTest {
             "START STAT_MEAN STAT_SORTED STAT_MEDIAN STAT_VARIANCE STAT_SD", "REG_SUMS REG_SLOPE REG_INTERCEPT RESULT",
             "UNIT_FACTOR RESULT", "UNIT_OFFSET RESULT", "START CONIC_COMPLETE CONIC_STANDARD", "START CONIC_STANDARD",
             "START CONSTANT_VALUES UNCERTAINTY_BOUND RESULT", "UNIT_FACTOR RESULT",
+            "FIN_COMPOUND FIN_SUBSTITUTE RESULT", "FIN_COMPOUND_SUBPERIODS FIN_SUBSTITUTE RESULT", "FIN_CONTINUOUS FIN_SUBSTITUTE RESULT",
+            "FIN_DISCOUNT FIN_SUBSTITUTE RESULT", "FIN_SIMPLE_INTEREST FIN_SUBSTITUTE RESULT", "FIN_RATE FIN_SUBSTITUTE RESULT",
+            "FIN_PERIODS FIN_SUBSTITUTE RESULT", "FIN_EFFECTIVE FIN_SUBSTITUTE RESULT", "FIN_NOMINAL FIN_SUBSTITUTE RESULT",
+            "FIN_ANNUITY_FV FIN_SUBSTITUTE RESULT", "FIN_ANNUITY_PV FIN_SUBSTITUTE RESULT", "FIN_ANNUITY_DUE FIN_SUBSTITUTE RESULT",
+            "FIN_LOAN_PAYMENT FIN_SUBSTITUTE RESULT", "FIN_LOAN_TERM FIN_SUBSTITUTE RESULT", "FIN_NPV FIN_SUBSTITUTE RESULT",
+            "FIN_LOAN_PAYMENT FIN_SCHEDULE_ROW FIN_SCHEDULE_LAST", "FIN_EQUAL_PRINCIPAL FIN_SCHEDULE_ROW FIN_SCHEDULE_LAST",
+            "FIN_STRAIGHT_LINE FIN_DEPRECIATION_LAST", "FIN_DECLINING RESULT",
+            "START FIN_IRR_POLYNOMIAL FIN_IRR_RATES", "START FIN_IRR_POLYNOMIAL NO_SOLUTION",
             "START RANK_ECHELON RANK_MINOR RANK_CASE RANK_CASE RESULT", "START TRACE_SUM", "START RANK_ECHELON NULL_FREE RESULT",
             "START RANK_ECHELON COLUMN_PIVOTS RESULT", "START CHARPOLY_DET RESULT", "START ADJ_COFACTORS ADJ_TRANSPOSE ADJ_CHECK",
             "START TANGENT_POINT DERIVATIVE_OF TANGENT_SLOPE TANGENT_FORMULA RESULT",

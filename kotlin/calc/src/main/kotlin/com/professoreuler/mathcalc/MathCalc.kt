@@ -348,6 +348,20 @@ enum class Mode {
 
     /** A fixed policy's values in a finite Markov decision process, solved exactly ([Decisions]). */
     POLICY_EVALUATION,
+    /** An annuity loan's repayment table ([Finance.annuityLoan]). */
+    AMORTIZATION,
+
+    /** An equal-principal loan's repayment table ([Finance.equalPrincipal]). */
+    EQUAL_PRINCIPAL,
+
+    /** A straight-line depreciation table ([Finance.straightLine]). */
+    STRAIGHT_LINE,
+
+    /** A declining-balance depreciation table ([Finance.decliningBalance]). */
+    DECLINING_BALANCE,
+
+    /** The internal rates of return of cash flows ([Finance.irr]). */
+    IRR,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -640,6 +654,8 @@ sealed class Outcome {
      */
     data class DecisionProcess(val values: List<Expr>, val actions: List<List<Expr?>>, val policy: List<List<Int>>,
         val table: Numerics.Table, val gamma: Expr, val sweeps: Int) : Outcome()
+    /** A loan's repayment table or an asset's depreciation table, every amount to the cent ([Finance.Schedule]). */
+    data class FinanceSchedule(val schedule: Finance.Schedule) : Outcome()
 }
 
 /**
@@ -1281,7 +1297,7 @@ object MathCalc {
         val ownOperations = setOf(Mode.DETERMINANT, Mode.INVERSE, Mode.EIGEN, Mode.DECOMPOSE, Mode.MATRIX_EXP, Mode.ROW_REDUCE, Mode.TRANSPOSE,
             Mode.DIVERGENCE, Mode.CURL, Mode.JACOBIAN)
         val accepts = (if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()) +
-            setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE) + ownOperations
+            setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE) + ownOperations + Finance.MODES
         val fieldLetters = if (field) coordinates else variablesOf(m.symbols())
         val likeliest = when {
             // A function's value (softmax(…)) is its result, not data.
@@ -1346,6 +1362,7 @@ object MathCalc {
                     val eigen = LinAlg.eigen(m) ?: throw CalcException(Failure.UNSOLVED)
                     Outcome.Eigenvalues(LinAlg.characteristic(m), eigen, LinAlg.diagonalization(m, eigen))
                 }
+                in Finance.MODES -> Finance.outcome(c.mode, m)
                 else -> throw CalcException(Failure.UNREADABLE)
             }
         }
