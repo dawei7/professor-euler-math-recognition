@@ -50,13 +50,14 @@ object TextInput {
         // A command is a function, solve(x^2 = 4, x), with English names in every language (owner, 6 November 2026: "rely on
         // the strict english only best practice named functions"); there are no command words.
         CommandFunctions.read(written)?.let { return it }
-        // "y' = y, y(0) = 1": an initial value after a comma is a line of its own.
+        // "y' = y, y(0) = 1": an initial value after a comma is a line of its own, and so is the next equation of a system.
         val text = if ('\'' in written) written.replace(INITIAL_AFTER_COMMA, "; ") else written
         derivativeOperator(text)?.let { return it }
         return Typed(latex(text))
     }
 
-    private val INITIAL_AFTER_COMMA = Regex(""",\s*(?=\p{L}'*\(\s*-?[0-9.,]+\s*\)\s*=)""")
+    /** A comma before an initial value (y(0) =, x_1(0) =) or before the next equation of a system (y' =). */
+    private val INITIAL_AFTER_COMMA = Regex(""",\s*(?=\p{L}(?:_\d)?'*\(\s*-?[0-9.,]+\s*\)\s*=|\p{L}(?:_\d)?'+\s*=)""")
 
     /**
      * What a typed line asks for, typeset as a learner would write it: the formula, a derivative as d/dx (…), an

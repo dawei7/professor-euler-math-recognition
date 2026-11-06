@@ -8,7 +8,7 @@ import kotlin.math.abs
  * integral. The table is what the method gives (doubles), not an exact answer; where an exact value is known its error is shown.
  */
 object Numerics {
-    enum class Method { NEWTON, BISECTION, EULER, RUNGE_KUTTA, TRAPEZOID, SIMPSON }
+    enum class Method { NEWTON, BISECTION, EULER, RUNGE_KUTTA, TRAPEZOID, SIMPSON, DORMAND_PRINCE }
 
     /** A method's table: its [columns] (names in LaTeX) and [rows]; its [result], and the [exact] value where it is known. */
     class Table(val method: Method, val columns: List<String>, val rows: List<List<Double>>, val result: Double?, val exact: Double? = null)
