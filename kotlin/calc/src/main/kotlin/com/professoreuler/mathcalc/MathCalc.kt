@@ -48,6 +48,8 @@ enum class Failure {
     UNKNOWN_FUNCTION,
     /** A command's function (solve, det …) inside a formula, as 2·det(A): it takes a line of its own. */
     COMMAND_INSIDE,
+    /** A result that did not pass its check (a second computation disagreed): it is not shown. */
+    UNVERIFIED,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -191,6 +193,39 @@ enum class Mode {
 
     /** The plane through three points. */
     PLANE,
+
+    /** A one-sample z test with σ known: ztest(data, μ₀, σ) ([Inference]). */
+    Z_TEST,
+    /** A one-sample t test: ttest(data, μ₀). */
+    T_TEST,
+    /** Welch's two-sample t test: welchtest(data₁, data₂). */
+    WELCH_TEST,
+    /** Pearson's χ² test of goodness of fit: chisqgof(observed, expected). */
+    CHI_SQUARE_FIT,
+    /** Pearson's χ² test of independence of a contingency table: chisqindep(table). */
+    CHI_SQUARE_INDEPENDENCE,
+    /** A confidence interval for a mean with σ known: zinterval(data, σ, level). */
+    Z_INTERVAL,
+    /** A confidence interval for a mean: tinterval(data, level). */
+    T_INTERVAL,
+    /** A confidence interval for a proportion: propinterval(k, n, level). */
+    PROPORTION_INTERVAL,
+    /** A least-squares polynomial of a degree: fitpoly(points, n) ([Fits]). */
+    FIT_POLYNOMIAL,
+    /** y = a·e^(kx): fitexp(points). */
+    FIT_EXPONENTIAL,
+    /** y = a·x^b: fitpow(points). */
+    FIT_POWER,
+    /** y = a + b·ln x: fitlog(points). */
+    FIT_LOGARITHMIC,
+    /** y = c/(1 + a·e^(−kx)): fitlogistic(points). */
+    FIT_LOGISTIC,
+    /** A Markov chain's stationary distribution: stationary(P) ([Markov]). */
+    STATIONARY,
+    /** A Markov chain's distribution after n steps: markov(P, π₀, n). */
+    MARKOV,
+    /** A list's modes: mode(x₁, x₂, …) ([Describe]). */
+    MODES,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -374,6 +409,9 @@ sealed class Outcome {
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
 
     data class Failed(val failure: Failure) : Outcome()
+
+    /** A statistical procedure: a hypothesis test, a confidence interval or a fitted curve, as named values ([StatResult]). */
+    data class Statistical(val result: StatResult) : Outcome()
 }
 
 /**
@@ -449,6 +487,8 @@ object MathCalc {
      */
     fun calculate(latex: String, choice: Choice? = null, millis: Long = LIMIT_MS, fractions: Boolean = false,
         assumptions: Assumptions = Assumptions()): Calculation {
+        // The statistics commands read their arguments themselves.
+        StatCommands.calculate(latex, choice, millis, fractions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags(assumptions)
         var choices = emptyList<Choice>()
@@ -826,6 +866,8 @@ object MathCalc {
         if (v.hasI()) return Outcome.Expression(Algebra.expand(v), steps)
         if (v.hasInfinity()) return Outcome.Expression(v, steps)
         if (v is Expr.Num) return Outcome.Value(Num.Exact(v.value), steps, others = others)
+        // A number found numerically is its decimal: never a fraction it happens to lie near, nor 0 where it is tiny.
+        if (v is Expr.Real) return Outcome.Value(Num.Approx(v.value), steps, exact = v, others = others)
         val d = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
         val shown = Algebra.rationalize(v)
         return Outcome.Value(Num.Approx(d), steps, exact = shown.takeIf { niceExact(it) }, others = others)

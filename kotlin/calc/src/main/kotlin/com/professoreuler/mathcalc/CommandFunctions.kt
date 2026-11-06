@@ -12,7 +12,9 @@ package com.professoreuler.mathcalc
  */
 object CommandFunctions {
     /** How a function's arguments after the formula are read. */
-    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT }
+    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT,
+        /** Arguments the function reads itself ([StatCommands]): lists, matrices, points, numbers and words, in its order. */
+        CALL }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
     class Function(val name: String, val mode: Mode?, val shape: Shape, val params: List<String> = emptyList())
@@ -67,6 +69,22 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("ztest", Mode.Z_TEST, Shape.CALL),
+        Function("ttest", Mode.T_TEST, Shape.CALL),
+        Function("welchtest", Mode.WELCH_TEST, Shape.CALL),
+        Function("chisqgof", Mode.CHI_SQUARE_FIT, Shape.CALL),
+        Function("chisqindep", Mode.CHI_SQUARE_INDEPENDENCE, Shape.CALL),
+        Function("zinterval", Mode.Z_INTERVAL, Shape.CALL),
+        Function("tinterval", Mode.T_INTERVAL, Shape.CALL),
+        Function("propinterval", Mode.PROPORTION_INTERVAL, Shape.CALL),
+        Function("fitpoly", Mode.FIT_POLYNOMIAL, Shape.CALL),
+        Function("fitexp", Mode.FIT_EXPONENTIAL, Shape.CALL),
+        Function("fitpow", Mode.FIT_POWER, Shape.CALL),
+        Function("fitlog", Mode.FIT_LOGARITHMIC, Shape.CALL),
+        Function("fitlogistic", Mode.FIT_LOGISTIC, Shape.CALL),
+        Function("stationary", Mode.STATIONARY, Shape.CALL),
+        Function("markov", Mode.MARKOV, Shape.CALL),
+        Function("mode", Mode.MODES, Shape.LIST),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -95,6 +113,7 @@ object CommandFunctions {
         val args = arguments(inner)?.map { it.trim() } ?: return refused(f, inner)
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
+        if (f.shape == Shape.CALL) return Typed(args.joinToString(", ") { TextInput.latex(it) }, Choice(f.mode!!))
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
         val formula = lines.joinToString("; ")
@@ -309,6 +328,7 @@ object CommandFunctions {
             Shape.LIST -> elements(l) ?: return null
             Shape.POINTS -> points(l) ?: return null
             Shape.CONVERT -> listOf(l + "\\ \\text{" + (c.letter ?: return null) + "}", "\\text{" + (c.point ?: return null) + "}")
+            Shape.CALL -> runCatching { StatCommands.pieces(l) }.getOrNull() ?: return null
             else -> return null
         }
         return call(f.name, args)

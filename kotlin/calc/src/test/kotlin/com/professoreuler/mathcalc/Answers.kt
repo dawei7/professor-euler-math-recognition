@@ -94,6 +94,12 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
+    is Outcome.Statistical -> o.result.let { r ->
+        r.mode.name.lowercase() + " " + r.rows.joinToString(" ") { row ->
+            (row.symbol ?: row.quantity.name.lowercase()) + (if (row.group > 0) "${row.group}" else "") + "=" + c.textValue(row.value)
+        } + (r.alternative?.let { " " + it.name.lowercase() } ?: "") + (r.reject?.let { if (it) " reject" else " keep" } ?: "") +
+            (r.model?.let { " y = " + c.text(it) } ?: "") + (if (r.warnings.isNotEmpty()) " warn " + r.warnings.joinToString(",") { it.name.lowercase() } else "")
+    }
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))
