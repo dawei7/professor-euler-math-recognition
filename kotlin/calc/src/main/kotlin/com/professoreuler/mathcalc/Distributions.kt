@@ -51,7 +51,9 @@ internal object Distributions {
      * [name] at [args]: null where it is none of [NAMES] or an argument holds a letter (then the letters are a product, as for
      * every number function); numbers, but not as many as it takes, fail ([Failure.ARGUMENTS]).
      */
-    fun call(name: String, args: List<Expr>): Expr? {
+    fun call(name: String, args: List<Expr>): Expr? = Budget.bounded(MathCalc.LIMIT_MS) { work(name, args) }
+
+    private fun work(name: String, args: List<Expr>): Expr? {
         val arity = NAMES[name] ?: return null
         if (args.any { it.symbols().isNotEmpty() }) return null
         if (name == "quantile" || name == "cov" || name == "corr") return Describe.call(name, args)
@@ -409,9 +411,14 @@ internal object Distributions {
         val value = certified { prec -> d.density(ball(x, prec + 16), prec) }
         if (!agree(StatNumbers.valueOf(value), slope(d, x))) throw CalcException(Failure.UNVERIFIED)
         val e = try { exact()?.let { tidy(it) } } catch (x: CalcException) { null }
-        if (e != null && (e is Expr.Num || MathCalc.niceExact(e)) && confirms(e) { prec -> d.density(ball(x, prec + 16), prec) }) return e
+        // An exact form only where it is short enough to read (√2/(2√π), 3√3/(8π)); else the decimal alone.
+        if (e != null && (e is Expr.Num || (MathCalc.niceExact(e) && e.size() <= EXACT_SIZE)) &&
+            confirms(e) { prec -> d.density(ball(x, prec + 16), prec) }) return e
         return value
     }
+
+    /** The largest exact density shown as its formula. */
+    private const val EXACT_SIZE = 24
 
     /** Whether the exact [e] is the value the balls give, to 2⁻⁸⁰ of it. */
     private fun confirms(e: Expr, compute: (Int) -> Ball): Boolean = try {

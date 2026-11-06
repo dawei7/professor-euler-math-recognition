@@ -86,6 +86,10 @@ class DistributionsTest {
         // Table values.
         close(2.228138852, "invt(0.975, 10)", 1e-9)
         close(12.70620474, "invt(0.975, 1)", 1e-9)
+        // A large ν, quickly (the incomplete beta's shorter series): t → z.
+        val start = System.nanoTime()
+        close(1.959963984540054 + (1.959963984540054 + Math.pow(1.959963984540054, 3.0)) / (4 * 100000), "invt(0.975, 100000)", 1e-9)
+        assertTrue("invt with ν = 100000 took too long", System.nanoTime() - start < 2_000_000_000L)
         assertEquals("0", answer("invt(0.5, 7)"))
         assertEquals("1/2 = 0.5", answer("tcdf(0, infinity, 3)"))
         // The density: 1/π at 0 for ν = 1, exact, and 3√3/(8π) at 1 for ν = 3.

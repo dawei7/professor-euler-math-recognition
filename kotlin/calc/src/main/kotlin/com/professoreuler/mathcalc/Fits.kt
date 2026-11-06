@@ -175,7 +175,9 @@ internal object Fits {
             Mode.FIT_POWER -> listOf("a", "b")
             else -> listOf("a", "b")
         }
-        val values = names.indices.map { j -> certified { prec -> coefficients(prec)[j] } }
+        // A coefficient that is 0 (a = 0 where the curve passes through (1, 0)) is ≈ 0 against the y's size.
+        val yScale = maxOf(pts.maxOf { abs(it.second.toDouble()) }, 1.0)
+        val values = names.indices.map { j -> certified(yScale) { prec -> coefficients(prec)[j] } }
         // The curve's values at the points, in balls from the coefficients' own balls.
         fun curve(x: Rational, c: List<Ball>, prec: Int): Ball = when (mode) {
             Mode.FIT_EXPONENTIAL -> c[0].mul(BallMath.exp(c[1].mul(Ball.of(x, prec), prec), prec), prec)
@@ -183,7 +185,7 @@ internal object Fits {
             else -> c[0].add(c[1].mul(lnBall(x, prec), prec), prec)
         }
         val scale = pts.maxOf { abs(it.second.toDouble()) }
-        val fitted = pts.map { (x, _) -> certified { prec -> curve(x, coefficients(prec + 16), prec) } }
+        val fitted = pts.map { (x, _) -> certified(yScale) { prec -> curve(x, coefficients(prec + 16), prec) } }
         val residuals = pts.map { (x, y) -> certified(scale) { prec -> Ball.of(y, prec + 16).sub(curve(x, coefficients(prec + 16), prec + 16), prec) } }
         val ssTot = run {
             val mean = pts.fold(Rational.ZERO) { s, p -> s + p.second } / Rational.of(pts.size.toLong())

@@ -142,6 +142,10 @@ class InferenceTest {
         close(centre - half, number(p, Quantity.WILSON_LOWER))
         close(centre + half, number(p, Quantity.WILSON_UPPER))
         assertEquals(listOf(StatWarning.FEW_SUCCESSES), result("propinterval(2, 30)").warnings)
+        // No success: Wald's interval is [0, 0], Wilson's starts exactly at 0 and ends at z²/(n + z²).
+        val none = result("propinterval(0, 20)")
+        assertEquals(Expr.ZERO, none.value(Quantity.WILSON_LOWER))
+        close(zz * zz / (20 + zz * zz), number(none, Quantity.WILSON_UPPER))
     }
 
     @Test
@@ -177,6 +181,10 @@ class InferenceTest {
         val b = lx.indices.sumOf { (lx[it] - lx.average()) * (ly[it] - ly.average()) } / lx.sumOf { (it - lx.average()) * (it - lx.average()) }
         close(b, coefficient(lg, "b"), 1e-9)
         close(ly.average() - b * lx.average(), coefficient(lg, "a"), 1e-9)
+        // y = log₂ x exactly: a is 0 (shown ≈ 0) and b = 1/ln 2.
+        val two = result("fitlog((0.5, -1), (1, 0), (2, 1), (4, 2))")
+        assertEquals(0.0, coefficient(two, "a"), 1e-20)
+        close(1 / ln(2.0), coefficient(two, "b"), 1e-9)
     }
 
     @Test

@@ -392,9 +392,11 @@ internal object Special {
         if (x.isNegative || Ball.ONE.below(x)) throw CalcException(Failure.UNDEFINED)
         if (!x.isPositive || !x.below(Ball.ONE)) throw Imprecise()
         val w = prec + 32
-        // Where the series would be slow, I_x(a, b) = 1 − I_(1−x)(b, a).
-        val split = a.add(Ball.ONE, w).div(a.add(b, w).add(Ball.of(2), w), w)
-        if (split.below(x)) return Ball.ONE.sub(betaI(Ball.ONE.sub(x, w), b, a, w), prec)
+        // Where the series would be slow, I_x(a, b) = 1 − I_(1−x)(b, a): the side whose series needs fewer terms (for t with a
+        // large ν, I_x(ν/2, ½) at x near 1 takes some ten thousand, its mirror a few dozen).
+        if (mirrorIsShorter(a.mid.toDouble(), b.mid.toDouble(), x.mid.toDouble(), w)) {
+            return Ball.ONE.sub(betaI(Ball.ONE.sub(x, w), b, a, w), prec)
+        }
         // x^a (1 − x)^b / (a·B(a, b)) · Σ (a + b)ₙ / (a + 1)ₙ · xⁿ
         var t = Ball.ONE
         var sum = Ball.ONE
@@ -424,6 +426,31 @@ internal object Special {
             a.mul(BallMath.ln(x, w), w).add(b.mul(BallMath.ln(Ball.ONE.sub(x, w), w), w), w).sub(lnBeta, w), w,
         ).div(a, w)
         return sum.mul(prefactor, prec)
+    }
+
+    /**
+     * Whether the series of I_(1−x)(b, a) reaches 2^-[bits] in fewer terms than that of I_x(a, b): their ratios
+     * (a + b + n)/(a + 1 + n)·x counted in doubles, side by side, until one of them is done.
+     */
+    private fun mirrorIsShorter(a: Double, b: Double, x: Double, bits: Int): Boolean {
+        val target = -bits * 0.6931471805599453 - 8
+        var direct = 0.0
+        var mirror = 0.0
+        val lx = lnD(x)
+        val lm = lnD(1 - x)
+        var n = 0
+        while (n < 10_000_000) {
+            val rd = lnD((a + b + n) / (a + 1 + n)) + lx
+            val rm = lnD((a + b + n) / (b + 1 + n)) + lm
+            direct += rd
+            mirror += rm
+            n++
+            val directDone = rd < 0 && direct < target
+            val mirrorDone = rm < 0 && mirror < target
+            if (directDone || mirrorDone) return mirrorDone && !directDone
+            if (n and 4095 == 0) Budget.check()
+        }
+        return false
     }
 
     // --------------------------------------------------------------------------------------------------------------------

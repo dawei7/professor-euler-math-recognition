@@ -471,10 +471,11 @@ internal object Inference {
             val top = if (sign < 0) centre.sub(root, w) else centre.add(root, w)
             return top.div(Ball.ONE.add(zz.div(nb, w), w), prec)
         }
-        val wLower = certified(1.0) { prec -> wilson(-1, prec) }
-        val wUpper = certified(1.0) { prec -> wilson(1, prec) }
+        // At k = 0 Wilson's lower end is exactly 0, at k = n its upper end exactly 1.
+        val wLower = if (k == 0) Expr.ZERO else certified(1.0) { prec -> wilson(-1, prec) }
+        val wUpper = if (k == n) Expr.ONE else certified(1.0) { prec -> wilson(1, prec) }
         // Put back: Wilson's ends solve (p̂ − p)² = z²·p(1 − p)/n.
-        for (end in listOf(-1, 1)) {
+        for (end in listOf(-1, 1).filter { !(it < 0 && k == 0) && !(it > 0 && k == n) }) {
             val residual = wilsonResidual(end, n, pHat) { prec -> wilson(end, prec) to z(prec) }
             if (!residual) throw CalcException(Failure.UNVERIFIED)
         }
