@@ -246,6 +246,8 @@ object TextInput {
     fun latex(math00: String): String {
         // a_(n+1) typed is the subscript a_{n+1}.
         val math0 = math00.replace(Regex("""_\(([^()]*)\)"""), "_{$1}")
+            // u_xx, u_xt typed: the second derivative's two letters are one subscript, u_{xx} (not u_x times x).
+            .replace(PARTIAL_TYPED, "u_{$1}")
         // {1, 2, 3} ∪ {3, 4}: braces of sets.
         val math = if ('{' in math0 && SET_OPERATIONS.any { it in math0 } && "{{" !in math0.replace(" ", ""))
             math0.replace("{", " \\{ ").replace("}", " \\} ") else math0
@@ -503,6 +505,9 @@ object TextInput {
         }
         return b.toString()
     }
+
+    /** u with the letters of a partial derivative of order two or more: u_xx, u_xy, u_tt. */
+    private val PARTIAL_TYPED = Regex("""(?<![A-Za-z])u_([xyt]{2,4})(?![A-Za-z0-9])""")
 
     private val DD = Regex("^d(?:\\^([0-9]+))?\\s*/\\s*d([A-Za-z])(?:\\^([0-9]+))?(?![A-Za-z0-9])\\s*")
     private val ARROW = Regex("->|→|\\\\to")
