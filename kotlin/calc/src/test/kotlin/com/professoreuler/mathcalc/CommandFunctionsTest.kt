@@ -83,6 +83,17 @@ class CommandFunctionsTest {
         "complexplot(1/z, 1 + i, 2)",
         "complexplot(w^3 - 1, w, 0, 2)",
         "venn((A ∪ B) ∖ C)",
+        "svd([[3, 0], [4, 5]])",
+        "svd([[1, 2], [3, 4]])",
+        "jordan([[2, 2, 3], [1, 3, 3], [-1, -2, -2]])",
+        "dsolve(x' = 3x + y, y' = x + 3y, x(0) = 2, y(0) = 0)",
+        "dsolve(y'' + y = 0, y(0) = 0, y(pi) = 0)",
+        "odeseries(y'' + y = 0, y(0) = 1, y'(0) = 0)",
+        "odeseries(y'' - x y = 0, 0, 8)",
+        "dormandprince(y' = y, y(0) = 1)",
+        "dormandprince(y' = x + y, y(0) = 1, 2)",
+        "slopefield(y' = x - y)",
+        "phaseportrait(x' = y, y' = -x)",
     )
 
     @Test

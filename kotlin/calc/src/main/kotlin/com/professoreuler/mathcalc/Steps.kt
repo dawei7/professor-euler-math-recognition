@@ -59,6 +59,11 @@ enum class StepKey {
     REG_SUMS, REG_SLOPE, REG_INTERCEPT, UNIT_FACTOR, UNIT_OFFSET, CONIC_COMPLETE, CONIC_STANDARD,
     // Physical constants: the published values put in, and the bound of the result's uncertainty.
     CONSTANT_VALUES, UNCERTAINTY_BOUND,
+    // The singular value decomposition, the Jordan form.
+    SVD_GRAM, SVD_VALUES, SVD_V, SVD_U, SVD_CHECK, JORDAN_RANKS, JORDAN_CHAIN, JORDAN_FORM,
+    // Systems of linear differential equations, boundary value problems, power series solutions.
+    SYS_MATRIX, SYS_GENERAL, SYS_CONSTANTS, BVP_GENERAL, BVP_SYSTEM, BVP_UNIQUE, BVP_NONE, BVP_FAMILY, SERIES_ANSATZ,
+    SERIES_RECURRENCE, SERIES_COEFFICIENTS,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -86,6 +91,7 @@ object Steps {
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
+        LinOdeSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

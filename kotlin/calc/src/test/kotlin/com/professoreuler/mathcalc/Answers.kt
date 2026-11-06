@@ -107,7 +107,34 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
         d.sets.joinToString("") + ": " + d.regions.filter { it.included }.joinToString(", ") { it.text }.ifEmpty { "∅" } +
             " simplest " + Logic.text(d.simplest, true)
     }
+    is Outcome.SingularValues -> o.svd.let { s ->
+        "σ " + s.values.joinToString(", ") { c.text(it) } + " U=" + c.text(s.u) + " S=" + c.text(s.sigma) + " V=" + c.text(s.v) + (if (s.exact) "" else " (decimals)")
+    }
+    is Outcome.JordanForm -> o.jordan.let { j -> "J=" + c.text(j.j) + " P=" + c.text(j.p) + " blocks " + j.blocks.joinToString(", ") { c.text(it.value) + "×" + it.size } }
+    is Outcome.OdeSystemSolved -> o.system.let { s ->
+        fun of(v: List<Expr>) = s.unknowns.indices.joinToString(", ") { "${s.unknowns[it]} = " + c.text(v[it]) }
+        of(s.general) + (s.particular?.let { " | " + of(it) } ?: "") + (s.equilibrium?.let { " | " + equilibrium(c, it) } ?: "")
+    }
+    is Outcome.SeriesSolved -> o.solution.let { s ->
+        "${s.y} = " + c.textResult(Outcome.Expression(Expr.ZERO, series = s.terms, seriesIn = s.seriesIn, remainder = pow(s.seriesIn, num(s.order + 1L)))) +
+            (s.recurrence?.let { (l, r) -> " | " + c.text(l) + " = " + c.text(r) } ?: "")
+    }
+    is Outcome.BoundaryValueSolved -> o.problem.let { p ->
+        when (p.kind) {
+            BoundaryValue.Kind.UNIQUE -> "unique ${p.y} = " + c.text(p.solution!!)
+            BoundaryValue.Kind.NONE -> "none"
+            BoundaryValue.Kind.INFINITE -> "infinitely many ${p.y} = " + c.text(p.solution!!) + " (" + p.free.joinToString(", ") + " free)"
+        }
+    }
+    is Outcome.DirectionField -> o.field.let { f ->
+        (if (f.kind == Fields.FieldKind.SLOPE) "slope field ${f.y}' = " + c.text(f.dy) else "phase portrait ${f.x}' = " + c.text(f.dx) + ", ${f.y}' = " + c.text(f.dy)) +
+            (if (f.constants.isNotEmpty()) " | constant " + f.constants.joinToString(", ") { "${f.y} = " + c.text(it) } else "") +
+            (if (f.equilibria.isNotEmpty()) " | " + f.equilibria.joinToString("; ") { equilibrium(c, it) } else "")
+    }
 }
+
+private fun equilibrium(c: Calculation, e: Fields.Equilibrium): String =
+    "(" + e.at.joinToString(", ") { c.text(it) } + ") " + e.kind.name.lowercase() + when (e.stable) { true -> " stable"; false -> " unstable"; null -> "" }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))
 
