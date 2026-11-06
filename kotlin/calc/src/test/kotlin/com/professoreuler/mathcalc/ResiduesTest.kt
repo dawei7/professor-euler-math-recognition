@@ -131,6 +131,9 @@ class ResiduesTest {
         assertEquals("ORDER_PHI PRIMROOT_REJECT PRIMROOT_REJECT PRIMROOT_REJECT PRIMROOT_REJECT PRIMROOT_ACCEPT RESULT", keys("primroot(41)"))
         assertEquals("START DLOG_ORDER DLOG_PART RESULT", keys("discretelog(13, 3, 17)"))
         assertEquals("START DLOG_ORDER DLOG_PART DLOG_PART CRT RESULT", keys("discretelog(5, 2, 13)"))
+        // Written as a congruence: the same steps, and every solution modulo the order.
+        assertEquals("START DLOG_ORDER DLOG_PART RESULT", keys("3^x ≡ 13 mod 17"))
+        assertEquals("x \\equiv 4 \\pmod{16}", TextInput.read("3^x ≡ 13 mod 17").let { Steps.of(it.latex, it.choice)!!.last().latex })
         val last = TextInput.read("primroot(41)").let { Steps.of(it.latex, it.choice)!!.last().latex }
         assertEquals("g = 6", last)
     }

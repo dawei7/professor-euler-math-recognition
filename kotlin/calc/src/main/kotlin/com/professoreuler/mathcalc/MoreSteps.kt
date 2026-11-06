@@ -125,6 +125,13 @@ internal object MoreSteps {
         fun congruence(k: Discrete.Congruences) {
             val x = Expr.Sym(k.letter)
             val name = c.latexName(k.letter)
+            // gˣ ≡ a (mod n): the discrete logarithm's steps, then every solution modulo the order of g.
+            k.power?.let { (g, a, n) ->
+                val log = Residues.steps(c, "discretelog($a, $g, $n)") ?: return
+                out += log.dropLast(1).map { s -> Step(s.latex.replace("x", name), s.why) }
+                step("$name \\equiv " + k.residues.joinToString(",\\ ") + " \\pmod{${k.modulus}}", StepKey.RESULT)
+                return
+            }
             for (part in k.parts) {
                 val poly = Calculus.tidy(add(part.coefficients.mapIndexed { j, a -> mul(num(Rational.of(a)), pow(x, num(j.toLong()))) }))
                 step(l(poly) + " \\equiv 0 \\pmod{${part.m}}", StepKey.START)

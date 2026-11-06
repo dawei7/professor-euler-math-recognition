@@ -226,7 +226,7 @@ internal object Residues {
         val (x0, ord) = found
         // Put back: c·g^x₀ + b ≡ 0.
         if ((coefficient * base.modPow(x0, m) + b).mod(m).signum() != 0) throw CalcException(Failure.UNSOLVED)
-        return Discrete.Congruences(letter, listOf(x0), ord)
+        return Discrete.Congruences(letter, listOf(x0), ord, power = if (coefficient == ONE && b.signum() <= 0) listOf(base, b.negate(), m) else null)
     }
 
     // ---------------------------------------------------------------------------------------------------------------------

@@ -304,9 +304,11 @@ object Discrete {
 
     /**
      * x ≡ r (mod [modulus]) for each of [residues]; none where there is no solution. [parts] are the lines on their own: each
-     * one's coefficients (lowest first) and modulus, and its solutions as residues of [Part.step].
+     * one's coefficients (lowest first) and modulus, and its solutions as residues of [Part.step]. [power] is (g, a, n) of a
+     * congruence gˣ ≡ a (mod n) written so, solved by its discrete logarithm ([Residues.exponential]).
      */
-    class Congruences(val letter: String, val residues: List<BigInteger>, val modulus: BigInteger, val parts: List<Part> = emptyList()) {
+    class Congruences(val letter: String, val residues: List<BigInteger>, val modulus: BigInteger, val parts: List<Part> = emptyList(),
+        val power: List<BigInteger>? = null) {
         class Part(val coefficients: List<BigInteger>, val m: BigInteger, val residues: List<BigInteger>, val step: BigInteger)
     }
 
