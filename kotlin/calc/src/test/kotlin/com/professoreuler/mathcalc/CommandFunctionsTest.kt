@@ -79,6 +79,10 @@ class CommandFunctionsTest {
         "diophantine(3x + 5y = 1)",
         "convert(5 km, mi)",
         "convert(300 K, °C)",
+        "complexplot(z^2 - 1)",
+        "complexplot(1/z, 1 + i, 2)",
+        "complexplot(w^3 - 1, w, 0, 2)",
+        "venn((A ∪ B) ∖ C)",
     )
 
     @Test

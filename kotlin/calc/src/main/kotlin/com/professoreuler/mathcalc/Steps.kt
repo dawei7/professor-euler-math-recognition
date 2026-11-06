@@ -57,6 +57,8 @@ enum class StepKey {
     // Triangles, statistics, the regression line, units, conics.
     TRI_COSINES, TRI_SINES, TRI_ANGLE_SUM, TRI_AMBIGUOUS, TRI_AREA, STAT_MEAN, STAT_SORTED, STAT_MEDIAN, STAT_VARIANCE, STAT_SD,
     REG_SUMS, REG_SLOPE, REG_INTERCEPT, UNIT_FACTOR, UNIT_OFFSET, CONIC_COMPLETE, CONIC_STANDARD,
+    // Physical constants: the published values put in, and the bound of the result's uncertainty.
+    CONSTANT_VALUES, UNCERTAINTY_BOUND,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */

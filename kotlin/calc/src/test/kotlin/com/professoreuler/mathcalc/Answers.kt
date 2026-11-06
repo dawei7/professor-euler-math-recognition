@@ -94,6 +94,18 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
+    is Outcome.PhysicalConstant -> o.constant.name + " = " + PhysicalConstants.text(o.quantity) + (if (o.unit.isEmpty()) "" else " " + o.unit) +
+        (if (o.quantity.exact) " exact" else "")
+    is Outcome.Measured -> PhysicalConstants.text(o.quantity) + " from " + o.constants.joinToString(", ")
+    is Outcome.DomainColoring -> o.plot.let { p ->
+        fun pts(l: List<ComplexPlot.Point>) = l.joinToString("; ") { (if (it.exact) c.text(it.at) else "≈" + ComplexPlot.text(it)) + (if (it.order > 1) " (${it.order}×)" else "") }
+        "square " + c.text(p.region.center) + " ± " + c.text(p.region.halfWidth) + " zeros " + pts(p.zeros).ifEmpty { "none" } +
+            " poles " + pts(p.poles).ifEmpty { "none" }
+    }
+    is Outcome.Venn -> o.diagram.let { d ->
+        d.sets.joinToString("") + ": " + d.regions.filter { it.included }.joinToString(", ") { it.text }.ifEmpty { "∅" } +
+            " simplest " + Logic.text(d.simplest, true)
+    }
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))
