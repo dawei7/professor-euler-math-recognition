@@ -20,6 +20,12 @@ internal object Budget {
         }
     }
 
+    /**
+     * [block] within the calculation's time where one runs, else within [millis] of its own: a number function the parser
+     * works out before the calculation's time starts is bounded all the same, and "Try longer" still gives it more.
+     */
+    fun <T> bounded(millis: Long, block: () -> T): T = if (deadline.get() != null) block() else within(millis, block)
+
     fun check() {
         val d = deadline.get() ?: return
         val c = counter.get() ?: IntArray(1).also { counter.set(it) }
