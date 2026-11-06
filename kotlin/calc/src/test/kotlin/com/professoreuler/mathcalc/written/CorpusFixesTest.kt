@@ -29,6 +29,8 @@ class CorpusFixesTest {
     fun aFunctionIsNeverAnsweredByAnother() = check(listOf(
         "derivative(5 + 3, x)" to "0", "derivative(y^2, x)" to "0", "derivative(sin(x), y)" to "0", "integral(y, x)" to "xy + C",
         "laplace(1)" to "1/s", "laplace(5)" to "5/s",
+        // Checked by a quadrature of e^(−s₀t)·sinh t, which overflowed as written: now in exponentials, L{sinh t} = 1/(s² − 1).
+        "laplace(sinh(t))" to "1/((s - 1)(s + 1))", "laplace(cosh(2t))" to "s/((s - 2)(s + 2))",
         "inverse(x)" to "ARGUMENTS", "det([[1, 2, 3], [4, 5, 6]])" to "SIZES", "solve(x^2 = 4, y)" to "ARGUMENTS",
         "extrema(x^2)" to "ARGUMENTS",
         // A series asked for by name is worked out as asked, whether its chip was found in time or not (under load,

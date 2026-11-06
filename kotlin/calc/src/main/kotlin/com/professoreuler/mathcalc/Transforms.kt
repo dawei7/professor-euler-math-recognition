@@ -30,8 +30,9 @@ object Transforms {
         for (env in samples) {
             val growth = rates.maxOf { Numeric.eval(it, env).takeIf { r -> r.isFinite() } ?: return null }.coerceAtLeast(0.0)
             val s0 = kotlin.math.ceil(growth) + 2.0
-            // e^(−s₀t)·f(t) as one expression: its exponentials combined, so that far out it is a small number, not 0·∞.
-            val integrand = tidy(mul(exp(mul(num(-s0.toLong()), t)), f))
+            // e^(−s₀t)·f(t) as one expression: its exponentials combined (sinh and cosh written as theirs), so that far out it is a
+            // small number, not 0·∞: sinh t overflows a double past t = 710, and laplace(sinh(t)) failed its check.
+            val integrand = tidy(mul(exp(mul(num(-s0.toLong()), t)), expanded))
             val numeric = Quadrature.integrate({ x -> Numeric.eval(integrand, env + (t.name to x)) }, 0.0, Double.POSITIVE_INFINITY)
             val exact = Numeric.eval(result, env + (s.name to s0))
             if (numeric == null || !exact.isFinite()) return null
