@@ -426,12 +426,21 @@ object Learning {
      * tokens are none. Its arguments are split at the commas outside every bracket and matrix.
      */
     internal fun command(tokens: List<String>): Command? {
+        val (name, args) = callOf(tokens, COMMANDS.keys) ?: return null
+        return Command(name, COMMANDS.getValue(name), args)
+    }
+
+    /**
+     * A formula that is one call of a function of [names] and nothing else, `\operatorname{entropy}\left(…\right)`: its name and
+     * the tokens of each argument, split at the commas outside every bracket and matrix; null where it is none.
+     */
+    internal fun callOf(tokens: List<String>, names: Set<String>): Pair<String, List<List<String>>>? {
         val t = tokens.filter { it != "\\left" && it != "\\right" }
         if (t.getOrNull(0) != "\\operatorname" || t.getOrNull(1) != "{") return null
         val close = t.indexOf("}")
         if (close < 3) return null
         val name = t.subList(2, close).joinToString("")
-        val mode = COMMANDS[name] ?: return null
+        if (name !in names) return null
         if (t.getOrNull(close + 1) != "(" || t.last() != ")") return null
         val args = ArrayList<List<String>>()
         var depth = 0
@@ -450,7 +459,7 @@ object Learning {
             }
         }
         args += t.subList(start, t.size - 1)
-        return Command(name, mode, args)
+        return name to args
     }
 
     /** A command worked out, its arguments read in the formula's style ([flags]). */
@@ -465,7 +474,7 @@ object Learning {
     }
 
     /** One argument: one formula without a relation, worked out. */
-    private fun argument(tokens: List<String>, flags: Flags): Expr {
+    internal fun argument(tokens: List<String>, flags: Flags): Expr {
         val s = Parser(tokens, flags).statements().singleOrNull() ?: throw CalcException(Failure.ARGUMENTS)
         if (s.relations.isNotEmpty() || s.definition != null) throw CalcException(Failure.ARGUMENTS)
         val side = s.sides.filterNotNull().singleOrNull() ?: throw CalcException(Failure.ARGUMENTS)

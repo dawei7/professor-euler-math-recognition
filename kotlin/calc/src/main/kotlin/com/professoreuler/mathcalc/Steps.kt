@@ -67,6 +67,9 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Machine learning: softmax, the information measures, Markov decision processes, gradient descent ([LearningSteps]).
+    SOFTMAX_EXP, SOFTMAX_DIVIDE, SOFTMAX_CHECK, ENTROPY_SUM, CROSS_ENTROPY_SUM, KL_SUM, MI_MARGINALS, MI_SUM, INFO_CHECK,
+    MDP_BELLMAN, MDP_SWEEPS, MDP_EVALUATE, MDP_OPTIMAL, MDP_POLICY_PARTS, MDP_LINEAR, GD_GRADIENT, GD_STEP, GD_MINIMUM,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -95,6 +98,7 @@ object Steps {
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
+        LearningSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

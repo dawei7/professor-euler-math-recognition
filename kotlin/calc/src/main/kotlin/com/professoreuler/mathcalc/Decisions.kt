@@ -67,7 +67,7 @@ object Decisions {
     }
 
     /** q(s, a) = r(s, a) + γ Σ p(s′ | s, a) v(s′), exactly; null where a is not available in s. */
-    private fun q(pr: Process, v: List<Rational>): List<List<Rational?>> = List(pr.n) { s ->
+    internal fun q(pr: Process, v: List<Rational>): List<List<Rational?>> = List(pr.n) { s ->
         List(pr.m) { a ->
             if (!pr.available[s][a]) null else {
                 var sum = Rational.ZERO
@@ -100,7 +100,7 @@ object Decisions {
     }
 
     /** v_π of a (stochastic) policy π[s][a]: (I − γP_π) v = r_π solved exactly, and put back into v = r_π + γ P_π v. */
-    private fun evaluate(pr: Process, pi: List<List<Rational>>): List<Rational> {
+    internal fun evaluate(pr: Process, pi: List<List<Rational>>): List<Rational> {
         val n = pr.n
         val pPi = List(n) { s -> List(n) { t -> (0 until pr.m).fold(Rational.ZERO) { acc, a -> if (pi[s][a].signum == 0) acc else acc + pi[s][a] * pr.p[a][s][t] } } }
         val rPi = List(n) { s -> (0 until pr.m).fold(Rational.ZERO) { acc, a -> if (pi[s][a].signum == 0) acc else acc + pi[s][a] * pr.r[s][a] } }
@@ -115,7 +115,7 @@ object Decisions {
     }
 
     /** A deterministic policy (an action in each state) as π[s][a]. */
-    private fun deterministic(pr: Process, actions: IntArray): List<List<Rational>> =
+    internal fun deterministic(pr: Process, actions: IntArray): List<List<Rational>> =
         List(pr.n) { s -> List(pr.m) { a -> if (a == actions[s]) Rational.ONE else Rational.ZERO } }
 
     /** valueiteration(P₁, …, Pₘ, R, γ). */
