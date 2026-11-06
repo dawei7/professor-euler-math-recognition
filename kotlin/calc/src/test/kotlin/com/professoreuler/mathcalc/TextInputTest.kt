@@ -72,6 +72,10 @@ class TextInputTest {
         "e^(i pi)" to "-1",
         "gamma(5)" to "24",
         "derivative(x^2 y, y)" to "x^2",
+        // The nth derivative: derivative(f, x, n) and d^n/dx^n.
+        "derivative(x^4, x, 2)" to "12x^2",
+        "d^2/dx^2 x^4" to "12x^2",
+        "derivative(sin(x), x, 3)" to "-cos(x)",
         "5!" to "120",
         "2^10" to "1024",
         "|x-1| = 3" to "x = -2; 4",
@@ -129,6 +133,8 @@ class TextInputTest {
     fun aCallWithOtherArgumentsIsRefused() = check(listOf(
         "derivative(x^3, 2)" to "FAILED ARGUMENTS",
         "derivative(x^3, x, y)" to "FAILED ARGUMENTS",
+        "derivative(x^3, x, 0)" to "FAILED ARGUMENTS",
+        "derivative(x^3, x, 2.5)" to "FAILED ARGUMENTS",
         "integral(x^2, x, 3)" to "FAILED ARGUMENTS",
         "integral(x^2, 1, 2, 3, 4)" to "FAILED ARGUMENTS",
         "limit(sin(x)/x)" to "FAILED ARGUMENTS",

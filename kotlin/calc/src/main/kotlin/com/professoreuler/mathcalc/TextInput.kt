@@ -78,9 +78,13 @@ object TextInput {
     /** "d/dx x^2" and "d/dy (…)": a derivative in the letter after d/d. */
     private fun derivativeOperator(text: String): Typed? {
         val m = DD.find(text) ?: return null
-        val letter = m.groupValues[1]
+        // d^2/dx^2: the same order above and below.
+        val order = m.groupValues[1].ifEmpty { "1" }
+        if (order != m.groupValues[3].ifEmpty { "1" }) return null
+        val letter = m.groupValues[2]
         val body = text.substring(m.range.last + 1).trim()
         if (body.isEmpty()) return null
+        if (order != "1") return Typed("\\frac{d^{$order}}{d$letter^{$order}}\\left(${latex(body)}\\right)")
         return Typed(latex(body), Choice(Mode.DERIVATIVE, letter))
     }
 
@@ -436,7 +440,7 @@ object TextInput {
         return b.toString()
     }
 
-    private val DD = Regex("^d\\s*/\\s*d([A-Za-z])\\b\\s*")
+    private val DD = Regex("^d(?:\\^([0-9]+))?\\s*/\\s*d([A-Za-z])(?:\\^([0-9]+))?(?![A-Za-z0-9])\\s*")
     private val ARROW = Regex("->|→|\\\\to")
     private val LEADING_APPROACH = Regex("^\\s*([A-Za-z])\\s*(?:->|→)\\s*(\\S+)\\s+")
     /** A bound written as a number: 0, -1, 2.5, π, pi, ∞. */

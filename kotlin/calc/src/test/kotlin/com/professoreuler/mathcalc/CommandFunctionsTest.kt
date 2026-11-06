@@ -28,6 +28,7 @@ class CommandFunctionsTest {
         "partialfractions(1/(x^2 - 1))",
         "derivative(x^2 sin(x), x)",
         "derivative(x^2 y, y)",
+        "derivative(x^4, x, 2)",
         "integral(1/x, x)",
         "integral(x^2, x, 0, 3)",
         "integral(e^(-x), x, 0, infinity)",

@@ -12,7 +12,7 @@ package com.professoreuler.mathcalc
  */
 object CommandFunctions {
     /** How a function's arguments after the formula are read. */
-    enum class Shape { FORMULA, LETTER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT }
+    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
     class Function(val name: String, val mode: Mode?, val shape: Shape, val params: List<String> = emptyList())
@@ -24,7 +24,7 @@ object CommandFunctions {
         Function("simplify", Mode.SIMPLIFY, Shape.FORMULA),
         Function("calculate", Mode.CALCULATE, Shape.FORMULA),
         Function("partialfractions", Mode.PARTIAL_FRACTIONS, Shape.FORMULA),
-        Function("derivative", Mode.DERIVATIVE, Shape.LETTER, listOf("x")),
+        Function("derivative", Mode.DERIVATIVE, Shape.ORDER, listOf("x", "n")),
         Function("integral", Mode.INTEGRAL, Shape.BOUNDS, listOf("x", "a", "b")),
         Function("limit", null, Shape.LIMIT, listOf("x", "a")),
         Function("sum", null, Shape.SUM, listOf("k", "a", "b")),
@@ -110,6 +110,16 @@ object CommandFunctions {
             // solve(f), solve(f, x): the letter, if any, is a letter.
             Shape.LETTER -> if (params.size > 1 || (params.size == 1 && letter(0) == null)) refused(f, inner)
                 else Typed(l.latex(formula), Choice(f.mode!!, letter(0)))
+            // derivative(f), derivative(f, x), derivative(f, x, n): the nth derivative written as d^n/dx^n, which the
+            // calculator works out itself.
+            Shape.ORDER -> {
+                if (params.size > 2 || (params.isNotEmpty() && letter(0) == null)) return refused(f, inner)
+                val n = params.getOrNull(1)?.let { it.toIntOrNull()?.takeIf { k -> k in 1..MAX_ORDER } ?: return refused(f, inner) } ?: 1
+                if (n == 1) return Typed(l.latex(formula), Choice(f.mode!!, letter(0)))
+                val body = l.latex(formula)
+                val x = letter(0) ?: l.mainLetterOf(body)
+                Typed("\\frac{d^{$n}}{d$x^{$n}}\\left($body\\right)")
+            }
             Shape.BOUNDS -> {
                 // integral(f), integral(f, x), integral(f, a, b), integral(f, x, a, b): told apart by their number.
                 val v = when (params.size) {
@@ -264,6 +274,7 @@ object CommandFunctions {
     private val DEFINITE = Regex("""^\\int_\{(.+?)\}\^\{(.+?)\}\s*(.+?)\s*\\,\s*d([A-Za-z])$""", RegexOption.DOT_MATCHES_ALL)
     private val LIM = Regex("""^\\lim_\{([A-Za-z](?:_\{?[0-9]+\}?)?)\s*\\to\s*(.+?)\}\s*(.+)$""", RegexOption.DOT_MATCHES_ALL)
     private val SUM = Regex("""^\\sum_\{([A-Za-z])=(.+?)\}\^\{(.+?)\}\s*(.+)$""", RegexOption.DOT_MATCHES_ALL)
+    private val NTH = Regex("""^\\frac\{d\^\{([0-9]+)\}\}\{d([A-Za-z])\^\{\1\}\}\s*\\left\((.*)\\right\)$""", RegexOption.DOT_MATCHES_ALL)
 
     /**
      * The call of a reading, in LaTeX (`\operatorname{solve}\left(x^{2}=4, x\right)`): the function of its choice with its
@@ -281,6 +292,7 @@ object CommandFunctions {
         }
         if (c == null) {
             LIM.matchEntire(l)?.let { m -> return call("limit", listOf(m.groupValues[3], m.groupValues[1], m.groupValues[2])) }
+            NTH.matchEntire(l)?.let { m -> return call("derivative", listOf(m.groupValues[3], m.groupValues[2], m.groupValues[1])) }
             SUM.matchEntire(l)?.let { m ->
                 val upper = m.groupValues[3]
                 return call("sum", listOf(m.groupValues[4], m.groupValues[1], m.groupValues[2]) + upper)
@@ -293,6 +305,7 @@ object CommandFunctions {
         val args: List<String> = when (f.shape) {
             Shape.FORMULA -> lines
             Shape.LETTER -> lines + listOfNotNull(c.letter ?: if (one && f.mode != Mode.GRAPH) TextInput.mainLetterOf(l) else null)
+            Shape.ORDER -> lines + listOfNotNull(c.letter ?: TextInput.mainLetterOf(l))
             Shape.BOUNDS -> lines + listOfNotNull(c.letter ?: TextInput.mainLetterOf(l))
             Shape.SERIES -> lines + listOfNotNull(c.letter ?: TextInput.mainLetterOf(l), c.point ?: "0", c.order?.toString())
             Shape.START -> lines + listOfNotNull(c.point)
