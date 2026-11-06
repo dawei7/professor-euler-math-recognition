@@ -47,7 +47,7 @@ internal object MoreSteps {
                 is Outcome.Value, is Outcome.Expression -> when (c.mode) {
                     Mode.DETERMINANT -> determinant()
                     Mode.INVERSE -> inverse(o as? Outcome.Expression ?: return null)
-                    else -> return null
+                    else -> out += Residues.steps(c, latex) ?: return null
                 }
                 is Outcome.RecurrenceSolved -> recurrence(o.recurrence)
                 is Outcome.Congruence -> congruence(o.solution)
@@ -59,6 +59,8 @@ internal object MoreSteps {
                 is Outcome.ConicSection -> conic(o.conic)
                 is Outcome.PhysicalValue -> return PhysicalConstants.steps(latex, assumptions)
                 is Outcome.PhysicalConstant -> return PhysicalConstants.steps(o)
+                is Outcome.Interpolated -> out += Interpolation.steps(c, o.interpolant)
+                is Outcome.SplineThrough -> out += Interpolation.steps(c, o.spline)
                 else -> return null
             }
             return out
@@ -125,6 +127,13 @@ internal object MoreSteps {
         fun congruence(k: Discrete.Congruences) {
             val x = Expr.Sym(k.letter)
             val name = c.latexName(k.letter)
+            // gˣ ≡ a (mod n): the discrete logarithm's steps, then every solution modulo the order of g.
+            k.power?.let { (g, a, n) ->
+                val log = Residues.steps(c, "discretelog($a, $g, $n)") ?: return
+                out += log.dropLast(1).map { s -> Step(s.latex.replace("x", name), s.why) }
+                step("$name \\equiv " + k.residues.joinToString(",\\ ") + " \\pmod{${k.modulus}}", StepKey.RESULT)
+                return
+            }
             for (part in k.parts) {
                 val poly = Calculus.tidy(add(part.coefficients.mapIndexed { j, a -> mul(num(Rational.of(a)), pow(x, num(j.toLong()))) }))
                 step(l(poly) + " \\equiv 0 \\pmod{${part.m}}", StepKey.START)

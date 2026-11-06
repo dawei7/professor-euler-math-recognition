@@ -62,6 +62,12 @@ enum class Failure {
      * has no Taylor series (x²y″ + y = 0 at 0): a series there needs Frobenius' method, which the calculator does not have.
      */
     SINGULAR_POINT,
+    /** A number without a primitive root: primroot(n) of an n that is not 2, 4, pᵏ or 2pᵏ (p an odd prime), as 8 or 15. */
+    NO_PRIMITIVE_ROOT,
+    /** No power of g is a modulo n: discretelog(a, g, n) has no solution, as 2ˣ ≡ 3 (mod 7). */
+    NO_DISCRETE_LOG,
+    /** Points of an interpolation or a spline with the same x: no function passes through both (or a point given twice). */
+    SAME_X,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -231,6 +237,11 @@ enum class Mode {
 
     /** The phase portrait of x′ = f(x, y), y′ = g(x, y), with its equilibria. */
     PHASE_PORTRAIT,
+    /** The polynomial through points, by Newton's divided differences and Lagrange's form. */
+    INTERPOLATION,
+
+    /** The natural cubic spline through points. */
+    SPLINE,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -446,6 +457,14 @@ sealed class Outcome {
 
     /** A slope field or a phase portrait, with its equilibria and their kinds ([Fields]). */
     data class DirectionField(val field: Fields.Field) : Outcome()
+    /**
+     * The polynomial through points ([Interpolation.interpolate]): multiplied out, in Newton's form and by Lagrange's basis
+     * polynomials, with its table of divided differences.
+     */
+    data class Interpolated(val interpolant: Interpolation.Interpolant) : Outcome()
+
+    /** The natural cubic spline through points ([Interpolation.spline]): a cubic on each interval between two of them. */
+    data class SplineThrough(val spline: Interpolation.Spline) : Outcome()
 }
 
 /**
@@ -632,23 +651,27 @@ object MathCalc {
                 } else e
             }
             val alternatives = others?.let { o -> o[0].sides.filterNotNull().lastOrNull()?.let { Calculus.evaluate(it) } }
-            val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() <= Factor.MOST_PRIME }
+            val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() < NumberTheory.MOST_FACTORED }
             val complexNumber = v.hasI() && Complex.parts(v)?.second != null
             // A definite integral with numbers for bounds: the trapezoidal and Simpson's rules beside its value.
             val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
                 ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
-            val facts = integer(v)?.takeIf { it >= TWO && it.bitLength() <= 110 && integral == null }
+            val facts = integer(v)?.takeIf { it >= TWO && it < NumberTheory.MOST_FACTORED && integral == null }
             val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.takeIf { integral == null }?.let { Choice(Mode.FACTOR) },
                 facts?.let { Choice(Mode.NUMBER_FACTS) },
                 if (complexNumber) Choice(Mode.POLAR) else null, integral?.let { Choice(Mode.TRAPEZOID) }, integral?.let { Choice(Mode.SIMPSON) })
-            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS)) { c ->
+            // A whole number of 41 digits or more is too large to take apart: factor(n) and facts(n) say so.
+            val unfactored = integer(v)?.let { it.abs() >= NumberTheory.MOST_FACTORED } == true
+            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS) + (if (unfactored) setOf(Mode.FACTOR, Mode.NUMBER_FACTS) else emptySet())) { c ->
+                if (unfactored && (c.mode == Mode.FACTOR || c.mode == Mode.NUMBER_FACTS)) throw CalcException(Failure.TOO_LARGE)
                 if (c.mode == Mode.UNITS) {
                     val from = c.letter ?: throw CalcException(Failure.UNREADABLE)
                     val to = c.point ?: throw CalcException(Failure.UNREADABLE)
                     Outcome.Converted(v, from, to, Units.convert(v, from, to) ?: throw CalcException(Failure.UNREADABLE))
                 }
                 else if (c.mode == Mode.NUMBER_FACTS && facts != null) Outcome.NumberFacts(Discrete.facts(facts) ?: throw CalcException(Failure.TOO_LARGE))
-                else if (c.mode == Mode.FACTOR && whole != null) Outcome.Primes(whole, Factor.primes(whole.abs())!!)
+                else if (c.mode == Mode.FACTOR && whole != null) Outcome.Primes(whole, Factor.primes(whole.abs())
+                    ?: NumberTheory.factor(whole.abs()) ?: throw CalcException(Failure.TOO_LARGE))
                 else if (c.mode == Mode.POLAR) Outcome.PolarForm(v, ComplexAnalysis.polar(v) ?: throw CalcException(Failure.UNSOLVED))
                 else if (integral != null && (c.mode == Mode.TRAPEZOID || c.mode == Mode.SIMPSON)) {
                     val a = Numeric.value(Calculus.evaluate(integral.a!!))!!
@@ -958,8 +981,9 @@ object MathCalc {
         if (data && values.all { rational(it) != null }) choices += Choice(Mode.SEQUENCE)
         val points = !vector && numeric && m.columns == 2 && m.size >= 3
         if (points) choices += Choice(Mode.REGRESSION)
+        if (points) choices += Interpolation.offered(m)
         val accepts = (if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()) +
-            setOf(Mode.SVD, Mode.JORDAN)
+            setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE)
         val likeliest = when {
             data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
             literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)
@@ -983,6 +1007,8 @@ object MathCalc {
                     val ys = m.rows.map { it[1] }
                     Outcome.Regression(xs, ys, Stats.regression(xs, ys) ?: throw CalcException(Failure.UNSOLVED))
                 }
+                Mode.INTERPOLATION -> Outcome.Interpolated(Interpolation.interpolate(m))
+                Mode.SPLINE -> Outcome.SplineThrough(Interpolation.spline(m))
                 // The rows as points: (1, 2) and (3, 4) written as [[1, 2], [3, 4]].
                 Mode.LINE, Mode.PLANE -> pointsChoices(m.rows.map { LinAlg.column(it) })?.let { plan ->
                     plan.outcome(Choice(c.mode))

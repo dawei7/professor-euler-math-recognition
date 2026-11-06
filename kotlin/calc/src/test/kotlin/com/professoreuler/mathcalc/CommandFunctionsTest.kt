@@ -94,6 +94,8 @@ class CommandFunctionsTest {
         "dormandprince(y' = x + y, y(0) = 1, 2)",
         "slopefield(y' = x - y)",
         "phaseportrait(x' = y, y' = -x)",
+        "interpolate((1, 2), (2, 3), (3, 5))",
+        "spline((0, 0), (1, 1), (2, 0), (3, 1))",
     )
 
     @Test

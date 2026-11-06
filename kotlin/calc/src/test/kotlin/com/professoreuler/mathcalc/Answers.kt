@@ -131,6 +131,8 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
             (if (f.constants.isNotEmpty()) " | constant " + f.constants.joinToString(", ") { "${f.y} = " + c.text(it) } else "") +
             (if (f.equilibria.isNotEmpty()) " | " + f.equilibria.joinToString("; ") { equilibrium(c, it) } else "")
     }
+    is Outcome.Interpolated -> o.interpolant.let { p -> "p(${p.letter}) = " + c.text(p.polynomial) + " newton " + p.newton.joinToString(", ") { c.text(it) } }
+    is Outcome.SplineThrough -> o.spline.pieces.joinToString(" | ") { p -> "[" + c.text(p.from) + ", " + c.text(p.to) + "] " + c.text(p.polynomial) }
 }
 
 private fun equilibrium(c: Calculation, e: Fields.Equilibrium): String =

@@ -64,6 +64,9 @@ enum class StepKey {
     // Systems of linear differential equations, boundary value problems, power series solutions.
     SYS_MATRIX, SYS_GENERAL, SYS_CONSTANTS, BVP_GENERAL, BVP_SYSTEM, BVP_UNIQUE, BVP_NONE, BVP_FAMILY, SERIES_ANSATZ,
     SERIES_RECURRENCE, SERIES_COEFFICIENTS,
+    // Interpolation and splines; orders, primitive roots and discrete logarithms.
+    INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
+    ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
