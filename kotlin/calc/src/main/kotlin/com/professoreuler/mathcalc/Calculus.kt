@@ -1283,6 +1283,8 @@ object Calculus {
     fun evaluate(e: Expr): Expr {
         if (!e.hasOp()) return e
         if (e !is Expr.Op) return e.mapChildren { evaluate(it) }
+        // A double or triple integral is worked out as a whole (Multiple).
+        if (Multiple.isNested(e)) return Multiple.evaluate(e)
         val body = evaluate(e.body)
         return when (e.kind) {
             OpKind.DERIVATIVE -> derivative(body, e.variable, integer(e.a ?: Expr.ONE)?.toInt() ?: 1)

@@ -67,6 +67,9 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Multiple integrals, line and surface integrals, directional derivatives and tangent planes.
+    MULTI_COORDINATES, MULTI_INNER, MULTI_NUMERIC, INTEGRATE_FROM_TO, LINE_VELOCITY, LINE_SPEED, LINE_DOT, LINE_NORMAL, LINE_POTENTIAL,
+    SURF_PARTIALS, SURF_NORMAL, SURF_AREA, SURF_DOT, DIR_GRADIENT, DIR_AT, DIR_UNIT, DIR_DOT, TP_GRAPH, TP_NORMAL, TP_EQUATION,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -95,6 +98,7 @@ object Steps {
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
+        MultiSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

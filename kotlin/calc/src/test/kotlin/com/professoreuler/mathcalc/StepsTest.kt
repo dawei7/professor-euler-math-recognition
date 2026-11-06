@@ -33,6 +33,14 @@ class StepsTest {
     private val NUMBERS = listOf("interpolate((1, 2), (2, 3), (3, 5))", "spline((0, 0), (1, 1), (2, 0))", "multorder(3, 7)",
         "primroot(41)", "discretelog(5, 2, 13)")
 
+    /** Multiple, line and surface integrals, directional derivatives and tangent planes, typed as their functions. */
+    private val MULTIVARIABLE = listOf("integral(x y, x, 0, 1, y, 0, 2)", "integral(sin(x y), x, 0, 1, y, 0, 1)",
+        "polarintegral(x^2 + y^2, r, 0, 2, theta, 0, 2pi)", "lineintegral(1, (cos(t), sin(t)), t, 0, 2pi)",
+        "lineintegral((2x y, x^2), (t, t^3), t, 0, 1)", "flux((x, y), (cos(t), sin(t)), t, 0, 2pi)",
+        "surfaceintegral(1, (sin(u) cos(v), sin(u) sin(v), cos(u)), u, 0, pi, v, 0, 2pi)",
+        "flux((x, y, z), (sin(u) cos(v), sin(u) sin(v), cos(u)), u, 0, pi, v, 0, 2pi)", "directionalderivative(x^2 y, (1, 2), (3, 4))",
+        "tangentplane(x^2 + y^2, (1, 2))")
+
     private fun keys(latex: String, choice: Choice? = null): String =
         Steps.of(latex, choice)?.joinToString(",") { it.why.key.name } ?: "none"
 
@@ -303,6 +311,7 @@ class StepsTest {
         for ((latex, choice) in chosen + LATER) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         // Interpolation and splines; orders, primitive roots and discrete logarithms, typed as their functions.
         for (text in NUMBERS) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
+        for (text in MULTIVARIABLE) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
 
