@@ -106,6 +106,15 @@ class MultivariableTest {
         assertEquals(Failure.DIVERGES, failure("integral(1/(x + y)^2, x, 0, 1, y, 0, 1)"))
         // An integrand singular along x = y inside the square has no value; never a wrong one.
         assertTrue(failure("integral(1/(x - y)^2, x, 0, 1, y, 0, 1)") != null)
+        // A jump along x + y = 1 that a rule's nodes can miss: the two cubatures disagree, so no digits are shown (the value is
+        // 1/2, the area of the triangle above the line); never a wrong one.
+        val jump = calc("integral(floor(x + y), x, 0, 1, y, 0, 1)").outcome
+        assertTrue("$jump", jump is Outcome.Failed || (jump as? Outcome.Value)?.value?.double?.let { abs(it - 0.5) < 1e-9 } == true)
+        // Kinks along a line, exactly: ∬ |x + y − 1| = 1/3, ∬ sgn(x − y) = 0.
+        exact("1/3 ≈ 0.3333333333", "integral(abs(x + y - 1), x, 0, 1, y, 0, 1)")
+        exact("0", "integral(sgn(x - y), x, 0, 1, y, 0, 1)")
+        // The cube's ∭ 1/|r| dV, numerically, against its closed form 3 ln((1 + √3)/√2) − π/4.
+        near(3 * ln((1 + sqrt(3.0)) / sqrt(2.0)) - PI / 4, "integral(1/sqrt(x^2+y^2+z^2), x, 0, 1, y, 0, 1, z, 0, 1)", 1e-8)
     }
 
     // ---------------------------------------------------------------------------------------------------------------------

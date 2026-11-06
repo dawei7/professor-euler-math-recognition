@@ -279,8 +279,21 @@ internal object Cubature {
     /** ∫ … ∫ f over [ranges] (innermost first): its value and error estimate, or null. */
     fun nested(f: Expr, ranges: List<Multiple.Range>): Estimate? = nested({ env -> Numeric.eval(f, env) }, ranges)
 
-    /** The same of a function of the letters' values. */
+    /**
+     * The same of a function of the letters' values, worked out twice: once with each interval as it is, once with each first cut
+     * at 0.4142… of its length, so that no node of an inner rule lies where an outer one puts a jump or a kink of the integrand
+     * (floor(x + y) at x = 1 − y). The two must agree within their error estimates; the larger estimate and their difference
+     * are the error. Null where they do not agree.
+     */
     fun nested(f: (Map<String, Double>) -> Double, ranges: List<Multiple.Range>): Estimate? {
+        val first = nested(f, ranges, false) ?: return null
+        val second = nested(f, ranges, true) ?: return null
+        val difference = abs(first.value - second.value)
+        if (difference > 10 * (first.error + second.error) + 1e-13 * max(1.0, abs(first.value))) return null
+        return Estimate(first.value, max(max(first.error, second.error), difference))
+    }
+
+    private fun nested(f: (Map<String, Double>) -> Double, ranges: List<Multiple.Range>, offset: Boolean): Estimate? {
         val env = HashMap<String, Double>()
         val counter = IntArray(1)
         fun level(k: Int): Estimate? {
@@ -293,7 +306,7 @@ internal object Cubature {
             val hi = Numeric.eval(r.hi, env)
             if (lo.isNaN() || hi.isNaN()) return null
             val saved = env[r.v.name]
-            val result = integrate({ t -> env[r.v.name] = t; level(k - 1) }, lo, hi, counter)
+            val result = integrate({ t -> env[r.v.name] = t; level(k - 1) }, lo, hi, counter, offset)
             if (saved == null) env.remove(r.v.name) else env[r.v.name] = saved
             return result
         }
@@ -311,10 +324,10 @@ internal object Cubature {
         return BigDecimal(v).round(MathContext(digits)).toDouble()
     }
 
-    private fun integrate(f: (Double) -> Estimate?, a: Double, b: Double, counter: IntArray): Estimate? {
+    private fun integrate(f: (Double) -> Estimate?, a: Double, b: Double, counter: IntArray, offset: Boolean = false): Estimate? {
         if (a.isNaN() || b.isNaN()) return null
         if (a == b) return Estimate(0.0, 0.0)
-        if (a > b) return integrate(f, b, a, counter)?.let { Estimate(-it.value, it.error) }
+        if (a > b) return integrate(f, b, a, counter, offset)?.let { Estimate(-it.value, it.error) }
         // ∞ bounds: x = t/(1 − t²) on (−1, 1), or a + t/(1 − t) on (0, 1).
         val g: (Double) -> Estimate?
         val lo: Double
@@ -375,7 +388,10 @@ internal object Cubature {
             return left + right
         }
         val eps = if (a.isInfinite() || b.isInfinite()) 1e-12 else 0.0
-        val value = piece(lo + eps, hi - eps, 0) ?: return null
+        val value = if (offset) {
+            val cut = lo + eps + (hi - lo - 2 * eps) * 0.41421356237
+            (piece(lo + eps, cut, 1) ?: return null) + (piece(cut, hi - eps, 1) ?: return null)
+        } else piece(lo + eps, hi - eps, 0) ?: return null
         if (a.isInfinite() || b.isInfinite()) {
             // What lies beyond x = 10¹²: about x·f(x) out there.
             for (far in listOf(1e9, 3.7e10, 1e12)) {
