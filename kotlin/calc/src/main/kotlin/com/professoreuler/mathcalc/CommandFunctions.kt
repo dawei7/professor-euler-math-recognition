@@ -23,6 +23,8 @@ object CommandFunctions {
         NETWORK,
         /** Every argument as typed, read by the function itself ([Learning.command]): gradientdescent(f, x₀, η, n). */
         CALL,
+        /** Arguments the function reads itself ([StatCommands]): lists, matrices, points, numbers and words, in its order. */
+        ARGS,
         /** The integrals over curves, surfaces and regions in coordinates, the derivatives at a point, the Fourier transform ([MultiCalls]). */
         MULTI,
     }
@@ -123,6 +125,22 @@ object CommandFunctions {
         Function("straightline", Mode.STRAIGHT_LINE, Shape.LIST),
         Function("decliningbalance", Mode.DECLINING_BALANCE, Shape.LIST),
         Function("irr", Mode.IRR, Shape.LIST),
+        Function("ztest", Mode.Z_TEST, Shape.ARGS),
+        Function("ttest", Mode.T_TEST, Shape.ARGS),
+        Function("welchtest", Mode.WELCH_TEST, Shape.ARGS),
+        Function("chisqgof", Mode.CHI_SQUARE_FIT, Shape.ARGS),
+        Function("chisqindep", Mode.CHI_SQUARE_INDEPENDENCE, Shape.ARGS),
+        Function("zinterval", Mode.Z_INTERVAL, Shape.ARGS),
+        Function("tinterval", Mode.T_INTERVAL, Shape.ARGS),
+        Function("propinterval", Mode.PROPORTION_INTERVAL, Shape.ARGS),
+        Function("fitpoly", Mode.FIT_POLYNOMIAL, Shape.ARGS),
+        Function("fitexp", Mode.FIT_EXPONENTIAL, Shape.ARGS),
+        Function("fitpow", Mode.FIT_POWER, Shape.ARGS),
+        Function("fitlog", Mode.FIT_LOGARITHMIC, Shape.ARGS),
+        Function("fitlogistic", Mode.FIT_LOGISTIC, Shape.ARGS),
+        Function("stationary", Mode.STATIONARY, Shape.ARGS),
+        Function("markov", Mode.MARKOV, Shape.ARGS),
+        Function("mode", Mode.MODES, Shape.LIST),
         Function("polarintegral", Mode.POLAR_INTEGRAL, Shape.MULTI, listOf("r", "a", "b", "θ", "c", "d")),
         Function("cylindricalintegral", Mode.CYLINDRICAL_INTEGRAL, Shape.MULTI, listOf("r", "a", "b", "θ", "c", "d", "z", "e", "g")),
         Function("sphericalintegral", Mode.SPHERICAL_INTEGRAL, Shape.MULTI, listOf("r", "a", "b", "θ", "c", "d", "φ", "e", "g")),
@@ -165,6 +183,7 @@ object CommandFunctions {
         if (f.shape == Shape.APPLIED) return Applied.read(f, args) ?: refused(f, inner)
         if (f.shape == Shape.NETWORK) return Networks.typed(f.name, args) ?: refused(f, inner)
         if (f.shape == Shape.CALL) return Typed(call(f.name, args.map { TextInput.latex(it) }), Choice(f.mode!!))
+        if (f.shape == Shape.ARGS) return Typed(args.joinToString(", ") { TextInput.latex(it) }, Choice(f.mode!!))
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
         // Lines after the formula only where the function takes them (a system, initial values, constraints): gradient(f, x = 1)
@@ -466,6 +485,7 @@ object CommandFunctions {
             Shape.UNTIL -> lines + listOfNotNull(c.point)
             // A graph's call is its own LaTeX ([Networks]).
             Shape.NETWORK -> return l.takeIf { Networks.callOf(it)?.first == f.name }
+            Shape.ARGS -> runCatching { StatCommands.pieces(l) }.getOrNull() ?: return null
             else -> return null
         }
         return call(f.name, args)

@@ -89,6 +89,8 @@ enum class Failure {
      * or a transition matrix's row that is neither probabilities nor zeros.
      */
     NOT_DISTRIBUTION,
+    /** A result that did not pass its check (a second computation disagreed): it is not shown. */
+    UNVERIFIED,
     /** tangentplane(F = G, P) at a point P that is not on the surface: F(P) ≠ G(P). */
     NOT_ON_SURFACE,
 }
@@ -364,6 +366,38 @@ enum class Mode {
 
     /** The internal rates of return of cash flows ([Finance.irr]). */
     IRR,
+    /** A one-sample z test with σ known: ztest(data, μ₀, σ) ([Inference]). */
+    Z_TEST,
+    /** A one-sample t test: ttest(data, μ₀). */
+    T_TEST,
+    /** Welch's two-sample t test: welchtest(data₁, data₂). */
+    WELCH_TEST,
+    /** Pearson's χ² test of goodness of fit: chisqgof(observed, expected). */
+    CHI_SQUARE_FIT,
+    /** Pearson's χ² test of independence of a contingency table: chisqindep(table). */
+    CHI_SQUARE_INDEPENDENCE,
+    /** A confidence interval for a mean with σ known: zinterval(data, σ, level). */
+    Z_INTERVAL,
+    /** A confidence interval for a mean: tinterval(data, level). */
+    T_INTERVAL,
+    /** A confidence interval for a proportion: propinterval(k, n, level). */
+    PROPORTION_INTERVAL,
+    /** A least-squares polynomial of a degree: fitpoly(points, n) ([Fits]). */
+    FIT_POLYNOMIAL,
+    /** y = a·e^(kx): fitexp(points). */
+    FIT_EXPONENTIAL,
+    /** y = a·x^b: fitpow(points). */
+    FIT_POWER,
+    /** y = a + b·ln x: fitlog(points). */
+    FIT_LOGARITHMIC,
+    /** y = c/(1 + a·e^(−kx)): fitlogistic(points). */
+    FIT_LOGISTIC,
+    /** A Markov chain's stationary distribution: stationary(P) ([Markov]). */
+    STATIONARY,
+    /** A Markov chain's distribution after n steps: markov(P, π₀, n). */
+    MARKOV,
+    /** A list's modes: mode(x₁, x₂, …) ([Describe]). */
+    MODES,
     /** A double integral in polar coordinates (r, θ), dA = r dr dθ ([Multiple]). */
     POLAR_INTEGRAL,
 
@@ -687,6 +721,8 @@ sealed class Outcome {
         val table: Numerics.Table, val gamma: Expr, val sweeps: Int) : Outcome()
     /** A loan's repayment table or an asset's depreciation table, every amount to the cent ([Finance.Schedule]). */
     data class FinanceSchedule(val schedule: Finance.Schedule) : Outcome()
+    /** A statistical procedure: a hypothesis test, a confidence interval or a fitted curve, as named values ([StatResult]). */
+    data class Statistical(val result: StatResult) : Outcome()
 }
 
 /**
@@ -766,6 +802,8 @@ object MathCalc {
         Additions.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
         // A call of a graph's functions (graph, dijkstra, kruskal …), read and worked out on its own ([Networks]).
         Networks.calculation(latex, millis, fractions)?.let { return it }
+        // The statistics commands read their arguments themselves.
+        StatCommands.calculate(latex, choice, millis, fractions)?.let { return it }
         // Integrals over curves, surfaces and regions in coordinates, derivatives at a point, the Fourier transform.
         MultiCalls.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
@@ -1262,6 +1300,8 @@ object MathCalc {
         if (v.hasI()) return Outcome.Expression(Algebra.expand(v), steps)
         if (v.hasInfinity()) return Outcome.Expression(v, steps)
         if (v is Expr.Num) return Outcome.Value(Num.Exact(v.value), steps, others = others)
+        // A number found numerically is its decimal: never a fraction it happens to lie near, nor 0 where it is tiny.
+        if (v is Expr.Real) return Outcome.Value(Num.Approx(v.value), steps, exact = v, others = others)
         val d = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
         // A number in another form (sin² 1 + cos² 1) exactly where it simplifies to one and the balls agree (looked for only
         // where its double lies near a fraction); a double near a fraction is never taken for it.

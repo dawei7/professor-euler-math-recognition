@@ -37,7 +37,7 @@ object Discrete {
         "binompdf" to 3..3, "binomcdf" to 3..3, "poissonpdf" to 2..2, "poissoncdf" to 2..2, "geometpdf" to 2..2,
         "normalpdf" to 1..3, "normalcdf" to 2..4, "invnorm" to 1..3,
         "multorder" to 2..2, "primroot" to 1..1, "discretelog" to 3..3,
-    ) + Finance.NAMES
+    ) + Finance.NAMES + Distributions.NAMES
 
     /** Longest first, so `stirling1` is not `stirling` and a 1. */
     val ORDERED: List<String> = NAMES.keys.sortedByDescending { it.length }
@@ -68,6 +68,7 @@ object Discrete {
         // Financial mathematics: with letters its functions are their formulas, so solve() and plot() take them.
         if (key in Finance.NAMES) return Finance.call(key, args)
         val arity = NAMES[key] ?: return null
+        if (key in Distributions.NAMES) return Distributions.call(key, args)
         if (args.any { it.symbols().isNotEmpty() || it is Expr.Mat }) return null
         if (args.size !in arity) throw CalcException(Failure.ARGUMENTS)
         Budget.check()
