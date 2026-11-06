@@ -7,11 +7,11 @@ import org.junit.Test
 
 /**
  * Every command as a function: each worked out, written as its call by [CommandFunctions.latex] and read back to the same
- * answer, in every app language, and the names are one operation each, apart from every value function, unit and letter.
+ * answer, with or without spaces after its commas, and the names are one operation each, apart from every value function, unit and letter.
  */
 class CommandFunctionsTest {
-    private fun answer(text: String, language: String = "en"): String {
-        val r = Reports.of(TextInput.read(text, language)).result
+    private fun answer(text: String): String {
+        val r = Reports.of(TextInput.read(text)).result
         return if (r.outcome is Outcome.Failed) "FAILED ${(r.outcome as Outcome.Failed).failure}" else answerOf(r)
     }
 
@@ -106,17 +106,15 @@ class CommandFunctionsTest {
         assertEquals("", wrong.joinToString("\n"))
     }
 
+    /** Typed on the keys, a call has no spaces: its commas separate its arguments all the same. */
     @Test
-    fun aCallReadsTheSameInEveryLanguage() {
-        val languages = listOf("de", "es", "fr", "id", "it", "nl", "pl", "pt-BR", "tr", "vi", "ru", "uk", "ar", "he", "hi", "ja", "ko", "th",
-            "zh-Hans", "zh-Hant")
+    fun aCallWithoutSpacesReadsTheSame() {
         val wrong = ArrayList<String>()
         for (call in calls) {
-            val english = answer(call)
-            for (language in languages) {
-                val got = answer(call, language)
-                if (got != english) wrong += "$language $call: $got, in English $english"
-            }
+            val tight = call.replace(", ", ",")
+            if (tight == call) continue
+            val got = answer(tight)
+            if (got != answer(call)) wrong += "$tight: $got, not ${answer(call)}"
         }
         assertEquals("", wrong.joinToString("\n"))
     }
@@ -142,9 +140,9 @@ class CommandFunctionsTest {
 
     @Test
     fun aNameIsAFunctionOnlyBeforeItsBracket() {
-        assertNull(CommandFunctions.read("solve", "en"))
-        assertNull(CommandFunctions.read("solve(x) + (y)", "en"))
-        assertNull(CommandFunctions.read("mean(1, 2, 3)", "en"))
+        assertNull(CommandFunctions.read("solve"))
+        assertNull(CommandFunctions.read("solve(x) + (y)"))
+        assertNull(CommandFunctions.read("mean(1, 2, 3)"))
         // A value function stays one: the mean of three numbers is a number.
         assertEquals("2", answer("mean(1, 2, 3)"))
     }

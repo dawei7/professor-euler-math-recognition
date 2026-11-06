@@ -9,14 +9,15 @@ import org.junit.Test
  * out: each list reports all its differences.
  */
 class TextInputTest {
-    private fun typed(text: String, language: String = "en"): String {
-        return answerOf(Reports.of(TextInput.read(text, language)).result)
+    private fun typed(text: String): String {
+        val r = Reports.of(TextInput.read(text)).result
+        return if (r.outcome is Outcome.Failed) "FAILED ${(r.outcome as Outcome.Failed).failure}" else answerOf(r)
     }
 
-    private fun check(language: String, cases: List<Pair<String, String>>) {
+    private fun check(cases: List<Pair<String, String>>) {
         val wrong = cases.mapNotNull { (text, expected) ->
-            val got = typed(text, language)
-            if (got != expected) "$text → ${TextInput.read(text, language)}: $got, not $expected" else null
+            val got = typed(text)
+            if (got != expected) "$text → ${TextInput.read(text)}: $got, not $expected" else null
         }
         assertEquals("", wrong.joinToString("\n"))
     }
@@ -50,13 +51,13 @@ class TextInputTest {
     @Test
     fun wordsAreNoCommands() {
         assertEquals(null, TextInput.read("solve x^2 = 4").choice)
-        assertEquals(null, TextInput.read("löse x^2 = 4", "de").choice)
+        assertEquals(null, TextInput.read("löse x^2 = 4").choice)
         assertEquals(null, TextInput.read("5 km in mi").choice)
-        assertEquals(null, TextInput.read("ggT(12, 18)", "de").choice)
+        assertEquals(null, TextInput.read("ggT(12, 18)").choice)
     }
 
     @Test
-    fun english() = check("en", listOf(
+    fun formulasAndFunctions() = check(listOf(
         "2+3*4" to "14",
         "sqrt(8)" to "2√2 ≈ 2.828427125",
         "x^2+3x-4=0" to "x = -4; 1",
@@ -80,23 +81,51 @@ class TextInputTest {
         "sum(k, k, 1, 100)" to "5050",
     ))
 
+    /**
+     * A function's arguments are split at its commas in every language, and a decimal number takes a point; with semicolons
+     * between the arguments a comma is a decimal one. A formula on its own reads 2,5 as a number.
+     */
     @Test
-    fun german() = check("de", listOf(
-        "solve(x^2=9, x)" to "x = -3; 3",
-        "derivative(x^3, x)" to "3x^2",
-        "integral(x^2, x, 0, 3)" to "9",
-        "limit(sin(x)/x, x, 0)" to "1",
-        "factor(x^2+4x+4)" to "(x + 2)^2",
-        "simplify((x^2-1)/(x-1))" to "x + 1 (x ≠ 1)",
-        "sum(k, k, 1, 100)" to "5050",
-        // Decimal commas: a comma between two digits is in its number.
-        "calculate(2,5*4)" to "10",
+    fun decimals() = check(listOf(
+        "calculate(2.5*4)" to "10",
         "2,5*4" to "10",
+        "integral(x^2,x,0,3)" to "9",
+        "newton(x^2-2,1)" to "newton 7 rows → 1.4142135624",
+        "taylor(sin(x),x,0,9)" to "(1/362880)x^9 - (1/5040)x^7 + (1/120)x^5 - (1/6)x^3 + x",
+        "integral(x^2; x; 0; 1,5)" to "1,125",
+        "stats(1,5; 2,5; 3)" to "n=3 mean 7/3 median 5/2 sd √21/6 q1 3/2 q3 3",
+        // Commas that could be read two ways, and an argument too many, are refused: never guessed.
+        "calculate(2,5*4)" to "FAILED ARGUMENTS",
+        "stats(1,5, 2,5, 3)" to "FAILED ARGUMENTS",
+        "integral(x^2, x, 0, 2,5)" to "FAILED ARGUMENTS",
+    ))
+
+    /** A call with arguments its function does not take fails, and says so: no argument is left out or guessed. */
+    @Test
+    fun aCallWithOtherArgumentsIsRefused() = check(listOf(
+        "derivative(x^3, 2)" to "FAILED ARGUMENTS",
+        "derivative(x^3, x, y)" to "FAILED ARGUMENTS",
+        "integral(x^2, x, 3)" to "FAILED ARGUMENTS",
+        "integral(x^2, 1, 2, 3, 4)" to "FAILED ARGUMENTS",
+        "limit(sin(x)/x)" to "FAILED ARGUMENTS",
+        "limit(sin(x)/x, 2, 0)" to "FAILED ARGUMENTS",
+        "newton(x^2 - 2, 1, 2)" to "FAILED ARGUMENTS",
+        "bisection(x^3 - x - 1, 1)" to "FAILED ARGUMENTS",
+        "taylor(e^x, x, 0, 2.5)" to "FAILED ARGUMENTS",
+        "factor(x^2 - 1, x)" to "FAILED ARGUMENTS",
+        "triangle(3, 4, 5)" to "FAILED ARGUMENTS",
+        "convert(5 km)" to "FAILED ARGUMENTS",
+        "solve()" to "FAILED ARGUMENTS",
+        "solve(x^2 = 4, )" to "FAILED ARGUMENTS",
+        "sum(1/k^2, 1, infinity)" to "FAILED ARGUMENTS",
+        // Told apart by their number: integral(f, a, b) has bounds, integral(f, x) a letter.
+        "integral(x^2, a, b)" to "-(1/3)a^3 + (1/3)b^3",
+        "integral(x y, y)" to "(1/2)xy^2 + C",
     ))
 
     /** What the Calculator's guide shows, read as it is written. */
     @Test
-    fun asTheGuideWritesIt() = check("en", listOf(
+    fun asTheGuideWritesIt() = check(listOf(
         // An initial value after a comma is a line of its own.
         "y' = y, y(0) = 1" to "y = Ce^x [linear] | y = e^x",
         "y'' + y = 0, y(0) = 0, y'(0) = 1" to "y = C_2·sin(x) + C_1·cos(x) [constant_coefficients] | y = sin(x)",

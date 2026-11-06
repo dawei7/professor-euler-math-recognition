@@ -69,6 +69,9 @@ object CommandFunctions {
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
     )
 
+    /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
+    val NAMES: Set<String> = ALL.map { it.name }.toSet()
+
     private val BY_NAME = ALL.associateBy { it.name }
     private val BY_MODE = ALL.filter { it.mode != null }.groupBy { it.mode }.mapValues { it.value.first() }
 
@@ -77,71 +80,103 @@ object CommandFunctions {
 
     private val CALL = Regex("""^([A-Za-z]+)\s*\((.*)\)$""", RegexOption.DOT_MATCHES_ALL)
 
-    /** A call of one of [ALL] (as typed, or as the editor writes it), read; null otherwise. */
-    fun read(text: String, language: String): Typed? {
+    /**
+     * A call of one of [ALL] (as typed, or as the editor writes it), read; null where the text is no call of one. A call with
+     * arguments its function does not take is read as itself, which fails with [Failure.ARGUMENTS]: never guessed, never
+     * with an argument left out.
+     */
+    fun read(text: String): Typed? {
         val t = plain(text.trim())
         val m = CALL.matchEntire(t) ?: return null
         val f = BY_NAME[m.groupValues[1].lowercase()] ?: return null
         val inner = m.groupValues[2]
         // The bracket after the name closes at the end: solve(x)+(y) is no call.
         if (!balanced(inner)) return null
-        val args = arguments(inner, language).map { it.trim() }
-        if (args.isEmpty() || args[0].isEmpty()) return null
-        if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args, language)
+        val args = arguments(inner)?.map { it.trim() } ?: return refused(f, inner)
+        if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
+        if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
         val formula = lines.joinToString("; ")
         val l = TextInput
+        fun letter(k: Int): String? = params.getOrNull(k)?.let { l.letterOf(it) }
         return when (f.shape) {
-            Shape.FORMULA -> when (f.mode) {
-                Mode.LOGIC -> Typed(l.latex(formula), Choice(Mode.LOGIC))
-                Mode.TRIANGLE -> Typed(l.triangleLatex(lines.joinToString(", ")), Choice(Mode.TRIANGLE))
+            Shape.FORMULA -> when {
+                params.isNotEmpty() -> refused(f, inner)
+                f.mode == Mode.LOGIC -> Typed(l.latex(formula), Choice(Mode.LOGIC))
+                f.mode == Mode.TRIANGLE -> Typed(l.triangleLatex(lines.joinToString(", ")), Choice(Mode.TRIANGLE))
                 else -> Typed(l.latex(formula), Choice(f.mode!!))
             }
-            Shape.LETTER -> Typed(l.latex(formula), Choice(f.mode!!, params.getOrNull(0)?.let { l.letterOf(it) }))
+            // solve(f), solve(f, x): the letter, if any, is a letter.
+            Shape.LETTER -> if (params.size > 1 || (params.size == 1 && letter(0) == null)) refused(f, inner)
+                else Typed(l.latex(formula), Choice(f.mode!!, letter(0)))
             Shape.BOUNDS -> {
-                // integral(f), integral(f, x), integral(f, a, b), integral(f, x, a, b).
-                val letter = params.getOrNull(0)?.let { l.letterOf(it) }
-                val bounds = if (letter != null) params.drop(1) else params
+                // integral(f), integral(f, x), integral(f, a, b), integral(f, x, a, b): told apart by their number.
+                val v = when (params.size) {
+                    1, 3 -> letter(0) ?: return refused(f, inner)
+                    0, 2 -> null
+                    else -> return refused(f, inner)
+                }
+                val bounds = if (params.size >= 2) params.takeLast(2) else emptyList()
                 val body = l.latex(formula)
-                if (bounds.size >= 2) {
-                    val v = letter ?: l.mainLetterOf(body)
-                    val integral = "\\int_{${l.latex(bounds[0])}}^{${l.latex(bounds[1])}} $body \\, d$v"
+                if (bounds.size == 2) {
+                    val x = v ?: l.mainLetterOf(body)
+                    // integral(f, x, 3): the letter is no bound of its own integral.
+                    if (bounds.any { it == x }) return refused(f, inner)
+                    val integral = "\\int_{${l.latex(bounds[0])}}^{${l.latex(bounds[1])}} $body \\, d$x"
                     Typed(integral, if (f.mode == Mode.INTEGRAL) null else Choice(f.mode!!))
                 } else {
-                    Typed(body, Choice(f.mode!!, letter))
+                    Typed(body, Choice(f.mode!!, v))
                 }
             }
             Shape.LIMIT -> {
-                // limit(f, x, a) or limit(f, a): x → a, from one side with a+ or a-.
-                val letter = params.getOrNull(0)?.let { l.letterOf(it) }?.takeIf { params.size >= 2 }
-                val point = (if (letter != null) params.getOrNull(1) else params.getOrNull(0)) ?: "0"
+                // limit(f, a) or limit(f, x, a): x → a, from one side with a+ or a-. The point is always stated.
+                val point = when (params.size) {
+                    1 -> params[0]
+                    2 -> params[1].takeIf { letter(0) != null } ?: return refused(f, inner)
+                    else -> return refused(f, inner)
+                }
                 val body = l.latex(formula)
-                Typed("\\lim_{${letter ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} $body")
+                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} $body")
             }
             Shape.SUM -> {
+                // sum(f), sum(f, k), sum(f, k, a), sum(f, k, a, b): from 1 to ∞ where they are not given.
+                if (params.size > 3 || (params.isNotEmpty() && letter(0) == null)) return refused(f, inner)
                 val body = l.latex(formula)
-                val k = params.getOrNull(0)?.let { l.letterOf(it) } ?: "k"
+                val k = letter(0) ?: "k"
                 val lower = params.getOrNull(1) ?: "1"
                 val upper = params.getOrNull(2)?.let { l.latex(it) } ?: "\\infty"
                 Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} $body")
             }
             Shape.SERIES -> {
+                // taylor(f), taylor(f, x), taylor(f, a), taylor(f, a, n), taylor(f, x, a), taylor(f, x, a, n).
+                val v = letter(0)
+                val rest = if (v != null) params.drop(1) else params
+                if (rest.size > 2) return refused(f, inner)
+                val order = rest.getOrNull(1)?.let { it.toIntOrNull()?.takeIf { n -> n in 1..MAX_ORDER } ?: return refused(f, inner) }
                 val body = l.latex(formula)
-                val letter = params.getOrNull(0)?.let { l.letterOf(it) }
-                val rest = if (letter != null) params.drop(1) else params
-                Typed(body, Choice(Mode.SERIES, letter ?: l.mainLetterOf(body), point = rest.getOrNull(0)?.let { l.latex(it) } ?: "0",
-                    order = rest.getOrNull(1)?.trim()?.toIntOrNull()))
+                Typed(body, Choice(Mode.SERIES, v ?: l.mainLetterOf(body), point = rest.getOrNull(0)?.let { l.latex(it) } ?: "0",
+                    order = order))
             }
-            Shape.START -> Typed(l.latex(formula), Choice(Mode.NEWTON, point = params.getOrNull(0)?.let { l.latex(it) }))
-            Shape.INTERVAL -> Typed(l.latex(formula), Choice(Mode.BISECTION,
-                point = if (params.size >= 2) l.latex(params[0]) + "," + l.latex(params[1]) else null))
-            Shape.PERIOD -> Typed(l.latex(formula), Choice(Mode.FOURIER, point = params.getOrNull(0)?.let { l.latex(it) }))
-            else -> null
+            Shape.START -> if (params.size > 1) refused(f, inner)
+                else Typed(l.latex(formula), Choice(Mode.NEWTON, point = params.getOrNull(0)?.let { l.latex(it) }))
+            Shape.INTERVAL -> if (params.size != 0 && params.size != 2) refused(f, inner)
+                else Typed(l.latex(formula), Choice(Mode.BISECTION,
+                    point = if (params.size == 2) l.latex(params[0]) + "," + l.latex(params[1]) else null))
+            Shape.PERIOD -> if (params.size > 1) refused(f, inner)
+                else Typed(l.latex(formula), Choice(Mode.FOURIER, point = params.getOrNull(0)?.let { l.latex(it) }))
+            else -> refused(f, inner)
         }
     }
 
-    private fun special(f: Function, args: List<String>, language: String): Typed? {
+    /** The highest order of a series a call may ask for. */
+    private const val MAX_ORDER = 24
+
+    /** A call that cannot be read, as itself: working it out fails with [Failure.ARGUMENTS]. */
+    private fun refused(f: Function, inner: String): Typed =
+        Typed("\\operatorname{${f.name}}\\left(" + (runCatching { TextInput.latex(inner) }.getOrNull() ?: "") + "\\right)")
+
+    private fun special(f: Function, args: List<String>): Typed? {
         val l = TextInput
         return when (f.shape) {
             // The elements of a list: with decimal commas between semicolons.
@@ -174,26 +209,28 @@ object CommandFunctions {
         return depth == 0
     }
 
-    /** Languages that write a decimal comma: there 2,5 between two digits is a number, never two arguments. */
-    private val DECIMAL_COMMA = setOf("de", "es", "fr", "it", "nl", "pl", "pt", "tr", "vi", "id", "in", "ru", "uk")
-
     /**
-     * The arguments, split at the semicolons where there are any (stats(1,5; 2,5)), else at the commas; in a language with
-     * decimal commas a comma between two digits stays in its number (calculate(2,5*4)).
+     * The arguments, split at the semicolons where there are any (then a comma is a decimal one, stats(1,5; 2,5)), else at
+     * the commas, in every language: a decimal number takes a point, 2.5. Null where the commas could be read two ways, some
+     * between two digits and some before a space (stats(1,5, 2,5)).
      */
-    private fun arguments(inner: String, language: String = "en"): List<String> {
+    private fun arguments(inner: String): List<String>? {
         val split = if (topLevel(inner, ';')) ';' else ','
-        val decimal = split == ',' && language.lowercase().substringBefore('-') in DECIMAL_COMMA
         val out = ArrayList<String>()
         var depth = 0
+        var tight = false
+        var spaced = false
         val current = StringBuilder()
         for ((k, c) in inner.withIndex()) {
             when (c) {
                 '(', '[', '{' -> depth++
                 ')', ']', '}' -> depth--
             }
-            val inNumber = decimal && k > 0 && inner[k - 1].isDigit() && k + 1 < inner.length && inner[k + 1].isDigit()
-            if (c == split && depth == 0 && !inNumber) {
+            if (c == split && depth == 0) {
+                if (c == ',') {
+                    if (k > 0 && inner[k - 1].isDigit() && k + 1 < inner.length && inner[k + 1].isDigit()) tight = true
+                    if (k + 1 < inner.length && inner[k + 1].isWhitespace()) spaced = true
+                }
                 out += current.toString()
                 current.setLength(0)
             } else {
@@ -201,7 +238,7 @@ object CommandFunctions {
             }
         }
         out += current.toString()
-        return out
+        return if (tight && spaced) null else out
     }
 
     private fun topLevel(s: String, c: Char): Boolean {
@@ -285,7 +322,7 @@ object CommandFunctions {
     private fun elements(l: String): List<String>? {
         val inner = l.removePrefix("\\left").let { if (it.startsWith("[") && it.endsWith("]")) it.substring(1, it.length - 1) else return null }
             .removeSuffix("\\right")
-        return arguments(inner).map { it.trim() }.filter { it.isNotEmpty() }
+        return arguments(inner)?.map { it.trim() }?.filter { it.isNotEmpty() }
     }
 
     /** Points from a matrix (one to a row: a regression's) or from lines of vectors (a line's, a plane's). */

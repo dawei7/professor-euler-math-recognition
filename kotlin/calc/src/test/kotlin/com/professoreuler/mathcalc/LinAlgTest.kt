@@ -65,23 +65,22 @@ class LinAlgTest {
         assertEquals(null, jordan.diagonal)
     }
 
-    /** Matrices typed as [[1, 2], [3, 4]] or {{1, 2}, {3, 4}}, and the words for what to do with them in several languages. */
+    /** Matrices typed as [[1, 2], [3, 4]] or {{1, 2}, {3, 4}}, and the functions of what to do with them. */
     @Test fun typedMatrices() {
         val cases = listOf(
-            ("det([[1,2],[3,4]])" to "en") to "-2",
-            ("eigenvalues([[2,1],[1,2]])" to "en") to "1: (-1, 1); 3: (1, 1)",
-            ("eigenvalues([[2,1],[1,2]])" to "de") to "1: (-1, 1); 3: (1, 1)",
-            ("inverse([[1,2],[3,4]])" to "en") to "[[-2, 1], [3/2, -1/2]]",
-            ("[[1,2],[3,4]]^2" to "en") to "[[7, 10], [15, 22]]",
-            ("{{1,2},{3,4}}" to "en") to "-2",
-            ("rref([[1,2,3],[4,5,6]])" to "en") to "[[1, 0, -1], [0, 1, 2]] rank 2 null (1, -2, 1)",
-            ("[[1, 2], [3, 4]] * [[0, 1], [1, 0]]" to "en") to "[[2, 1], [4, 3]]",
-            ("transpose([[1,2,3],[4,5,6]])" to "en") to "[[1, 4], [2, 5], [3, 6]]",
-            ("[1,2,3]*[4,5,6]" to "en") to "32",
+            "det([[1,2],[3,4]])" to "-2",
+            "eigenvalues([[2,1],[1,2]])" to "1: (-1, 1); 3: (1, 1)",
+            "inverse([[1,2],[3,4]])" to "[[-2, 1], [3/2, -1/2]]",
+            "[[1,2],[3,4]]^2" to "[[7, 10], [15, 22]]",
+            "{{1,2},{3,4}}" to "-2",
+            "rref([[1,2,3],[4,5,6]])" to "[[1, 0, -1], [0, 1, 2]] rank 2 null (1, -2, 1)",
+            "[[1, 2], [3, 4]] * [[0, 1], [1, 0]]" to "[[2, 1], [4, 3]]",
+            "transpose([[1,2,3],[4,5,6]])" to "[[1, 4], [2, 5], [3, 6]]",
+            "[1,2,3]*[4,5,6]" to "32",
         )
         val wrong = cases.mapNotNull { (input, expected) ->
-            val got = answerOf(Reports.of(TextInput.read(input.first, input.second)).result)
-            if (got != expected) "${input.first}: $got, not $expected" else null
+            val got = answerOf(Reports.of(TextInput.read(input)).result)
+            if (got != expected) "$input: $got, not $expected" else null
         }
         assertEquals("", wrong.joinToString("\n"))
     }
@@ -150,18 +149,18 @@ class LinAlgTest {
     /** Typed: a system with ";", "subject to", and the words for the new modes. */
     @Test fun typedFields() {
         val cases = listOf(
-            ("extrema(x*y, x+y=10)" to "en") to "(5, 5) 25",
-            ("x*y; x+y=10" to "en") to "(5, 5) 25",
-            ("divergence((x^2 y, y z, x z))" to "en") to "2xy + x + z",
-            ("curl((x^2 y, y z, x z))" to "de") to "(-y, -z, -x^2)",
-            ("gradient(x^2 y + y^3)" to "en") to "(2xy, x^2 + 3y^2)",
-            ("x+y=1; x-y=1; x+2y=3" to "en") to "x = 9/7, y = 4/7 residual 2√14/7 ≈ 1.069044968",
-            ("decompose([[4,3],[6,3]])" to "en") to
+            "extrema(x*y, x+y=10)" to "(5, 5) 25",
+            "x*y; x+y=10" to "(5, 5) 25",
+            "divergence((x^2 y, y z, x z))" to "2xy + x + z",
+            "curl((x^2 y, y z, x z))" to "(-y, -z, -x^2)",
+            "gradient(x^2 y + y^3)" to "(2xy, x^2 + 3y^2)",
+            "x+y=1; x-y=1; x+2y=3" to "x = 9/7, y = 4/7 residual 2√14/7 ≈ 1.069044968",
+            "decompose([[4,3],[6,3]])" to
                 "P=[[1, 0], [0, 1]] L=[[1, 0], [3/2, 1]] U=[[4, 3], [0, -3/2]] | Q=[[2√13/13, 3√13/13], [3√13/13, -2√13/13]] R=[[2√13, 15√13/13], [0, 3√13/13]]",
         )
         val wrong = cases.mapNotNull { (input, expected) ->
-            val got = answerOf(Reports.of(TextInput.read(input.first, input.second)).result)
-            if (got != expected) "${input.first}: $got, not $expected" else null
+            val got = answerOf(Reports.of(TextInput.read(input)).result)
+            if (got != expected) "$input: $got, not $expected" else null
         }
         assertEquals("", wrong.joinToString("\n"))
     }

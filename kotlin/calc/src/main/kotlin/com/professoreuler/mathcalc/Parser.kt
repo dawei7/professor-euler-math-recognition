@@ -1021,7 +1021,12 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                             out += s
                         } else {
                             val name = inside.joinToString("")
-                            if (name in FUNCTIONS || name in COMMAND_NAMES) out += "\\$name" else out.addAll(inside)
+                            when {
+                                name in FUNCTIONS || name in COMMAND_NAMES -> out += "\\$name"
+                                // A command's call that could not be read is no product of its letters.
+                                s == "\\operatorname" && name in CommandFunctions.NAMES -> throw CalcException(Failure.ARGUMENTS)
+                                else -> out.addAll(inside)
+                            }
                             k = close
                         }
                     }

@@ -39,6 +39,11 @@ enum class Failure {
     UNITS,
     /** No triangle has these sides and angles. */
     NO_TRIANGLE,
+    /**
+     * A function given arguments it does not take: too many or too few, a number where its letter belongs, or commas that
+     * could be read two ways (`stats(1,5, 2,5)`).
+     */
+    ARGUMENTS,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)

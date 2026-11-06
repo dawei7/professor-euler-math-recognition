@@ -15,14 +15,14 @@ data class Typed(val latex: String, val choice: Choice? = null, val fractions: B
  * [CommandFunctions]). There are no command words: a word is letters or a function's name.
  */
 object TextInput {
-    /** [text] as typed; [language] the app's language ("de", "en", "pt-BR"), which decides only whether a comma is a decimal one. */
-    fun read(text: String, language: String = "en"): Typed {
+    /** [text] as typed, the same in every language: a function's name is English, and its arguments are split at commas. */
+    fun read(text: String): Typed {
         // ¿es 97 primo?, هل 97 أولي؟: the marks of a question are no math.
         val trimmed = westernDigits(text.trim().trimStart('¿', '¡').trimEnd('؟').trim())
         if (trimmed.isEmpty()) return Typed("")
         // A line whose call cannot be made sense of is the math it holds: reading never fails.
         return try {
-            readMath(trimmed, language)
+            readMath(trimmed)
         } catch (e: CalcException) {
             Typed(latex(trimmed))
         } catch (e: RuntimeException) {
@@ -46,10 +46,10 @@ object TextInput {
         })
     }
 
-    private fun readMath(written: String, language: String): Typed {
+    private fun readMath(written: String): Typed {
         // A command is a function, solve(x^2 = 4, x), with English names in every language (owner, 6 November 2026: "rely on
         // the strict english only best practice named functions"); there are no command words.
-        CommandFunctions.read(written, language)?.let { return it }
+        CommandFunctions.read(written)?.let { return it }
         // "y' = y, y(0) = 1": an initial value after a comma is a line of its own.
         val text = if ('\'' in written) written.replace(INITIAL_AFTER_COMMA, "; ") else written
         derivativeOperator(text)?.let { return it }

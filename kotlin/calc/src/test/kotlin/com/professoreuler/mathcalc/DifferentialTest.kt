@@ -85,20 +85,19 @@ class DifferentialTest {
     /** Typed: the words, a start "from 1", an interval "on [1, 2]" or "from 0 to 1". */
     @Test fun typed() {
         val cases = listOf(
-            ("laplace(t^2)" to "en") to "2/s^3",
-            ("laplace(t^2)" to "de") to "2/s^3",
-            ("invlaplace(1/(s^2+1))" to "en") to "sin(t)",
-            ("fourier(x^2)" to "en") to "a0 = 2π^2/3, an = 4(-1)^n/n^2, bn = 0",
-            ("newton(x^2-2, 1)" to "en") to "newton 7 rows → 1.4142135624",
-            ("bisection(x^3-x-1, 1, 2)" to "en") to "bisection 34 rows → 1.3247179572",
-            ("simpson(x^2, x, 0, 1)" to "en") to "simpson 6 rows → 0.3333333333",
-            ("y'=y; y(0)=2" to "en") to "y = Ce^x [linear] | y = 2e^x",
-            ("dsolve(y' = y, y(0) = 2)" to "en") to "y = Ce^x [linear] | y = 2e^x",
-            ("polar(1+i)" to "en") to "r = √2, φ = π/4",
+            "laplace(t^2)" to "2/s^3",
+            "invlaplace(1/(s^2+1))" to "sin(t)",
+            "fourier(x^2)" to "a0 = 2π^2/3, an = 4(-1)^n/n^2, bn = 0",
+            "newton(x^2-2, 1)" to "newton 7 rows → 1.4142135624",
+            "bisection(x^3-x-1, 1, 2)" to "bisection 34 rows → 1.3247179572",
+            "simpson(x^2, x, 0, 1)" to "simpson 6 rows → 0.3333333333",
+            "y'=y; y(0)=2" to "y = Ce^x [linear] | y = 2e^x",
+            "dsolve(y' = y, y(0) = 2)" to "y = Ce^x [linear] | y = 2e^x",
+            "polar(1+i)" to "r = √2, φ = π/4",
         )
         val wrong = cases.mapNotNull { (input, expected) ->
-            val got = answerOf(Reports.of(TextInput.read(input.first, input.second)).result)
-            if (got != expected) "${input.first}: $got, not $expected" else null
+            val got = answerOf(Reports.of(TextInput.read(input)).result)
+            if (got != expected) "$input: $got, not $expected" else null
         }
         assertEquals("", wrong.joinToString("\n"))
     }
