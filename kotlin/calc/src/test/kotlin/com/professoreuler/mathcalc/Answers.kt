@@ -94,6 +94,45 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
+    is Outcome.PhysicalConstant -> o.constant.name + " = " + PhysicalConstants.text(o.quantity) + (if (o.unit.isEmpty()) "" else " " + o.unit) +
+        (if (o.quantity.exact) " exact" else "")
+    is Outcome.PhysicalValue -> PhysicalConstants.text(o.quantity) + " from " + o.constants.joinToString(", ") +
+        (if (o.quantity.exact) " exact" else "")
+    is Outcome.DomainColoring -> o.plot.let { p ->
+        fun pts(l: List<ComplexPlot.Point>) = l.joinToString("; ") { (if (it.exact) c.text(it.at) else "≈" + ComplexPlot.text(it)) + (if (it.order > 1) " (${it.order}×)" else "") }
+        "square " + c.text(p.region.center) + " ± " + c.text(p.region.halfWidth) + " zeros " + pts(p.zeros).ifEmpty { "none" } +
+            " poles " + pts(p.poles).ifEmpty { "none" }
+    }
+    is Outcome.Venn -> o.diagram.let { d ->
+        d.sets.joinToString("") + ": " + d.regions.filter { it.included }.joinToString(", ") { it.text }.ifEmpty { "∅" } +
+            " simplest " + Logic.text(d.simplest, true)
+    }
+    is Outcome.SingularValues -> o.svd.let { s ->
+        "σ " + s.values.joinToString(", ") { c.text(it) } + " U=" + c.text(s.u) + " S=" + c.text(s.sigma) + " V=" + c.text(s.v) + (if (s.exact) "" else " (decimals)")
+    }
+    is Outcome.JordanForm -> o.jordan.let { j -> "J=" + c.text(j.j) + " P=" + c.text(j.p) + " blocks " + j.blocks.joinToString(", ") { c.text(it.value) + "×" + it.size } }
+    is Outcome.OdeSystemSolved -> o.system.let { s ->
+        fun of(v: List<Expr>) = s.unknowns.indices.joinToString(", ") { "${s.unknowns[it]} = " + c.text(v[it]) }
+        of(s.general) + (s.particular?.let { " | " + of(it) } ?: "") + (s.equilibrium?.let { " | " + equilibrium(c, it) } ?: "")
+    }
+    is Outcome.SeriesSolved -> o.solution.let { s ->
+        "${s.y} = " + c.textResult(Outcome.Expression(Expr.ZERO, series = s.terms, seriesIn = s.seriesIn, remainder = pow(s.seriesIn, num(s.order + 1L)))) +
+            (s.recurrence?.let { (l, r) -> " | " + c.text(l) + " = " + c.text(r) } ?: "")
+    }
+    is Outcome.BoundaryValueSolved -> o.problem.let { p ->
+        when (p.kind) {
+            BoundaryValue.Kind.UNIQUE -> "unique ${p.y} = " + c.text(p.solution!!)
+            BoundaryValue.Kind.NONE -> "none"
+            BoundaryValue.Kind.INFINITE -> "infinitely many ${p.y} = " + c.text(p.solution!!) + " (" + p.free.joinToString(", ") + " free)"
+        }
+    }
+    is Outcome.DirectionField -> o.field.let { f ->
+        (if (f.kind == Fields.FieldKind.SLOPE) "slope field ${f.y}' = " + c.text(f.dy) else "phase portrait ${f.x}' = " + c.text(f.dx) + ", ${f.y}' = " + c.text(f.dy)) +
+            (if (f.constants.isNotEmpty()) " | constant " + f.constants.joinToString(", ") { "${f.y} = " + c.text(it) } else "") +
+            (if (f.equilibria.isNotEmpty()) " | " + f.equilibria.joinToString("; ") { equilibrium(c, it) } else "")
+    }
+    is Outcome.Interpolated -> o.interpolant.let { p -> "p(${p.letter}) = " + c.text(p.polynomial) + " newton " + p.newton.joinToString(", ") { c.text(it) } }
+    is Outcome.SplineThrough -> o.spline.pieces.joinToString(" | ") { p -> "[" + c.text(p.from) + ", " + c.text(p.to) + "] " + c.text(p.polynomial) }
     is Outcome.FinanceSchedule -> o.schedule.let { s ->
         val m = Finance::money
         val first = s.rows.first()
@@ -103,6 +142,9 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
             " end " + m(end.last()) + " totals " + s.columns.indices.mapNotNull { j -> s.totals[j]?.let { s.columns[j].name.lowercase() + " " + m(it) } }.joinToString(", ")
     }
 }
+
+private fun equilibrium(c: Calculation, e: Fields.Equilibrium): String =
+    "(" + e.at.joinToString(", ") { c.text(it) } + ") " + e.kind.name.lowercase() + when (e.stable) { true -> " stable"; false -> " unstable"; null -> "" }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))
 

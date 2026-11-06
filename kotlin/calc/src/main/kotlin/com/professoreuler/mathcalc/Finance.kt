@@ -73,11 +73,14 @@ object Finance {
         val arity = NAMES[name] ?: return null
         if (args.size !in arity) throw CalcException(Failure.ARGUMENTS)
         if (args.any { it is Expr.Mat || it.hasI() || it.hasOp() }) throw CalcException(Failure.ARGUMENTS)
-        Budget.check()
-        args.forEachIndexed { k, a -> checkRole(roleOf(name, k), a) }
-        val result = formula(name, args)
-        if (!checked(name, args, result)) throw CalcException(Failure.UNSOLVED)
-        return result
+        // Worked out while the formula is read, before the calculation's time starts: bounded by a time of its own.
+        return Budget.bounded(MathCalc.LIMIT_MS) {
+            Budget.check()
+            args.forEachIndexed { k, a -> checkRole(roleOf(name, k), a) }
+            val result = formula(name, args)
+            if (!checked(name, args, result)) throw CalcException(Failure.UNSOLVED)
+            result
+        }
     }
 
     /** The number [a] in its [role]'s range; letters pass (the formula is the answer then). */
