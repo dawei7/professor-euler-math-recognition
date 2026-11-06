@@ -138,7 +138,7 @@ object Units {
 
     private fun tidy(e: Expr) = Calculus.tidy(e)
 
-    private val SUPERSCRIPTS = mapOf('²' to 2, '³' to 3, '¹' to 1, '⁴' to 4)
+    private val SUPERSCRIPTS = mapOf('²' to 2, '³' to 3, '¹' to 1, '⁴' to 4, '⁵' to 5, '⁶' to 6, '⁷' to 7, '⁸' to 8, '⁹' to 9)
 
     /** One unit, perhaps with a prefix and a power ("km", "cm^3", "m²", "s-1"). */
     private fun factor(text: String): Unit? {

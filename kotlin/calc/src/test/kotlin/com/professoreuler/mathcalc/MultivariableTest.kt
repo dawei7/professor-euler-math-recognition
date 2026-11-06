@@ -112,7 +112,7 @@ class MultivariableTest {
         assertTrue("$jump", jump is Outcome.Failed || (jump as? Outcome.Value)?.value?.double?.let { abs(it - 0.5) < 1e-9 } == true)
         // Kinks along a line, exactly: ∬ |x + y − 1| = 1/3, ∬ sgn(x − y) = 0.
         exact("1/3 ≈ 0.3333333333", "integral(abs(x + y - 1), x, 0, 1, y, 0, 1)")
-        exact("0", "integral(sgn(x - y), x, 0, 1, y, 0, 1)")
+        near(0.0, "integral(sgn(x - y), x, 0, 1, y, 0, 1)")
         // The cube's ∭ 1/|r| dV, numerically, against its closed form 3 ln((1 + √3)/√2) − π/4.
         near(3 * ln((1 + sqrt(3.0)) / sqrt(2.0)) - PI / 4, "integral(1/sqrt(x^2+y^2+z^2), x, 0, 1, y, 0, 1, z, 0, 1)", 1e-8)
     }

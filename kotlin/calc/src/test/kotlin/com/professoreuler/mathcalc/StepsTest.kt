@@ -12,6 +12,17 @@ import kotlin.math.round
  * inequalities, the same value for expressions.
  */
 class StepsTest {
+    /** The applied functions' steps (rank to linear programs), as their calls are read. */
+    private val APPLIED = listOf(
+        "rank([[1, k], [k, 4]])", "trace([[1, 2], [3, 4]])", "nullspace([[1, 2, 3], [4, 5, 6]])", "columnspace([[1, 2, 3], [4, 5, 6]])",
+        "charpoly([[2, 1], [1, 2]])", "adjugate([[1, 2], [3, 4]])", "tangentline(x^2, x, 1)", "normalline(x^3, x, 1)",
+        "normalline(x^2, x, 0)", "arclength(x^3/6 + 1/(2x), x, 1, 2)", "arclength(sin(x), x, 0, pi)", "areabetween(x^3, x)",
+        "volumex(sqrt(x), x, 0, 4)", "volumey(x^2, x, 0, 2)", "meanvalue(x^2, x, 0, 3)",
+        "maximize(3x + 2y, x + y <= 4, x + 3y <= 6, x >= 0, y >= 0)",
+        "maximize(2x + 3y + 4z, x + y + z <= 10, 2x + y <= 12, y + 3z <= 15, x >= 0, y >= 0, z >= 0)",
+        "maximize(x + y, x >= 0, y >= 0)", "maximize(x + y, x + y <= 2, x + y >= 3)",
+    ).map { TextInput.read(it).let { t -> t.latex to t.choice } }
+
     private val LATER = listOf(
         "\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}" to null, "\\begin{pmatrix}2&1\\\\1&2\\end{pmatrix}" to Choice(Mode.EIGEN),
         "\\begin{pmatrix}2&0&1\\\\1&3&2\\\\1&1&1\\end{pmatrix}" to null, "\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}" to Choice(Mode.INVERSE),
@@ -27,7 +38,7 @@ class StepsTest {
         "x^{2}+y^{2}-4x+6y=12" to null, "y^{2}=8x" to Choice(Mode.CONIC),
         "\\operatorname{constant}(electronmass)\\cdot \\operatorname{constant}(speedoflight)^{2}" to null,
         "\\operatorname{constant}(speedoflight, km/h)" to null,
-    )
+    ) + APPLIED
 
 
     private val NUMBERS = listOf("interpolate((1, 2), (2, 3), (3, 5))", "spline((0, 0), (1, 1), (2, 0))", "multorder(3, 7)",
@@ -309,8 +320,10 @@ class StepsTest {
             "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\pi)=1\\end{cases}" to null, "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\frac{\\pi}{2})=1\\end{cases}" to null,
             "\\begin{cases}y''+y=0\\\\y(0)=1\\\\y'(0)=0\\end{cases}" to Choice(Mode.ODE_SERIES))
         for ((latex, choice) in chosen + LATER) Steps.of(latex, choice)?.forEach { reached += it.why.key }
+        for ((latex, choice) in NETWORK_STEPS) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         // Interpolation and splines; orders, primitive roots and discrete logarithms, typed as their functions.
         for (text in NUMBERS) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
+        for ((latex, choice) in PdeTest.STEP_TASKS) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         for (text in MULTIVARIABLE) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
@@ -330,6 +343,16 @@ class StepsTest {
             "START STAT_MEAN STAT_SORTED STAT_MEDIAN STAT_VARIANCE STAT_SD", "REG_SUMS REG_SLOPE REG_INTERCEPT RESULT",
             "UNIT_FACTOR RESULT", "UNIT_OFFSET RESULT", "START CONIC_COMPLETE CONIC_STANDARD", "START CONIC_STANDARD",
             "START CONSTANT_VALUES UNCERTAINTY_BOUND RESULT", "UNIT_FACTOR RESULT",
+            "START RANK_ECHELON RANK_MINOR RANK_CASE RANK_CASE RESULT", "START TRACE_SUM", "START RANK_ECHELON NULL_FREE RESULT",
+            "START RANK_ECHELON COLUMN_PIVOTS RESULT", "START CHARPOLY_DET RESULT", "START ADJ_COFACTORS ADJ_TRANSPOSE ADJ_CHECK",
+            "START TANGENT_POINT DERIVATIVE_OF TANGENT_SLOPE TANGENT_FORMULA RESULT",
+            "START TANGENT_POINT DERIVATIVE_OF TANGENT_SLOPE NORMAL_SLOPE NORMAL_FORMULA RESULT",
+            "START TANGENT_POINT DERIVATIVE_OF TANGENT_SLOPE NORMAL_VERTICAL",
+            "START DERIVATIVE_OF ARC_FORMULA ARC_SQUARE INTEGRAL_TABLE DEFINITE_BOUNDS RESULT",
+            "START DERIVATIVE_OF ARC_FORMULA INTEGRAL_NUMERIC RESULT", "START AREA_CROSSINGS AREA_PIECE AREA_PIECE AREA_PIECES RESULT",
+            "START VOLUME_DISCS INTEGRAL_TABLE DEFINITE_BOUNDS RESULT", "START VOLUME_SHELLS INTEGRAL_TABLE DEFINITE_BOUNDS RESULT",
+            "START MEAN_FORMULA INTEGRAL_TABLE DEFINITE_BOUNDS RESULT", "START LP_CORNERS LP_VALUES LP_DUAL RESULT",
+            "START LP_SIMPLEX LP_DUAL RESULT", "START LP_CORNERS LP_VALUES LP_UNBOUNDED", "START LP_INFEASIBLE",
         )
         val got = LATER.map { (latex, choice) -> Steps.of(latex, choice)?.joinToString(" ") { it.why.key.name } ?: "none" }
         assertEquals(expected.joinToString("\n"), got.joinToString("\n"))
