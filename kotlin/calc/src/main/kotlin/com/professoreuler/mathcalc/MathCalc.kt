@@ -85,6 +85,11 @@ enum class Failure {
     /** A graph that is not connected where the task needs it so: it has no spanning tree. */
     NOT_CONNECTED,
     /**
+     * Not a probability distribution where one is needed: an entry < 0, or entries that do not add up to 1 (entropy([0.5, 0.6])),
+     * or a transition matrix's row that is neither probabilities nor zeros.
+     */
+    NOT_DISTRIBUTION,
+    /**
      * The Jacobi or Gauss–Seidel method for a system with a 0 on its diagonal: equation i cannot be solved for its unknown i
      * (written in another order, it may be).
      */
@@ -340,6 +345,14 @@ enum class Mode {
 
     /** The number of walks of length k, from the powers of the adjacency matrix. */
     WALKS,
+    /** Gradient descent from a start with a step size, as a table ([Learning]). */
+    GRADIENT_DESCENT,
+
+    /** A finite Markov decision process: value iteration and its optimal values and policy ([Decisions]). */
+    VALUE_ITERATION,
+
+    /** A fixed policy's values in a finite Markov decision process, solved exactly ([Decisions]). */
+    POLICY_EVALUATION,
     /** The secant method from two starting values ([Choice.point] "x₀,x₁"). */
     SECANT,
 
@@ -640,6 +653,22 @@ sealed class Outcome {
     /** A maximum flow and a minimum cut of the same capacity ([Networks.Flow]). */
     data class MaxFlow(val flow: Networks.Flow) : Outcome()
     /**
+     * Gradient descent on f of [letters] ([Learning]): its [table] (k, the point's coordinates, f there and |∇f| there, the
+     * method's own approximation), the [point] it ended at (null where it diverged), whether it [settled] (|∇f| < 10⁻¹⁰ before
+     * the last step), and the exact local [minimum] nearest to that point where Calculate finds one, to compare with.
+     */
+    data class Descent(val letters: List<String>, val table: Numerics.Table, val point: List<Double>?, val settled: Boolean,
+        val minimum: CriticalPoint?) : Outcome()
+
+    /**
+     * A finite Markov decision process solved ([Decisions]): the optimal [values] v*(s), exact and checked by the Bellman optimality
+     * equation; the optimal action values q*(s, a) ([actions], row s, column a, null where action a is not available in state s);
+     * the optimal actions of each state ([policy], numbered from 1, several where they tie); the discount [gamma]; and value
+     * iteration's [table] from v₀ = 0 (its first sweeps and its last, the method's own approximation), [sweeps] sweeps in all.
+     */
+    data class DecisionProcess(val values: List<Expr>, val actions: List<List<Expr?>>, val policy: List<List<Int>>,
+        val table: Numerics.Table, val gamma: Expr, val sweeps: Int) : Outcome()
+    /**
      * An iteration x ← G(x) to a solution, fixed-point iteration or the Jacobi or Gauss–Seidel method ([Iterative.Iteration]):
      * its table, its result where it converged and was checked, the exact solution and the error, and the convergence tests.
      */
@@ -733,7 +762,9 @@ object MathCalc {
         val outcome = try {
             // Logic and sets are read on their own; everything else is mathematics for the parser.
             val logic = Logic.read(tokens.map { if (it.length > 1 && it[0] == ',') "," else it })
-            val statements = if (logic != null) emptyList() else Parser(tokens, flags).statements()
+            // gradientdescent(…), valueiteration(…), policyevaluation(…): a command whose arguments it reads itself.
+            val command = if (logic != null) null else Learning.command(tokens)
+            val statements = if (logic != null || command != null) emptyList() else Parser(tokens, flags).statements()
             if (fractions) flags.fractions = true
             val others = if (flags.plusMinus) Parser(tokens, Flags(assumptions).also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
@@ -743,6 +774,7 @@ object MathCalc {
                 // A function of [Iterative] asked for (jacobimethod, secant, cond, gramschmidt …): worked out as its call says.
                 iterativePlan(statements, choice)?.let { mine -> choices = mine.choices; shown = choice; return@within mine.outcome(choice!!) }
                 val plan = if (logic != null) logicPlan(logic)
+                    else if (command != null) Choice(command.mode).let { c -> Plan(listOf(c), c) { Learning.work(command, flags) } }
                     else pdePlan(statements) ?: odePlan(statements, flags.odeVariable) ?: odeSystemPlan(statements, flags.odeVariable)
                         ?: plan(statements, others, style, flags.degrees, flags.moduli, flags.denominators)
                 choices = plan.choices
@@ -859,7 +891,7 @@ object MathCalc {
                 Regex("""\\end\{[a-zA-Z]+\}\s*$""").containsMatchIn(text)) ||
                 // [[1, 2], [3, 4]] as the keys write it: one bracket of brackets, nothing after it.
                 (bare.startsWith("[[") && closingAt(bare, 0) == bare.length - 1)
-            return matrixPlan(lastSide, literal)
+            return matrixPlan(lastSide, literal, calculated = Learning.isCall(text))
         }
 
         if (equation && relations.any { it.isInequality || it == Rel.NE }) return inequalityPlan(sides, relations, letters)
@@ -1256,7 +1288,7 @@ object MathCalc {
      * A matrix: for a square one its determinant (the likeliest where it was written as it is), inverse and eigenvalues; for any
      * its row echelon form and its transpose; a matrix worked out from others (A·B, A²) or a vector is shown as it came out.
      */
-    private fun matrixPlan(m: Expr.Mat, literal: Boolean): Plan {
+    private fun matrixPlan(m: Expr.Mat, literal: Boolean, calculated: Boolean = false): Plan {
         val square = m.size == m.columns
         val vector = LinAlg.isVector(m)
         val choices = ArrayList<Choice>()
@@ -1299,6 +1331,8 @@ object MathCalc {
             setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE) + ownOperations
         val fieldLetters = if (field) coordinates else variablesOf(m.symbols())
         val likeliest = when {
+            // A function's value (softmax(…)) is its result, not data.
+            calculated -> Choice(Mode.CALCULATE)
             data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
             literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)
             !literal || vector -> Choice(Mode.CALCULATE)

@@ -170,6 +170,11 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     is Outcome.SpanningTree -> o.tree.let { t -> t.edges.joinToString(", ") { "{${it.from}, ${it.to}}" + (it.weight?.let { w -> ":" + c.text(w) } ?: "") } + " weight " + c.text(t.weight) }
     is Outcome.TopologicalOrder -> o.order.let { r -> r.order?.let { "order " + it.joinToString(", ") } ?: ("cycle " + (r.cycle!! + r.cycle.first()).joinToString(" → ")) }
     is Outcome.MaxFlow -> o.flow.let { f -> "flow " + c.text(f.value) + " cut {" + f.cut.joinToString(", ") + "}" }
+    is Outcome.Descent -> "descent " + o.table.rows.size + " rows → " +
+        (o.point?.joinToString(", ") { "%.10f".format(java.util.Locale.ROOT, it) } ?: "diverged") + (if (o.settled) " settled" else "") +
+        (o.minimum?.let { m -> " | minimum (" + o.letters.joinToString(", ") { c.text(m.at.getValue(it)) } + ") " + c.textValue(m.value) } ?: "")
+    is Outcome.DecisionProcess -> "v* = " + o.values.joinToString(", ") { c.text(it) } + " | policy " +
+        o.policy.joinToString(" ") { it.joinToString("/") } + " | sweeps ${o.sweeps}"
     is Outcome.Iterated -> o.iteration.let { it ->
         it.table.method.name.lowercase() + " " + it.table.rows.size + " rows → " +
             (it.result?.joinToString(", ") { v -> "%.10g".format(java.util.Locale.ROOT, v) } ?: "none") +

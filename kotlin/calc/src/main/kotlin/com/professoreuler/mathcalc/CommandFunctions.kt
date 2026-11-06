@@ -21,6 +21,8 @@ object CommandFunctions {
         APPLIED,
         /** dijkstra((1, 2, 4), (2, 3, 1), 1, 3): a graph's edges, then the vertices (or the length) its function asks for ([Networks]). */
         NETWORK,
+        /** Every argument as typed, read by the function itself ([Learning.command]): gradientdescent(f, x₀, η, n). */
+        CALL,
         /** secant(f, x₀, x₁), fixedpoint(g, x₀): exactly the starting values the method takes ([Function.params]), each a number. */
         STARTS,
         /** norm(A), norm(A, p), cond(A), cond(A, p): the norm, 1, 2, ∞ or F (of a vector also a whole p ≥ 3); 2 where none is given. */
@@ -121,6 +123,9 @@ object CommandFunctions {
         Function("toposort", Mode.TOPOLOGICAL_ORDER, Shape.NETWORK),
         Function("maxflow", Mode.MAX_FLOW, Shape.NETWORK, listOf("s", "t")),
         Function("walks", Mode.WALKS, Shape.NETWORK, listOf("k", "u", "v")),
+        Function("gradientdescent", Mode.GRADIENT_DESCENT, Shape.CALL, listOf("x₀", "η", "n")),
+        Function("valueiteration", Mode.VALUE_ITERATION, Shape.CALL, listOf("P₁", "R", "γ")),
+        Function("policyevaluation", Mode.POLICY_EVALUATION, Shape.CALL, listOf("P₁", "R", "γ", "π")),
         Function("secant", Mode.SECANT, Shape.STARTS, listOf("x₀", "x₁")),
         Function("fixedpoint", Mode.FIXED_POINT, Shape.STARTS, listOf("x₀")),
         Function("jacobimethod", Mode.JACOBI, Shape.SYSTEM, listOf("b", "x₀")),
@@ -159,6 +164,7 @@ object CommandFunctions {
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         if (f.shape == Shape.APPLIED) return Applied.read(f, args) ?: refused(f, inner)
         if (f.shape == Shape.NETWORK) return Networks.typed(f.name, args) ?: refused(f, inner)
+        if (f.shape == Shape.CALL) return Typed(call(f.name, args.map { TextInput.latex(it) }), Choice(f.mode!!))
         if (f.shape in ITERATIVE) return iterative(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
@@ -494,6 +500,8 @@ object CommandFunctions {
             return null
         }
         val f = BY_MODE[c.mode] ?: return null
+        // A call its function reads itself is written as it is.
+        if (f.shape == Shape.CALL) return l.takeIf { it.startsWith("\\operatorname{${f.name}}") }
         iterativeArguments(f, c, l)?.let { return call(f.name, it) }
         val lines = cases(l)
         val one = lines.size == 1
