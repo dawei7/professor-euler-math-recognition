@@ -83,8 +83,8 @@ internal object MoreFunctions {
                     if (r.signum == 0) return Expr.ZERO
                     val a = r.abs()
                     if (a == R1) undefined()
-                    // ½ ln((1 + r)/(1 − r)): always the logarithm of a rational number.
-                    if (a < R1) return mul(Expr.HALF, ln(num((R1 + r) / (R1 - r))))
+                    // ½ ln((1 + r)/(1 − r)): always the logarithm of a rational number; odd, artanh(−1/3) = −ln(2)/2.
+                    if (a < R1) return if (r.signum < 0) neg(fn(f, num(-r))) else mul(Expr.HALF, ln(num((R1 + r) / (R1 - r))))
                     if (!complex) undefined()
                     return add(mul(Expr.HALF, ln(num((r + R1) / (r - R1)))), mul(Expr.I, PI_OVER_TWO))
                 }
@@ -94,6 +94,7 @@ internal object MoreFunctions {
             Func.ACOTH -> {
                 if (r != null) {
                     if (r.abs() <= R1) undefined()
+                    if (r.signum < 0) return neg(fn(f, num(-r)))
                     return mul(Expr.HALF, ln(num((r + R1) / (r - R1))))
                 }
                 oddOrEven(f, x)?.let { return it }
@@ -143,6 +144,9 @@ internal object MoreFunctions {
         return null
     }
 
+    /** sinh, cosh, tanh (and coth, sech, csch) at x = c·ln r, exactly, as rational functions of e^x = r^c; null elsewhere. */
+    fun atLogarithm(f: Func, x: Expr): Expr? = expOfLog(x)?.let { q -> num(hyperbolic(f, q)) }
+
     /** e^x where x = c·ln r, c a whole number and r a positive rational: then e^x = r^c. */
     private fun expOfLog(x: Expr): Rational? {
         val (c, l) = when {
@@ -160,6 +164,9 @@ internal object MoreFunctions {
     private fun hyperbolic(f: Func, q: Rational): Rational {
         val q2 = q * q
         return when (f) {
+            Func.SINH -> (q2 - R1) / (Rational.of(2) * q)
+            Func.COSH -> (q2 + R1) / (Rational.of(2) * q)
+            Func.TANH -> (q2 - R1) / (q2 + R1)
             Func.COTH -> if (q2 == R1) undefined() else (q2 + R1) / (q2 - R1)
             Func.SECH -> Rational.of(2) * q / (q2 + R1)
             else -> if (q2 == R1) undefined() else Rational.of(2) * q / (q2 - R1)

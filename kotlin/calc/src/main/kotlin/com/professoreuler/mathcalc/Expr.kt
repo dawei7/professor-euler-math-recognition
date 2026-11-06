@@ -580,6 +580,8 @@ private fun known(f: Func, args: List<Expr>): Expr? {
                 val flipped = fn(f, mul(Expr.Num(-k.value), rest))
                 return if (f == Func.COSH) flipped else neg(flipped)
             }
+            // At a logarithm, exactly: sinh(ln 2) = (2 − 1/2)/2 = 3/4.
+            MoreFunctions.atLogarithm(f, x)?.let { return it }
         }
         Func.GAMMA, Func.DIGAMMA, Func.ERF, Func.ERFC, Func.ZETA, Func.BESSELJ, Func.LAMBERTW -> return SpecialValues.known(f, args)
         Func.COTH, Func.SECH, Func.CSCH, Func.ASINH, Func.ACOSH, Func.ATANH, Func.ACOTH, Func.ASEC, Func.ACSC, Func.EI, Func.SI, Func.CI,

@@ -60,6 +60,12 @@ class MoreFunctionsTest {
         "arcosh(1/2)" to "πi/3",
         "arcosh(-2)" to "arcosh(2) + πi",
         "artanh(2)" to "ln(3)/2 + πi/2",
+        // At a logarithm exactly, e^(ln a) = a: sinh(ln 2) = 3/4, tanh(ln 3) = 4/5; odd for negative rationals.
+        "sinh(ln(2))" to "3/4 = 0.75",
+        "cosh(ln(4))" to "17/8 = 2.125",
+        "tanh(ln(3))" to "4/5 = 0.8",
+        "artanh(-1/3)" to "-ln(2)/2 ≈ -0.3465735903",
+        "arcoth(-2)" to "-ln(3)/2 ≈ -0.5493061443",
         "sinh(-x)" to "-sinh(x)",
         "cosh(-x)" to "cosh(x)",
         "sinh^(-1)(0)" to "0",
