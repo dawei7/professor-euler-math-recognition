@@ -89,16 +89,26 @@ internal object Series {
      */
     fun matches(e: Expr, t: Expr, x: Expr.Sym, a: Expr, n: Int): Boolean {
         val av = Numeric.value(a) ?: return false
+        // Other letters ((1 + x)^a) take several values each, and the series must match at every one of them; with none, a
+        // series in letters would compare nothing (every value NaN) and pass unseen.
+        val others = (e.symbols() + t.symbols() - x.name).toList()
+        val settings = if (others.isEmpty()) listOf(emptyMap()) else listOf(0.37, 1.61, -0.73, 2.29).map { v ->
+            others.withIndex().associate { (k, name) -> name to v + 0.11 * k }
+        }
         // At 0.1 and 0.05, else (a nearer singularity: 1/(1 − 10x)) at 0.02 and 0.01.
-        return closeAt(e, t, x, av, n, 0.1) || closeAt(e, t, x, av, n, 0.02)
+        return settings.all { env ->
+            val compared = intArrayOf(0)
+            (closeAt(e, t, x, av, n, 0.1, env, compared) || closeAt(e, t, x, av, n, 0.02, env, compared)) && (others.isEmpty() || compared[0] > 0)
+        }
     }
 
-    private fun closeAt(e: Expr, t: Expr, x: Expr.Sym, av: Double, n: Int, h: Double): Boolean {
+    private fun closeAt(e: Expr, t: Expr, x: Expr.Sym, av: Double, n: Int, h: Double, env: Map<String, Double> = emptyMap(),
+        compared: IntArray = IntArray(1)): Boolean {
         for (sign in listOf(1.0, -1.0)) {
             val near = DoubleArray(2)
             val hs = doubleArrayOf(h, h / 2)
             for (i in 0..1) {
-                val at = mapOf(x.name to av + sign * hs[i])
+                val at = env + (x.name to av + sign * hs[i])
                 val f = Numeric.eval(e, at)
                 val g = Numeric.eval(t, at)
                 // Undefined on that side (√x, ln x below 0): the other side decides.
@@ -107,7 +117,8 @@ internal object Series {
                 near[i] = abs(f - g)
             }
             if (near[0].isNaN()) continue
-            val scale = maxOf(1.0, abs(Numeric.eval(e, mapOf(x.name to av + sign * hs[1]))))
+            compared[0]++
+            val scale = maxOf(1.0, abs(Numeric.eval(e, env + (x.name to av + sign * hs[1]))))
             if (near[1] <= 1e-11 * scale) continue
             // Halving the distance divides the error by about 2^(n+1); allow a generous margin for the next terms.
             val ratio = near[1] / near[0]
@@ -231,8 +242,29 @@ internal object Series {
                 // bᵘ = e^(u·ln b).
                 return exp(of(mul(e.exp, fn(Func.LN, e.base))) ?: return null)
             }
-            val r = rational(e.exp) ?: return null
+            // A power whose exponent is a letter other than x, (1 + x)^a: the binomial series, where the base starts at a number.
+            val r = rational(e.exp) ?: return symbolicPow(of(e.base) ?: return null, e.exp)
             return pow(of(e.base) ?: return null, r)
+        }
+
+        /**
+         * p^r for an exponent r free of x that is no number (a letter): (c₀(1 + g))^r = c₀^r·Σ binom(r, k)·g^k by Miller's
+         * recurrence, where p starts at t⁰ and c₀ is 1 or a positive number (so c₀^r is real).
+         */
+        private fun symbolicPow(p0: S, rr: Expr): S? {
+            val p = normal(p0) ?: return null
+            if (p.v != 0 || rr.has(L)) return null
+            val a = p.c
+            val first = if (isOne(a[0])) Expr.ONE else if (signOf(a[0]) == 1) pow(a[0], rr) else return null
+            val b = ArrayList<Expr>()
+            b += first
+            val inverse = pow(a[0], Expr.MINUS_ONE)
+            for (j in 1 until a.size) {
+                var s: Expr = Expr.ZERO
+                for (k in 1..j) s = add(s, mul(add(mul(add(rr, Expr.ONE), num(k.toLong())), num(-j.toLong())), a[k], b[j - k]))
+                b += Algebra.expand(mul(s, num(Rational.ONE / Rational.of(j.toLong())), inverse))
+            }
+            return S(0, b)
         }
 
         private fun function(e: Expr.Fn): S? {
