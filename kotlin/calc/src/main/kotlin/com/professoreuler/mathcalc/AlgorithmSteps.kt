@@ -38,12 +38,19 @@ internal object AlgorithmSteps {
             val n = a.variable
             val calls = a.terms.joinToString(" + ") { (k, b) ->
                 val coefficient = if (isOne(k)) "" else l(k) + "\\,"
-                val arg = rational(b)!!.let { r -> if (r.num == java.math.BigInteger.ONE) "\\frac{$n}{${r.den}}" else "\\frac{${r.num}$n}{${r.den}}" }
-                "$coefficient${a.function}\\left($arg\\right)"
+                "$coefficient${a.function}\\left(${size(n, b)}\\right)"
             }
             val f = if (isZero(a.driving)) "" else " + " + l(a.driving)
             return "${a.function}($n) = $calls$f"
         }
+
+        /** b·n as a fraction: n/2, 2n/3. */
+        fun size(n: String, b: Expr): String = rational(b)!!.let { r ->
+            if (r.num == java.math.BigInteger.ONE) "\\frac{$n}{${r.den}}" else "\\frac{${r.num}$n}{${r.den}}"
+        }
+
+        /** Four certified digits of a constant. */
+        fun digits(e: Expr): String = Algorithms.decimal(Precise.digits(e, 4, complex = false).re, c, latex = true)
 
         fun theta(e: Expr) = "\\Theta\\left(" + l(e) + "\\right)"
 
@@ -52,15 +59,16 @@ internal object AlgorithmSteps {
             step(written(a), StepKey.START)
             if (a.method == DivideConquer.Method.MASTER) {
                 if (a.gap == DivideConquer.Gap.SEVERAL_SIZES) {
-                    step(a.terms.joinToString(",\\ ") { (_, b) -> "\\frac{${a.variable}}{" + l(Calculus.tidy(pow(b, Expr.MINUS_ONE))) + "}" },
-                        StepKey.MASTER_SEVERAL)
+                    step(a.terms.joinToString(",\\ ") { (_, b) -> size(a.variable, b) }, StepKey.MASTER_SEVERAL)
                     return
                 }
                 val (k, b) = a.terms.single()
                 val bb = Calculus.tidy(pow(b, Expr.MINUS_ONE))
                 step("a = " + l(k) + ",\\ b = " + l(bb) + ",\\ f(${a.variable}) = " + l(a.driving), StepKey.MASTER_PARTS)
                 val critical = a.critical ?: return
-                step("${a.variable}^{\\log_{${l(bb)}} ${l(k)}} = " + l(Calculus.tidy(pow(n, critical))), StepKey.MASTER_CRITICAL)
+                // log_b a exact where it is a number (n^(log₂ 2) = n), else with its certified digits (≈ n^0.7925).
+                val leaves = if (critical is Expr.Num) "= " + l(Calculus.tidy(pow(n, critical))) else "\\approx ${a.variable}^{" + digits(critical) + "}"
+                step("${a.variable}^{\\log_{${l(bb)}} ${l(k)}} " + leaves, StepKey.MASTER_CRITICAL)
                 val (p, q) = a.drivingOrder ?: (Expr.ZERO to Expr.ZERO)
                 val fOrder = if (a.drivingOrder == null) "f(${a.variable}) = 0" else "f(${a.variable}) = " + theta(order(n, p, q))
                 when {
