@@ -12,7 +12,9 @@ package com.professoreuler.mathcalc
  */
 object CommandFunctions {
     /** How a function's arguments after the formula are read. */
-    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT }
+    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT,
+        /** Every argument as typed, read by the function itself ([Learning.command]): gradientdescent(f, x₀, η, n). */
+        CALL }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
     class Function(val name: String, val mode: Mode?, val shape: Shape, val params: List<String> = emptyList())
@@ -67,6 +69,9 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("gradientdescent", Mode.GRADIENT_DESCENT, Shape.CALL, listOf("x₀", "η", "n")),
+        Function("valueiteration", Mode.VALUE_ITERATION, Shape.CALL, listOf("P₁", "R", "γ")),
+        Function("policyevaluation", Mode.POLICY_EVALUATION, Shape.CALL, listOf("P₁", "R", "γ", "π")),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -95,6 +100,7 @@ object CommandFunctions {
         val args = arguments(inner)?.map { it.trim() } ?: return refused(f, inner)
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
+        if (f.shape == Shape.CALL) return Typed(call(f.name, args.map { TextInput.latex(it) }), Choice(f.mode!!))
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
         val formula = lines.joinToString("; ")
@@ -295,6 +301,8 @@ object CommandFunctions {
             return null
         }
         val f = BY_MODE[c.mode] ?: return null
+        // A call its function reads itself is written as it is.
+        if (f.shape == Shape.CALL) return l.takeIf { it.startsWith("\\operatorname{${f.name}}") }
         val lines = cases(l)
         val one = lines.size == 1
         val args: List<String> = when (f.shape) {

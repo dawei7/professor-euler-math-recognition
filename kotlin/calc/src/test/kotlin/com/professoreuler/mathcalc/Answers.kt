@@ -94,6 +94,11 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
+    is Outcome.Descent -> "descent " + o.table.rows.size + " rows → " +
+        (o.point?.joinToString(", ") { "%.10f".format(java.util.Locale.ROOT, it) } ?: "diverged") + (if (o.settled) " settled" else "") +
+        (o.minimum?.let { m -> " | minimum (" + o.letters.joinToString(", ") { c.text(m.at.getValue(it)) } + ") " + c.textValue(m.value) } ?: "")
+    is Outcome.DecisionProcess -> "v* = " + o.values.joinToString(", ") { c.text(it) } + " | policy " +
+        o.policy.joinToString(" ") { it.joinToString("/") } + " | sweeps ${o.sweeps}"
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))
