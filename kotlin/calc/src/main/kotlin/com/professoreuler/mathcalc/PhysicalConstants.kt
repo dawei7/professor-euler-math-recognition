@@ -267,8 +267,9 @@ object PhysicalConstants {
         val nameTokens = if (comma < 0) inner else inner.subList(0, comma)
         val name = plainName(nameTokens)
         val unit = if (comma < 0) null else unitText(inner.subList(comma + 1, inner.size))
-        // One name and at most one unit: constant(), constant(c, 2, 3) are no calls of it.
-        if (name.isEmpty() || inner.count { it == "," } > 1 || unit?.isEmpty() == true || nameTokens.any { it.length == 1 && !it[0].isLetter() && it != "{" && it != "}" }) throw CalcException(Failure.ARGUMENTS)
+        // One name of letters and at most one unit: constant(), constant(2), constant(c, km, 3) are no calls of it.
+        val lettersOnly = nameTokens.none { it.length == 1 && !it[0].isLetter() && it != "{" && it != "}" }
+        if (name.isEmpty() || !lettersOnly || inner.count { it == "," } > 1 || unit?.isEmpty() == true) throw CalcException(Failure.ARGUMENTS)
         return name to unit
     }
 
@@ -470,7 +471,7 @@ object PhysicalConstants {
      * measured constant is in it), the result.
      */
     internal fun steps(latex: String, assumptions: Assumptions): List<Step>? {
-        val w = try { work(latex, assumptions) } catch (e: CalcException) { null } ?: return null
+        val w = try { Budget.within(MathCalc.LIMIT_MS) { work(latex, assumptions) } } catch (e: CalcException) { null } ?: return null
         val out = ArrayList<Step>()
         fun step(shown: String, key: StepKey) { out += Step(Steps.tidy(shown), StepText(key)) }
         step(latex.trim().removeSuffix("=").trim(), StepKey.START)
