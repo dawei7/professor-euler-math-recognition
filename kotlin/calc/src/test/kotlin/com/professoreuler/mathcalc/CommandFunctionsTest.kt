@@ -79,6 +79,8 @@ class CommandFunctionsTest {
         "diophantine(3x + 5y = 1)",
         "convert(5 km, mi)",
         "convert(300 K, °C)",
+        "interpolate((1, 2), (2, 3), (3, 5))",
+        "spline((0, 0), (1, 1), (2, 0), (3, 1))",
     )
 
     @Test

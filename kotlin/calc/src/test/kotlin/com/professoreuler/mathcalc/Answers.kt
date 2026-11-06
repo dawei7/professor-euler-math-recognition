@@ -94,6 +94,8 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
+    is Outcome.Interpolated -> o.interpolant.let { p -> "p(${p.letter}) = " + c.text(p.polynomial) + " newton " + p.newton.joinToString(", ") { c.text(it) } }
+    is Outcome.SplineThrough -> o.spline.pieces.joinToString(" | ") { p -> "[" + c.text(p.from) + ", " + c.text(p.to) + "] " + c.text(p.polynomial) }
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))

@@ -57,6 +57,9 @@ enum class StepKey {
     // Triangles, statistics, the regression line, units, conics.
     TRI_COSINES, TRI_SINES, TRI_ANGLE_SUM, TRI_AMBIGUOUS, TRI_AREA, STAT_MEAN, STAT_SORTED, STAT_MEDIAN, STAT_VARIANCE, STAT_SD,
     REG_SUMS, REG_SLOPE, REG_INTERCEPT, UNIT_FACTOR, UNIT_OFFSET, CONIC_COMPLETE, CONIC_STANDARD,
+    // Interpolation and splines; orders, primitive roots and discrete logarithms.
+    INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
+    ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */

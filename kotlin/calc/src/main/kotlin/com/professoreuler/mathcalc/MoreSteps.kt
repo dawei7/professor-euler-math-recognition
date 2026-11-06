@@ -47,7 +47,7 @@ internal object MoreSteps {
                 is Outcome.Value, is Outcome.Expression -> when (c.mode) {
                     Mode.DETERMINANT -> determinant()
                     Mode.INVERSE -> inverse(o as? Outcome.Expression ?: return null)
-                    else -> return null
+                    else -> out += Residues.steps(c, latex) ?: return null
                 }
                 is Outcome.RecurrenceSolved -> recurrence(o.recurrence)
                 is Outcome.Congruence -> congruence(o.solution)
@@ -57,6 +57,8 @@ internal object MoreSteps {
                 is Outcome.Regression -> regression(o)
                 is Outcome.Converted -> units(o)
                 is Outcome.ConicSection -> conic(o.conic)
+                is Outcome.Interpolated -> out += Interpolation.steps(c, o.interpolant)
+                is Outcome.SplineThrough -> out += Interpolation.steps(c, o.spline)
                 else -> return null
             }
             return out

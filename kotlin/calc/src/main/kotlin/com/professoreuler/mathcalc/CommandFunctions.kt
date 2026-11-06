@@ -67,6 +67,8 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("interpolate", Mode.INTERPOLATION, Shape.POINTS),
+        Function("spline", Mode.SPLINE, Shape.POINTS),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -191,11 +193,14 @@ object CommandFunctions {
         return when (f.shape) {
             // The elements of a list.
             Shape.LIST -> Typed(l.listLatex(args.joinToString(", ")), Choice(f.mode!!))
-            Shape.POINTS -> Typed(l.pointsLatex(args.joinToString(", "), matrix = f.mode == Mode.REGRESSION), Choice(f.mode!!))
+            Shape.POINTS -> Typed(l.pointsLatex(args.joinToString(", "), matrix = f.mode in MATRIX_POINTS), Choice(f.mode!!))
             Shape.CONVERT -> if (args.size == 2) l.conversion(args[0], args[1]) else null
             else -> null
         }
     }
+
+    /** The functions of points whose points are the rows of one matrix (a line's and a plane's are vectors, one to a line). */
+    private val MATRIX_POINTS = setOf(Mode.REGRESSION, Mode.INTERPOLATION, Mode.SPLINE)
 
     /** The call as the editor or the display writes it, its LaTeX dressing taken off: \left( is (, \operatorname{solve} is solve. */
     private fun plain(s: String): String = s
