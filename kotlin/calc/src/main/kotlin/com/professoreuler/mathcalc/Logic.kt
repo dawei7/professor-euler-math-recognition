@@ -50,6 +50,13 @@ object Logic {
 
     private fun String.isNumber() = isNotEmpty() && all { it.isDigit() }
 
+    /** [tokens0] read as a formula of sets even where no operation says so (A, A′): what venn(…) draws; null where they are none. */
+    fun readSets(tokens0: List<String>): Reading.Formula? = try {
+        Reader(tokens0.filter { it !in SPACES }, true).reading() as? Reading.Formula
+    } catch (e: CalcException) {
+        null
+    }
+
     private class Reader(val t: List<String>, val sets: Boolean) {
         var i = 0
         fun peek(k: Int = 0) = t.getOrNull(i + k)
