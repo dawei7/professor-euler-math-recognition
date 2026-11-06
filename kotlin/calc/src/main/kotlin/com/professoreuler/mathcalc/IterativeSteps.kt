@@ -107,8 +107,10 @@ internal object IterativeSteps {
             if (onto.size > 1) step(basis.indices.joinToString(",\\ ") { names[it] + " = " + l(basis[it]) }, StepKey.PROJ_BASIS)
             val coefficients = basis.map { w -> Calculus.tidy(LinAlg.dot(v, w) / LinAlg.dot(w, w)) }
             for ((k, w) in basis.withIndex()) {
-                step("\\frac{\\vec{v}\\cdot ${names[k]}}{${names[k]}\\cdot ${names[k]}} = \\frac{${l(LinAlg.dot(v, w))}}{${l(LinAlg.dot(w, w))}} = " +
-                    l(coefficients[k]), StepKey.PROJ_COEFFICIENT, names[k])
+                // The quotient of the two dot products, and the number it is where that is written otherwise.
+                val quotient = "\\frac{${l(LinAlg.dot(v, w))}}{${l(LinAlg.dot(w, w))}}"
+                val shown = if (quotient == l(coefficients[k])) quotient else quotient + " = " + l(coefficients[k])
+                step("\\frac{\\vec{v}\\cdot ${names[k]}}{${names[k]}\\cdot ${names[k]}} = " + shown, StepKey.PROJ_COEFFICIENT, names[k])
             }
             step("\\vec{p} = " + basis.indices.joinToString(" + ") { coefficientLatex(coefficients[it]) + names[it] } + " = " + l(p), StepKey.RESULT)
             val rest = LinAlg.column(v.rows.indices.map { Calculus.tidy(v.rows[it][0] - p.rows[it][0]) })
@@ -211,10 +213,11 @@ internal object IterativeSteps {
                 val (key, rel) = when (s.kind) {
                     Iterative.Kind.ATTRACTING -> StepKey.FP_ATTRACTING to "< 1"
                     Iterative.Kind.REPELLING -> StepKey.FP_REPELLING to "> 1"
-                    Iterative.Kind.NEUTRAL -> StepKey.FP_NEUTRAL to "= 1"
+                    // |g′(x*)| = 1 shown exactly is said once.
+                    Iterative.Kind.NEUTRAL -> StepKey.FP_NEUTRAL to (if (s.exact != null) "" else "= 1")
                 }
                 val sizeShown = if (size.startsWith("\\approx")) size else "= $size"
-                step("$name^{*} $at:\\ \\left|g'($name^{*})\\right| $sizeShown $rel", key, "$name^{*} $at")
+                step("$name^{*} $at:\\ \\left|g'($name^{*})\\right| $sizeShown $rel".trimEnd(), key, "$name^{*} $at")
             }
             it.result?.let { r -> step("$name^{*} " + v(Expr.Real(r[0])).let { a -> if (a.startsWith("\\approx")) a else "\\approx $a" }, StepKey.RESULT) }
         }
