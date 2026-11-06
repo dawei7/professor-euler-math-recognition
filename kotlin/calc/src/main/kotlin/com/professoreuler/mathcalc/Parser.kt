@@ -1076,6 +1076,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                         } else {
                             val name = inside.joinToString("")
                             when {
+                                // A function's second name, as the typed line writes it (\operatorname{lg}): refused.
+                                s == "\\operatorname" && name.lowercase() in TextInput.SECOND_NAMES -> throw CalcException(Failure.UNKNOWN_FUNCTION)
                                 name in FUNCTIONS || (name in COMMAND_NAMES && (name !in OPERATOR_NAMES || s == "\\operatorname")) ->
                                     out += "\\$name"
                                 // A command's call that could not be read is no product of its letters, and neither is a

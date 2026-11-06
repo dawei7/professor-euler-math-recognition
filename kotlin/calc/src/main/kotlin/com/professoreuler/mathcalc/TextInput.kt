@@ -343,6 +343,8 @@ object TextInput {
             // beta(2, 3) is Euler's B, beta alone the Greek letter.
             lower == "beta" && bracketFollows -> emit("beta")
             word == "Gamma" -> emit("\\Gamma ")
+            // A second name before its argument: refused (lg 100 too, which the reader would take as log).
+            lower in SECOND_NAMES && (bracketFollows || lower == "lg") -> emit("\\operatorname{$lower}")
             lower in FUNCTION_WORDS -> emit("\\${FUNCTION_WORDS.getValue(lower)}")
             // A command inside a formula (2 det(A)), and a name the calculator does not know (round(2.5)): each fails
             // with its reason, never read as the product of its letters.
@@ -481,15 +483,26 @@ object TextInput {
      * names other calculators have (re, im), unless it ends in a function after a letter or two (x sin(x) written xsin(x)).
      */
     private fun unknownName(lower: String): Boolean {
+        // asin(1) is no a·sin(1), tg(x) no t·g·x: a second name is refused, however short.
+        if (lower in SECOND_NAMES) return true
         if (lower.length < 3 && lower !in setOf("re", "im")) return false
-        // asinh(1) is no a·sinh(1): the inverse hyperbolic functions under each of their names; beta(2, 3) is Euler's B,
-        // which the calculator does not have, not β times a vector.
-        if (lower in INVERSE_HYPERBOLIC) return true
         if (lower in Discrete.NAMES || lower in KNOWN_WORDS) return false
         return KNOWN_WORDS.none { lower.endsWith(it) && lower.length - it.length in 1..2 }
     }
 
-    private val INVERSE_HYPERBOLIC = setOf("asinh", "acosh", "atanh", "acoth", "arcsinh", "arccosh", "arctanh", "arccoth")
+    /**
+     * Every function has one name (owner, 6 November 2026), the one the guide and the keys use; the second names other
+     * calculators and schools have are refused (UNKNOWN_FUNCTION), never read as their function or as letters: asin for arcsin,
+     * asinh and arcsinh for arsinh, lg for log, tg and ctg (Russian school notation) for tan and cot, productlog for lambertw,
+     * sign for sgn, ncr and choose for binom, perm for npr, fib for fibonacci, moebius for mu, variance for var, stdev for sd.
+     * The reader's LaTeX keeps its commands: \lg is log to the base 10, \sin^{-1} is arcsin.
+     */
+    internal val SECOND_NAMES = setOf(
+        "asin", "acos", "atan", "acot", "asec", "acsc",
+        "asinh", "acosh", "atanh", "acoth", "asech", "acsch", "arcsinh", "arccosh", "arctanh", "arccoth",
+        "lg", "tg", "ctg", "arctg", "arcctg", "productlog", "sign",
+        "ncr", "choose", "perm", "fib", "moebius", "variance", "stdev",
+    )
 
     /** The functions written with a capital: the exponential, sine and cosine integrals. */
     private val CAPITAL_FUNCTIONS = setOf("Ei", "Si", "Ci")
@@ -505,7 +518,7 @@ object TextInput {
     /** Words wrapped around their argument. */
     private val WRAPPERS = setOf("sqrt", "cbrt", "abs", "floor", "ceil")
 
-    /** Function words as the parser's commands: asin is arcsin, productlog is Lambert's W. */
+    /** Function words as the parser's commands, one name each ([SECOND_NAMES] are refused). */
     private val FUNCTION_WORDS = mapOf(
         "sin" to "sin", "cos" to "cos", "tan" to "tan", "cot" to "cot", "sec" to "sec", "csc" to "csc",
         "sinh" to "sinh", "cosh" to "cosh", "tanh" to "tanh",
@@ -515,13 +528,10 @@ object TextInput {
         "arcsec" to "arcsec", "arccsc" to "arccsc",
         "bessely" to "bessely", "elliptick" to "elliptick", "elliptice" to "elliptice",
         "arcsin" to "arcsin", "arccos" to "arccos", "arctan" to "arctan", "arccot" to "arccot",
-        "asin" to "arcsin", "acos" to "arccos", "atan" to "arctan", "acot" to "arccot",
-        "ln" to "ln", "log" to "log", "lg" to "lg", "exp" to "exp",
+        "ln" to "ln", "log" to "log", "exp" to "exp",
         "erf" to "erf", "erfc" to "erfc", "zeta" to "zeta", "digamma" to "digamma",
-        "lambertw" to "lambertw", "productlog" to "lambertw", "besselj" to "besselj",
-        "sgn" to "sgn", "sign" to "sgn",
-        // Russian and Ukrainian school notation.
-        "tg" to "tan", "ctg" to "cot", "arctg" to "arctan", "arcctg" to "arccot",
+        "lambertw" to "lambertw", "besselj" to "besselj",
+        "sgn" to "sgn",
     )
 
     private val GREEK_WORDS = setOf(

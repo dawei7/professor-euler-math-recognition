@@ -457,6 +457,48 @@ class MoreFunctionsTest {
         "\\operatorname{erf}\\left(0\\right)" to "0",
     ))
 
+    /** One name for each function (owner, 6 November 2026): every second name is refused, each with a call of its own. */
+    @Test
+    fun secondNamesAreRefused() {
+        val calls = mapOf(
+            "asin" to "asin(1/2)", "acos" to "acos(0)", "atan" to "atan(1)", "acot" to "acot(1)", "asec" to "asec(2)",
+            "acsc" to "acsc(2)", "asinh" to "asinh(1)", "acosh" to "acosh(2)", "atanh" to "atanh(1/2)", "acoth" to "acoth(2)",
+            "asech" to "asech(1/2)", "acsch" to "acsch(1)", "arcsinh" to "arcsinh(1)", "arccosh" to "arccosh(2)",
+            "arctanh" to "arctanh(1/2)", "arccoth" to "arccoth(2)", "lg" to "lg(100)", "tg" to "tg(pi/4)", "ctg" to "ctg(pi/4)",
+            "arctg" to "arctg(1)", "arcctg" to "arcctg(1)", "productlog" to "productlog(1)", "sign" to "sign(-3)",
+            "ncr" to "ncr(5, 2)", "choose" to "choose(5, 2)", "perm" to "perm(5, 2)", "fib" to "fib(10)", "moebius" to "moebius(6)",
+            "variance" to "variance(1, 2, 3)", "stdev" to "stdev(1, 2, 3)",
+        )
+        assertEquals(TextInput.SECOND_NAMES, calls.keys)
+        val wrong = calls.values.mapNotNull { text -> answer(text).takeIf { it != "FAILED UNKNOWN_FUNCTION" }?.let { "$text: $it" } }
+        assertEquals("", wrong.joinToString("\n"))
+        // Without a bracket lg is refused too (the reader would take it for log); the others are letters there.
+        assertEquals("FAILED UNKNOWN_FUNCTION", answer("lg 100"))
+        assertEquals("FAILED UNKNOWN_FUNCTION", answer("\\operatorname{lg}(100)"))
+    }
+
+    /** The one names work, and so does the reader's LaTeX for them: \lg, \sin^{-1}, φ(n). */
+    @Test
+    fun theOneNamesAndTheReadersLatexWork() {
+        check(listOf(
+            "arcsin(1/2)" to "π/6 ≈ 0.5235987756",
+            "tan(pi/4)" to "1",
+            "binom(5, 2)" to "10",
+            "npr(5, 2)" to "20",
+            "fibonacci(10)" to "55",
+            "totient(12)" to "4",
+            "mu(6)" to "1",
+            "var(1, 2, 3)" to "1",
+            "sd(1, 2, 3)" to "1",
+            "sgn(-3)" to "-1",
+            "lambertw(0)" to "0",
+            "log(100)" to "2",
+        ))
+        assertEquals("2", answerOf(MathCalc.calculate("\\lg(100)")))
+        assertEquals("π/6 ≈ 0.5235987756", answerOf(MathCalc.calculate("\\sin^{-1}\\left(\\frac{1}{2}\\right)")))
+        assertEquals("4", answerOf(MathCalc.calculate("\\varphi(12)")))
+    }
+
     @Test
     fun theReadingIsShownWithKatexNames() {
         assertEquals("\\operatorname{arsinh}(3/4)", TextInput.display(TextInput.read("arsinh(3/4)")))
