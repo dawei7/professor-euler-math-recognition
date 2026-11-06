@@ -130,12 +130,18 @@ object Stats {
                 val lower = bound(args[0])
                 val upper = bound(args[1])
                 if (lower != null && upper != null && lower > upper) return null
+                // Worked out in balls: certified digits, a tail as small as it is (erf in doubles would cancel it to 0).
+                if (StatNumbers.infinity(mu) == 0 && StatNumbers.infinity(sigma) == 0 && (args + mu + sigma).all { it.symbols().isEmpty() }) {
+                    return Distributions.normalProbability(args[0], args[1], mu, sigma)
+                }
                 fun phi(x: Expr): Expr = if (x == Expr.INF) Expr.ONE else if (x == neg(Expr.INF)) Expr.ZERO else
                     tidy(mul(Expr.HALF, add(Expr.ONE, fn(Func.ERF, tidy((x - mu) / mul(sigma, sqrt(Expr.TWO)))))))
                 tidy(phi(args[1]) - phi(args[0]))
             }
             "invnorm" -> {
                 if (args.isEmpty()) return null
+                // A share written as a number: the quantile in balls, its digits certified ([Distributions]).
+                if (rational(args[0]) != null) return Distributions.normalQuantile(args[0], args.getOrElse(1) { Expr.ZERO }, args.getOrElse(2) { Expr.ONE })
                 val p = Numeric.value(args[0])?.takeIf { it > 0 && it < 1 } ?: return null
                 val mu = Numeric.value(args.getOrElse(1) { Expr.ZERO }) ?: return null
                 val sigma = Numeric.value(args.getOrElse(2) { Expr.ONE })?.takeIf { it > 0 } ?: return null

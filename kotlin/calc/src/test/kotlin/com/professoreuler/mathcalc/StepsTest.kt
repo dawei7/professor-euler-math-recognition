@@ -47,7 +47,15 @@ class StepsTest {
         "[10000, 5\\%, 4]" to Choice(Mode.AMORTIZATION), "[10000, 5\\%, 4]" to Choice(Mode.EQUAL_PRINCIPAL),
         "[10000, 1000, 5]" to Choice(Mode.STRAIGHT_LINE), "[10000, 20\\%, 5]" to Choice(Mode.DECLINING_BALANCE),
         "[-100, 230, -132]" to Choice(Mode.IRR), "[100, 200]" to Choice(Mode.IRR),
-    ) + APPLIED
+    ) + APPLIED + listOf(
+        // The statistics commands, as they are typed.
+        "ttest([5.1, 4.9, 5.3, 5.2], 5)", "ttest(52, 4, 25, 50)", "ztest([5.1, 4.9, 5.3, 5.2], 5, 0.2)",
+        "welchtest([20, 22, 19, 24, 25], [28, 27, 30, 26, 29])", "chisqgof([18, 22, 20, 40], [25, 25, 25, 25])",
+        "chisqindep([[10, 20], [30, 40]])", "tinterval([5.1, 4.9, 5.3, 5.2])", "zinterval(52, 36, 6)", "propinterval(45, 100)",
+        "fitpoly((1, 2), (2, 4), (3, 5), (4, 4), 2)", "fitexp((1, 3), (2, 5), (3, 10), (4, 19))", "fitpow((1, 2), (2, 8), (3, 18))",
+        "fitlog((1, 2), (2, 3), (4, 4), (8, 5.1))", "fitlogistic((0, 10), (1, 25), (2, 55), (3, 85), (4, 95), (5, 99))",
+        "stationary([[0.9, 0.1], [0.5, 0.5]])", "markov([[0.9, 0.1], [0.5, 0.5]], [1, 0], 3)",
+    ).map { TextInput.read(it).let { t -> t.latex to t.choice } }
 
 
     private val NUMBERS = listOf("interpolate((1, 2), (2, 3), (3, 5))", "spline((0, 0), (1, 1), (2, 0))", "multorder(3, 7)",
@@ -333,6 +341,8 @@ class StepsTest {
         for (text in NUMBERS) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         for ((latex, choice) in PdeTest.STEP_TASKS) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         for (text in LEARNING) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
+        // Iterations, norms and orthogonality, typed as their functions.
+        for (text in ITERATIVE_STEPS) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
 
@@ -369,6 +379,16 @@ class StepsTest {
             "START VOLUME_DISCS INTEGRAL_TABLE DEFINITE_BOUNDS RESULT", "START VOLUME_SHELLS INTEGRAL_TABLE DEFINITE_BOUNDS RESULT",
             "START MEAN_FORMULA INTEGRAL_TABLE DEFINITE_BOUNDS RESULT", "START LP_CORNERS LP_VALUES LP_DUAL RESULT",
             "START LP_SIMPLEX LP_DUAL RESULT", "START LP_CORNERS LP_VALUES LP_UNBOUNDED", "START LP_INFEASIBLE",
+            "TEST_HYPOTHESES TEST_SAMPLE TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_KEEP",
+            "TEST_HYPOTHESES TEST_SAMPLE TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_REJECT",
+            "TEST_HYPOTHESES TEST_SAMPLE TEST_STATISTIC TEST_P_VALUE TEST_KEEP",
+            "TEST_HYPOTHESES TEST_SAMPLE TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_REJECT",
+            "CHI_EXPECTED TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_REJECT", "CHI_EXPECTED TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_KEEP",
+            "TEST_SAMPLE INTERVAL_CRITICAL INTERVAL_MARGIN RESULT", "TEST_SAMPLE INTERVAL_CRITICAL INTERVAL_MARGIN RESULT",
+            "TEST_SAMPLE INTERVAL_CRITICAL INTERVAL_MARGIN RESULT INTERVAL_WILSON",
+            "FIT_NORMAL_EQUATIONS FIT_R_SQUARED RESULT", "FIT_LINEARIZE FIT_NORMAL_EQUATIONS FIT_R_SQUARED RESULT",
+            "FIT_LINEARIZE FIT_NORMAL_EQUATIONS FIT_R_SQUARED RESULT", "FIT_NORMAL_EQUATIONS FIT_R_SQUARED RESULT",
+            "FIT_NUMERICAL FIT_R_SQUARED RESULT", "START MARKOV_SYSTEM RESULT MARKOV_CHECK", "START MARKOV_POWER RESULT",
         )
         val got = LATER.map { (latex, choice) -> Steps.of(latex, choice)?.joinToString(" ") { it.why.key.name } ?: "none" }
         assertEquals(expected.joinToString("\n"), got.joinToString("\n"))
