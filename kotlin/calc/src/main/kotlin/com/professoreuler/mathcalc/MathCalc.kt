@@ -48,6 +48,11 @@ enum class Failure {
     UNKNOWN_FUNCTION,
     /** A command's function (solve, det …) inside a formula, as 2·det(A): it takes a line of its own. */
     COMMAND_INSIDE,
+    /**
+     * A power series asked for at a singular point of a differential equation, where its leading coefficient is 0 or another
+     * has no Taylor series (x²y″ + y = 0 at 0): a series there needs Frobenius' method, which the calculator does not have.
+     */
+    SINGULAR_POINT,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -191,6 +196,24 @@ enum class Mode {
 
     /** The plane through three points. */
     PLANE,
+
+    /** A matrix's singular value decomposition A = U·Σ·Vᵀ. */
+    SVD,
+
+    /** A square matrix's Jordan normal form A = P·J·P⁻¹. */
+    JORDAN,
+
+    /** A linear differential equation's power series solution at an ordinary point ([Choice.point], [Choice.order]). */
+    ODE_SERIES,
+
+    /** The Dormand–Prince method with adaptive steps for y′ = f(x, y), to the end [Choice.point] (x₀ + 1 where none is asked). */
+    DORMAND_PRINCE,
+
+    /** The slope field of y′ = f(x, y). */
+    SLOPE_FIELD,
+
+    /** The phase portrait of x′ = f(x, y), y′ = g(x, y), with its equilibria. */
+    PHASE_PORTRAIT,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -374,6 +397,24 @@ sealed class Outcome {
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
 
     data class Failed(val failure: Failure) : Outcome()
+
+    /** A matrix's singular value decomposition A = U·Σ·Vᵀ, exact or in certified decimals ([MatrixForms.svd]). */
+    data class SingularValues(val svd: MatrixForms.Svd) : Outcome()
+
+    /** A square matrix's Jordan normal form A = P·J·P⁻¹ ([MatrixForms.jordan]). */
+    data class JordanForm(val jordan: MatrixForms.Jordan) : Outcome()
+
+    /** A system of linear differential equations x′ = A·x + b solved, with its initial values where given ([OdeSystems.solve]). */
+    data class OdeSystemSolved(val system: OdeSystems.Solution) : Outcome()
+
+    /** A linear differential equation's power series solution at an ordinary point ([SeriesOde.solve]). */
+    data class SeriesSolved(val solution: SeriesOde.Solution) : Outcome()
+
+    /** A boundary value problem: one solution, none, or infinitely many ([BoundaryValue.solve]). */
+    data class BoundaryValueSolved(val problem: BoundaryValue.Problem) : Outcome()
+
+    /** A slope field or a phase portrait, with its equilibria and their kinds ([Fields]). */
+    data class DirectionField(val field: Fields.Field) : Outcome()
 }
 
 /**
@@ -462,7 +503,8 @@ object MathCalc {
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
             Budget.within(millis) {
                 val plan = if (logic != null) logicPlan(logic)
-                    else odePlan(statements, flags.odeVariable) ?: plan(statements, others, style, flags.degrees, flags.moduli)
+                    else odePlan(statements, flags.odeVariable) ?: odeSystemPlan(statements, flags.odeVariable)
+                        ?: plan(statements, others, style, flags.degrees, flags.moduli)
                 choices = plan.choices
                 // A series asked for at a point or to a power of its own: the plan's series in that letter, so taken.
                 val chosen = choice?.takeIf { it in plan.choices }
@@ -861,6 +903,10 @@ object MathCalc {
         if (!vector) choices += Choice(Mode.ROW_REDUCE)
         if (!vector && m.size >= m.columns && m.size <= 6) choices += Choice(Mode.DECOMPOSE)
         if (square && m.size <= 4) choices += Choice(Mode.MATRIX_EXP)
+        // The singular values of a matrix of numbers, and the Jordan form of a square one.
+        val ofNumbers = m.symbols().isEmpty() && !m.hasI()
+        if (!vector && ofNumbers) choices += Choice(Mode.SVD)
+        if (square && ofNumbers && m.size <= 6) choices += Choice(Mode.JORDAN)
         // A vector field: as many entries as coordinates, in x, y (and z).
         val coordinates = listOf("x", "y", "z").take(m.size)
         val field = vector && m.size in 2..3 && m.symbols().isNotEmpty() && m.symbols().all { it in coordinates }
@@ -878,7 +924,8 @@ object MathCalc {
         if (data && values.all { rational(it) != null }) choices += Choice(Mode.SEQUENCE)
         val points = !vector && numeric && m.columns == 2 && m.size >= 3
         if (points) choices += Choice(Mode.REGRESSION)
-        val accepts = if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()
+        val accepts = (if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()) +
+            setOf(Mode.SVD, Mode.JORDAN)
         val likeliest = when {
             data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
             literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)
@@ -917,6 +964,8 @@ object MathCalc {
                     d
                 }
                 Mode.MATRIX_EXP -> Outcome.Expression(LinAlg.exp(m) ?: throw CalcException(Failure.UNSOLVED))
+                Mode.SVD -> Outcome.SingularValues(MatrixForms.svd(m))
+                Mode.JORDAN -> Outcome.JordanForm(MatrixForms.jordan(m) ?: throw CalcException(Failure.UNSOLVED))
                 Mode.DIVERGENCE -> Outcome.Expression(LinAlg.divergence(m, coordinates))
                 Mode.CURL -> Outcome.Expression(LinAlg.curl(m, coordinates))
                 Mode.JACOBIAN -> Outcome.Expression(LinAlg.jacobian(m, coordinates))
@@ -1202,14 +1251,16 @@ object MathCalc {
      * solution in x (the variable of a written dy/dt, else t where the formula has t and no x).
      */
     private fun odePlan(statements: List<Statement>, written: String?): Plan? {
-        val unknown = Parser.ODE_UNKNOWNS.firstOrNull { name -> statements.any { s -> s.sides.filterNotNull().any { Ode.order(it, name) > 0 } } }
+        val unknown = (Parser.ODE_UNKNOWNS + Parser.SYSTEM_UNKNOWNS).firstOrNull { name -> statements.any { s -> s.sides.filterNotNull().any { Ode.order(it, name) > 0 } } }
             ?: return null
         val main = statements.firstOrNull { s -> s.sides.filterNotNull().any { Ode.order(it, unknown) > 0 } && !isCondition(s, unknown) } ?: return null
         val sides = main.sides.filterNotNull()
         if (sides.size != 2 || main.relations != listOf(Rel.EQ)) return null
         val equation = Calculus.evaluate(sides[0]) - Calculus.evaluate(sides[1])
         val letters = equation.symbols()
-        val x = written ?: if ("t" in letters && "x" !in letters) "t" else "x"
+        // x(t), z(t): the unknowns of a system, in t also on their own (x'' + 4x = 0).
+        val x = written ?: if (unknown in Parser.SYSTEM_UNKNOWNS || ("t" in letters && "x" !in letters)) "t" else "x"
+        if (x == unknown) return null
         val conditions = ArrayList<Ode.Condition>()
         for (s in statements) {
             if (s === main) continue
@@ -1222,8 +1273,25 @@ object MathCalc {
         val f = slope?.takeIf { !it.has(y1) }
         val start = conditions.singleOrNull()?.takeIf { it.k == 0 }
         val numeric = f != null && start != null && Numeric.value(start.at) != null && Numeric.value(start.value) != null
-        val choices = listOfNotNull(choice, if (numeric) Choice(Mode.RUNGE_KUTTA) else null, if (numeric) Choice(Mode.EULER) else null)
-        return Plan(choices, choice) { c ->
+        val choices = listOfNotNull(choice, if (numeric) Choice(Mode.RUNGE_KUTTA) else null, if (numeric) Choice(Mode.EULER) else null,
+            if (numeric) Choice(Mode.DORMAND_PRINCE) else null, if (f != null) Choice(Mode.SLOPE_FIELD) else null)
+        val accepts = setOf(Mode.DORMAND_PRINCE, Mode.ODE_SERIES, Mode.SLOPE_FIELD)
+        return Plan(choices, choice, accepts) { c ->
+            if (c.mode == Mode.SLOPE_FIELD) return@Plan Outcome.DirectionField(Fields.slope(f ?: throw CalcException(Failure.UNSOLVED), x, unknown))
+            if (c.mode == Mode.ODE_SERIES) {
+                val at = c.point?.let { pointOf(it) ?: throw CalcException(Failure.ARGUMENTS) }
+                return@Plan Outcome.SeriesSolved(SeriesOde.solve(equation, unknown, x, conditions, at, c.order ?: 6))
+            }
+            if (c.mode == Mode.DORMAND_PRINCE) {
+                if (!numeric) throw CalcException(Failure.UNSOLVED)
+                val exact = try { Ode.solve(equation, unknown, x)?.let { Ode.withConditions(equation, it, conditions, unknown, x) }?.explicit } catch (e: CalcException) {
+                    if (e.failure == Failure.TOO_LONG) throw e
+                    null
+                }
+                val from = Numeric.value(start!!.at)!!
+                val to = c.point?.let { p -> pointOf(p)?.let { Numeric.value(it) } ?: throw CalcException(Failure.ARGUMENTS) } ?: (from + 1)
+                return@Plan Outcome.NumericTable(Adaptive.dormandPrince(f!!, x, unknown, from, Numeric.value(start.value)!!, to, exact))
+            }
             if (numeric && (c.mode == Mode.EULER || c.mode == Mode.RUNGE_KUTTA)) {
                 // From the initial value, ten steps of h = 0.1; the exact solution beside where it is found.
                 val exact = try { Ode.solve(equation, unknown, x)?.let { Ode.withConditions(equation, it, conditions, unknown, x) }?.explicit } catch (e: CalcException) {
@@ -1235,8 +1303,32 @@ object MathCalc {
                     c.mode == Mode.RUNGE_KUTTA, exact))
             }
             val general = Ode.solve(equation, unknown, x) ?: throw CalcException(Failure.UNSOLVED)
+            // Values at two points: a boundary value problem, with one solution, none or infinitely many.
+            if (BoundaryValue.isBoundary(conditions)) return@Plan Outcome.BoundaryValueSolved(BoundaryValue.solve(equation, general, conditions, unknown, x))
             val particular = if (conditions.isEmpty()) null else Ode.withConditions(equation, general, conditions, unknown, x) ?: throw CalcException(Failure.UNSOLVED)
             Outcome.OdeSolved(unknown, x, general, particular, f)
+        }
+    }
+
+    /**
+     * Lines that are a system of first-order differential equations in two or more unknowns (x′ = …, y′ = …): solved where it is
+     * linear with constant coefficients, and in the plane with its phase portrait.
+     */
+    private fun odeSystemPlan(statements: List<Statement>, written: String?): Plan? {
+        val r = OdeSystems.read(statements, written) ?: return null
+        val linear = OdeSystems.linear(r) != null
+        val plane = r.unknowns.size == 2 && r.slopes.none { it.has(Expr.Sym(r.t)) } && r.letters.isEmpty()
+        val solve = Choice(Mode.ODE)
+        val portrait = Choice(Mode.PHASE_PORTRAIT)
+        val choices = listOfNotNull(if (linear) solve else null, if (plane) portrait else null)
+        val likeliest = if (linear || !plane) solve else portrait
+        return Plan(choices.ifEmpty { listOf(solve) }, likeliest, setOf(Mode.ODE, Mode.PHASE_PORTRAIT)) { c ->
+            if (c.mode == Mode.PHASE_PORTRAIT) {
+                if (!plane) throw CalcException(Failure.UNSOLVED)
+                Outcome.DirectionField(Fields.phase(r.slopes[0], r.slopes[1], r.unknowns[0], r.unknowns[1], r.t))
+            } else {
+                Outcome.OdeSystemSolved(OdeSystems.solve(r))
+            }
         }
     }
 

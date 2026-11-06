@@ -313,6 +313,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     private fun derivativeOf(e: Expr): Expr {
         // y′, y″ of the unknown function of a differential equation: markers, worked out by [Ode].
         if (e is Expr.Sym && e.name.trimEnd('\'') in ODE_UNKNOWNS) return Expr.Sym(e.name + "'")
+        // x′, z′, x₁′ of the unknowns of a system, functions of t.
+        if (e is Expr.Sym && e.name.trimEnd('\'') in SYSTEM_UNKNOWNS) return Expr.Sym(e.name + "'")
         val letters = e.symbols()
         val v = when {
             letters.size == 1 -> letters.first()
@@ -578,7 +580,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             top.size == 6 && top[1] == "^" && top[2] == "{" && isDigit(top[3]) && top[4] == "}" -> top[3].toInt() to top[5]
             else -> return null
         }
-        if (name !in ODE_UNKNOWNS || order !in 1..4) return null
+        if ((name !in ODE_UNKNOWNS && (name !in SYSTEM_UNKNOWNS || name == bottom[1])) || order !in 1..4) return null
         val rest = bottom.drop(2)
         if (!(rest.isEmpty() || rest == listOf("^", order.toString()) || rest == listOf("^", "{", order.toString(), "}"))) return null
         flags.odeVariable = bottom[1]
@@ -978,6 +980,9 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
         /** The letters a differential equation is solved for: y′ and dy/dx of these are its derivatives. */
         internal val ODE_UNKNOWNS = setOf("y", "u")
+
+        /** The unknowns of a system of differential equations beside y and u, functions of t: x′, z′, x₁′, y₂′ are derivatives. */
+        internal val SYSTEM_UNKNOWNS: Set<String> = setOf("x", "z") + (1..9).flatMap { listOf("x_$it", "y_$it") }
 
         /** The environments of a matrix. */
         private val MATRICES = setOf("pmatrix", "bmatrix", "matrix", "Bmatrix", "vmatrix")

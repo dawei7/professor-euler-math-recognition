@@ -289,7 +289,12 @@ class StepsTest {
         // Those that need a mode chosen: every value solves it, a letter taken out, factors, the sides compared.
         val chosen = listOf("2(x+1)=2x+2" to Choice(Mode.SOLVE, "x"), "ax+b=cx+d" to Choice(Mode.SOLVE, "x"),
             "2x^{2}+3x-2" to Choice(Mode.FACTOR), "x^{2}+1" to Choice(Mode.FACTOR), "360=" to Choice(Mode.FACTOR),
-            "x+1=x+1" to Choice(Mode.COMPARE), "x+1=x+2" to Choice(Mode.COMPARE))
+            "x+1=x+1" to Choice(Mode.COMPARE), "x+1=x+2" to Choice(Mode.COMPARE),
+            // The singular value decomposition, the Jordan form, a linear system, boundary values, a power series.
+            "\\begin{pmatrix}3&0\\\\4&5\\end{pmatrix}" to Choice(Mode.SVD), "\\begin{pmatrix}2&2&3\\\\1&3&3\\\\-1&-2&-2\\end{pmatrix}" to Choice(Mode.JORDAN),
+            "\\begin{cases}x'=3x+y\\\\y'=x+3y\\\\x(0)=2\\\\y(0)=0\\end{cases}" to null, "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\pi)=0\\end{cases}" to null,
+            "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\pi)=1\\end{cases}" to null, "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\frac{\\pi}{2})=1\\end{cases}" to null,
+            "\\begin{cases}y''+y=0\\\\y(0)=1\\\\y'(0)=0\\end{cases}" to Choice(Mode.ODE_SERIES))
         for ((latex, choice) in chosen + LATER) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
