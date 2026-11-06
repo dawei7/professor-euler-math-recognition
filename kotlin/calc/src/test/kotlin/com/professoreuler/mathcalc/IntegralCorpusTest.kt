@@ -278,8 +278,12 @@ class IntegralCorpusTest {
     }
 
     private companion object {
-        /** What the engine solves today in each section: it may only get better. */
-        val LEAST = mapOf("rational" to 0, "algebraic" to 0, "exponential" to 0, "logarithmic" to 0, "trigonometric" to 0,
-            "inverse trigonometric" to 0, "hyperbolic" to 0)
+        /**
+         * What the engine solves today in each section: it may only get better. Before Hermite, Rothstein–Trager, the
+         * substitutions and Risch–Norman (6 November 2026) it was 63, 36, 40, 30, 44, 18 and 11 (242 of 361); now every integrand
+         * with an elementary antiderivative is solved, three of them as sums over the roots of a polynomial.
+         */
+        val LEAST = mapOf("rational" to 85, "algebraic" to 60, "exponential" to 47, "logarithmic" to 40, "trigonometric" to 68,
+            "inverse trigonometric" to 24, "hyperbolic" to 30)
     }
 }
