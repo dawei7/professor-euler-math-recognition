@@ -113,6 +113,11 @@ class TextInputTest {
     fun unknownNamesAreRefused() = check(listOf(
         "round(2.5)" to "FAILED UNKNOWN_FUNCTION",
         "round\\left(2.5\\right)" to "FAILED UNKNOWN_FUNCTION",
+        // As the editor writes them: a function's bracket is \left( … \right).
+        "floor\\left(-2.5\\right)" to "-3",
+        "ceil\\left(2.1\\right)" to "3",
+        "sqrt\\left(12\\right)" to "2√3 ≈ 3.464101615",
+        "abs\\left(-7\\right)" to "7",
         "max(1, 5, 3)" to "FAILED UNKNOWN_FUNCTION",
         "re(3 + 4i)" to "FAILED UNKNOWN_FUNCTION",
         "asinh(1)" to "FAILED UNKNOWN_FUNCTION",

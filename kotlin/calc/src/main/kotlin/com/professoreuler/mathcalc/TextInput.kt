@@ -229,7 +229,8 @@ object TextInput {
     }
 
     private fun latexPlain(math: String): String {
-        val s = symbols(math)
+        // The editor's \left( and \right) are brackets as typed, so floor\left(2.5\right) is floor(2.5), not its letters.
+        val s = symbols(math).replace("\\left(", "(").replace("\\right)", ")")
         val out = StringBuilder()
         var i = 0
         fun emit(str: String) {
