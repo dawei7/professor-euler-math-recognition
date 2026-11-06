@@ -44,6 +44,13 @@ class StepsTest {
     private val NUMBERS = listOf("interpolate((1, 2), (2, 3), (3, 5))", "spline((0, 0), (1, 1), (2, 0))", "multorder(3, 7)",
         "primroot(41)", "discretelog(5, 2, 13)")
 
+    /** Machine learning's steps ([LearningSteps]), typed as their functions. */
+    private val LEARNING = listOf("softmax([1, 2, 3])", "entropy([1/2, 1/4, 1/4], 2)", "crossentropy([1/2, 1/2], [1/4, 3/4], 2)",
+        "kldivergence([1/2, 1/2], [1/4, 3/4], 2)", "mutualinformation([[0.3, 0.2], [0.1, 0.4]])",
+        "valueiteration([[1, 0], [0, 1]], [[0, 1], [0, 1]], [[1, 0], [0, 2]], 0.9)",
+        "policyevaluation([[1, 0], [0, 1]], [[0, 1], [0, 1]], [[1, 0], [0, 2]], 0.9, [[0.5, 0.5], [0.5, 0.5]])",
+        "gradientdescent(x^2 + y^2, [1, 2], 0.25, 20)")
+
     /** Multiple, line and surface integrals, directional derivatives and tangent planes, typed as their functions. */
     private val MULTIVARIABLE = listOf("integral(x y, x, 0, 1, y, 0, 2)", "integral(sin(x y), x, 0, 1, y, 0, 1)",
         "polarintegral(x^2 + y^2, r, 0, 2, theta, 0, 2pi)", "lineintegral(1, (cos(t), sin(t)), t, 0, 2pi)",
@@ -324,6 +331,7 @@ class StepsTest {
         // Interpolation and splines; orders, primitive roots and discrete logarithms, typed as their functions.
         for (text in NUMBERS) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         for ((latex, choice) in PdeTest.STEP_TASKS) Steps.of(latex, choice)?.forEach { reached += it.why.key }
+        for (text in LEARNING) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         for (text in MULTIVARIABLE) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
