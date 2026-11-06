@@ -75,8 +75,8 @@ class AlgebraFunctionsTest {
         assertTrue(MathCalc.calculate("\\frac{1}{x^{2}-1}").choices.contains(p))
         assertFalse(MathCalc.calculate("x^{2}-1").choices.contains(p))
         assertFalse(MathCalc.calculate("\\frac{1}{x+1}").choices.contains(p))
-        // And in words.
-        assertEquals("1/(2(x - 1)) - 1/(2(x + 1))", answerOf(Reports.of(TextInput.read("partial fractions 1/(x^2-1)")).result))
+        // And as its function.
+        assertEquals("1/(2(x - 1)) - 1/(2(x + 1))", answerOf(Reports.of(TextInput.read("partialfractions(1/(x^2-1))")).result))
     }
 
     @Test

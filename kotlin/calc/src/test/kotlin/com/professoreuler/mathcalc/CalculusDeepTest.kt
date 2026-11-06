@@ -126,32 +126,12 @@ class CalculusDeepTest {
     }
 
     /** "Taylor series" as each language says it, the point after "at" or "um". */
-    @Test fun seriesInWords() {
-        val expected = "x - (1/6)x^3 + (1/120)x^5 + O(x^7)"
-        val wrong = listOf("taylor series of sin(x)" to "en", "Taylorreihe von sin(x) um 0" to "de", "série de taylor de sin(x)" to "fr",
-            "泰勒展开 sin(x)" to "zh", "ряд тейлора sin(x)" to "ru", "sin(x)をテイラー展開" to "ja", "serie di taylor di sin(x)" to "it",
-            "maclaurin sin(x)" to "ko").mapNotNull { (text, language) ->
-            val c = Reports.of(TextInput.read(text, language)).result
-            val o = c.outcome
-            val got = if (o is Outcome.Expression) c.textResult(o) else answerOf(c)
-            if (got != expected) "$language $text: $got" else null
-        }
-        assertEquals("", wrong.joinToString("\n"))
-        val atOne = TextInput.read("taylor series of e^x at x = 1")
-        assertEquals(Choice(Mode.SERIES, "x", point = "1"), atOne.choice)
-        // As textbooks put it, where the verb is also the one for multiplying out or factoring.
-        val textbook = listOf("desarrolla sin(x) en serie de taylor" to "es", "rozwiń sin(x) w szereg maclaurina" to "pl", "sin(x)を級数展開" to "ja",
-            "разложите в ряд тейлора функцию sin(x)" to "ru", "把sin(x)展开成泰勒级数" to "zh-Hans", "sviluppa sin(x) in serie di taylor" to "it",
-            "développe sin(x) en série entière" to "fr", "sin(x) 급수 전개" to "ko").mapNotNull { (text, language) ->
-            val c = Reports.of(TextInput.read(text, language)).result
-            val o = c.outcome
-            val got = if (o is Outcome.Expression) c.textResult(o) else answerOf(c)
-            if (got != expected) "$language $text: $got" else null
-        }
-        assertEquals("", textbook.joinToString("\n"))
-        // The point in words: "nel punto 1", "в точке 1".
-        assertEquals(Choice(Mode.SERIES, "x", point = "1"), TextInput.read("serie di taylor di ln(x) nel punto 1", "it").choice)
-        assertEquals(Choice(Mode.SERIES, "x", point = "1"), TextInput.read("ряд тейлора ln(x) в точке 1", "ru").choice)
+    @Test fun seriesAsAFunction() {
+        val c = Reports.of(TextInput.read("taylor(sin(x))")).result
+        val o = c.outcome
+        assertEquals("x - (1/6)x^3 + (1/120)x^5 + O(x^7)", if (o is Outcome.Expression) c.textResult(o) else answerOf(c))
+        assertEquals(Choice(Mode.SERIES, "x", point = "1"), TextInput.read("taylor(e^x, x, 1)").choice)
+        assertEquals(Choice(Mode.SERIES, "x", point = "0", order = 9), TextInput.read("taylor(sin(x), x, 0, 9)").choice)
     }
 
     private fun critical(latex: String) = answerOf(MathCalc.calculate(latex, Choice(Mode.EXTREMA)))

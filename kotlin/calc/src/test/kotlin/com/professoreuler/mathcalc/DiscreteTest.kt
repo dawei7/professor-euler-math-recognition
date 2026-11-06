@@ -5,7 +5,7 @@ import org.junit.Test
 
 /**
  * Milestone 7: number theory and combinatorics, congruences, whole-number equations, recurrences and sequences, logic and sets,
- * statistics, units and geometry; and the same typed in words.
+ * statistics, units and geometry; and the same typed as their functions.
  */
 class DiscreteTest {
     private fun check(vararg cases: Pair<Pair<String, Choice?>, String>) {
@@ -21,7 +21,7 @@ class DiscreteTest {
     @Test fun numberFunctions() = check(
         ("\\gcd(12,18)" to null) to "6",
         ("lcm(4,6,10)" to null) to "60",
-        ("\\operatorname{ggT}(84,36)" to null) to "12",
+        ("gcd(84,36)" to null) to "12",
         ("binom(10,3)" to null) to "120",
         ("\\binom{52}{5}" to null) to "2598960",
         ("catalan(10)" to null) to "16796",
@@ -145,55 +145,42 @@ class DiscreteTest {
     /** Typed: units with a word or an arrow, number functions, congruences, data lists, points, a triangle's values, in several languages. */
     @Test fun typed() {
         val cases = listOf(
-            ("5 km in mi" to "en") to "78125/25146 mi",
-            ("100 km/h to m/s" to "en") to "250/9 m/s",
-            ("20 °C in °F" to "en") to "68 °F",
-            ("20°C to °F" to "en") to "68 °F",
-            ("5km em mi" to "pt") to "78125/25146 mi",
-            ("3 m in s" to "en") to "UNITS",
-            ("1,5 km in m" to "de") to "1500 m",
-            ("1/2 mi in m" to "en") to "100584/125 m",
-            ("5 in in cm" to "en") to "127/10 cm",
-            ("5kmをmiに" to "ja") to "78125/25146 mi",
-            ("5 km를 mi로" to "ko") to "78125/25146 mi",
-            ("60 mph in km/h" to "en") to "301752/3125 km/h",
+            ("convert(5 km, mi)" to "en") to "78125/25146 mi",
+            ("convert(100 km/h, m/s)" to "en") to "250/9 m/s",
+            ("convert(20 °C, °F)" to "en") to "68 °F",
+            ("convert(20°C, °F)" to "en") to "68 °F",
+            ("convert(3 m, s)" to "en") to "UNITS",
+            ("convert(1,5 km, m)" to "de") to "1500 m",
+            ("convert(1/2 mi, m)" to "en") to "100584/125 m",
+            ("convert(5 in, cm)" to "en") to "127/10 cm",
+            ("convert(60 mph, km/h)" to "en") to "301752/3125 km/h",
             ("gcd(12, 18)" to "en") to "6",
-            ("ggT(84, 36)" to "de") to "12",
             ("17 mod 5" to "en") to "2",
             ("3x ≡ 2 mod 7" to "en") to "x ≡ 3 (mod 7)",
             ("x ≡ 2 mod 3; x ≡ 3 mod 5; x ≡ 2 mod 7" to "en") to "x ≡ 23 (mod 105)",
-            ("is 97 prime" to "en") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("ist 97 prim" to "de") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("divisors of 360" to "en") to "2^3 · 3^2 · 5 d=24 σ=1170 φ=96 μ=0 next 367 bin 101101000",
-            ("mean of 1, 2, 3, 4" to "en") to "n=4 mean 5/2 median 5/2 sd √15/3 q1 3/2 q3 7/2",
-            ("Mittelwert von 1,5; 2,5; 3" to "de") to "n=3 mean 7/3 median 5/2 sd √21/6 q1 3/2 q3 3",
-            ("statistics 2 4 4 4 5 5 7 9" to "en") to "n=8 mean 5 median 9/2 sd 4√14/7 q1 4 q3 6",
-            ("regression (1,2), (2,4), (3,5), (4,4), (5,5)" to "en") to "y = 3/5x + 11/5 r √15/5",
-            ("next terms of 1, 4, 9, 16, 25" to "en") to "a_n = n^2 next 36, 49, 64",
-            ("nächste Glieder von 2, 6, 18, 54" to "de") to "a_n = (2/3)·3^n rec 3 next 162, 486, 1458",
-            ("truth table of p and q implies r" to "en") to "11111101 dnf ¬p ∨ ¬q ∨ r cnf ¬p ∨ ¬q ∨ r",
+            ("facts(97)" to "en") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("facts(360)" to "en") to "2^3 · 3^2 · 5 d=24 σ=1170 φ=96 μ=0 next 367 bin 101101000",
+            ("stats(1, 2, 3, 4)" to "en") to "n=4 mean 5/2 median 5/2 sd √15/3 q1 3/2 q3 7/2",
+            ("stats(1,5; 2,5; 3)" to "de") to "n=3 mean 7/3 median 5/2 sd √21/6 q1 3/2 q3 3",
+            ("stats(2, 4, 4, 4, 5, 5, 7, 9)" to "en") to "n=8 mean 5 median 9/2 sd 4√14/7 q1 4 q3 6",
+            ("regression((1,2), (2,4), (3,5), (4,4), (5,5))" to "en") to "y = 3/5x + 11/5 r √15/5",
+            ("sequence(1, 4, 9, 16, 25)" to "en") to "a_n = n^2 next 36, 49, 64",
+            ("sequence(2, 6, 18, 54)" to "de") to "a_n = (2/3)·3^n rec 3 next 162, 486, 1458",
+            ("truthtable(p ∧ q → r)" to "en") to "11111101 dnf ¬p ∨ ¬q ∨ r cnf ¬p ∨ ¬q ∨ r",
             ("p ∧ q → r" to "en") to "11111101 dnf ¬p ∨ ¬q ∨ r cnf ¬p ∨ ¬q ∨ r",
             ("¬(p ∧ q) = ¬p ∨ ¬q" to "en") to "1110 dnf ¬p ∨ ¬q cnf ¬p ∨ ¬q equivalent true",
             ("{1, 2, 3} ∪ {3, 4}" to "en") to "{1, 2, 3, 4}",
-            ("triangle a=3, b=4, c=5" to "en") to "sides 3, 4, 5 angles 36.86989765, 53.13010235, 90 area 6",
-            ("Dreieck a=5, b=7, gamma=60°" to "de") to "sides 5, 7, √39 angles 43.89788625, 76.10211375, 60 area 15.15544457",
-            ("ellipse x^2/9 + y^2/4 = 1" to "en") to "ellipse centre (0, 0) axes 3, 2 foci (-√5, 0) (√5, 0) e √5/3",
-            ("line through (1,2) and (3,6)" to "en") to "y = 2x distance 2√5",
-            ("Ebene durch (1,0,0), (0,1,0), (0,0,1)" to "de") to "x + y + z - 1 = 0",
-            ("integer solutions of 3x + 5y = 7" to "en") to "x = 4 + 5t, y = -1 + -3t",
+            ("triangle(a=3, b=4, c=5)" to "en") to "sides 3, 4, 5 angles 36.86989765, 53.13010235, 90 area 6",
+            ("triangle(a=5, b=7, gamma=60°)" to "de") to "sides 5, 7, √39 angles 43.89788625, 76.10211375, 60 area 15.15544457",
+            ("conic(x^2/9 + y^2/4 = 1)" to "en") to "ellipse centre (0, 0) axes 3, 2 foci (-√5, 0) (√5, 0) e √5/3",
+            ("conic(y^2 = 8x)" to "en") to "parabola foci (2, 0) e 1 vertex (0, 0) directrix x = -2",
+            ("line((1,2), (3,6))" to "en") to "y = 2x distance 2√5",
+            ("plane((1,0,0), (0,1,0), (0,0,1))" to "de") to "x + y + z - 1 = 0",
+            ("diophantine(3x + 5y = 7)" to "en") to "x = 4 + 5t, y = -1 + -3t",
             ("a_{n+1} = 2a_n + 1; a_0 = 1" to "en") to "a_n = 2·2^n - 1 | 1, 3, 7, 15, 31, 63, 127, 255",
             ("binompdf(10, 0.5, 3)" to "en") to "0.1171875",
-            ("media de 1, 2, 3" to "es") to "n=3 mean 2 median 2 sd 1 q1 1 q3 3",
-            ("moyenne de 1, 2, 3" to "fr") to "n=3 mean 2 median 2 sd 1 q1 1 q3 3",
-            ("平均 1, 2, 3" to "zh-Hans") to "n=3 mean 2 median 2 sd 1 q1 1 q3 3",
-            ("1, 2, 3 の平均" to "ja") to "n=3 mean 2 median 2 sd 1 q1 1 q3 3",
-            ("1, 2, 3 ortalaması" to "tr") to "n=3 mean 2 median 2 sd 1 q1 1 q3 3",
-            ("среднее 1, 2, 3" to "ru") to "n=3 mean 2 median 2 sd 1 q1 1 q3 3",
-            ("真值表 p ∧ q" to "zh-Hans") to "0001 dnf p ∧ q cnf p ∧ q",
-            ("parabola y^2 = 8x" to "en") to "parabola foci (2, 0) e 1 vertex (0, 0) directrix x = -2",
-            ("soluciones enteras de 3x+5y=7" to "es") to "x = 4 + 5t, y = -1 + -3t",
-            ("table de vérité de p ∧ q" to "fr") to "0001 dnf p ∧ q cnf p ∧ q",
-            ("треугольник a=3, b=4, c=5" to "ru") to "sides 3, 4, 5 angles 36.86989765, 53.13010235, 90 area 6",
+            ("stats(1, 2, 3)" to "ja") to "n=3 mean 2 median 2 sd 1 q1 1 q3 3",
+            ("truthtable(p ∧ q)" to "zh-Hans") to "0001 dnf p ∧ q cnf p ∧ q",
         )
         val wrong = cases.mapNotNull { (input, expected) ->
             val got = answerOf(Reports.of(TextInput.read(input.first, input.second)).result)
@@ -202,52 +189,4 @@ class DiscreteTest {
         assertEquals("", wrong.joinToString("\n"))
     }
 
-    /** The milestone-7 review's phrasings: a predicate after the number, logic words, conversions after a word, points as (1|2). */
-    @Test fun reviewedPhrasings() {
-        val cases = listOf(
-            ("60の約数" to "ja") to "2^2 · 3 · 5 d=12 σ=168 φ=16 μ=0 next 61 bin 111100",
-            ("60 分解质因数" to "zh-Hans") to "2^2 · 3 · 5 d=12 σ=168 φ=16 μ=0 next 61 bin 111100",
-            ("60を素因数分解" to "ja") to "2^2 · 3 · 5 d=12 σ=168 φ=16 μ=0 next 61 bin 111100",
-            ("löse in ganzen Zahlen 3x+5y=7" to "de") to "x = 4 + 5t, y = -1 + -3t",
-            ("résous dans les entiers 3x+5y=7" to "fr") to "x = 4 + 5t, y = -1 + -3t",
-            ("решить в целых числах 3x+5y=7" to "ru") to "x = 4 + 5t, y = -1 + -3t",
-            ("mode of 1, 2, 2, 3" to "en") to "n=4 mean 2 median 2 sd √6/3 q1 3/2 q3 5/2",
-            ("is 97 a prime number" to "en") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("is 97 a prime" to "en") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("ist 97 eine Primzahl" to "de") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("97 ist eine Primzahl?" to "de") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("¿es 97 primo?" to "es") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("97 es primo" to "es") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("97 est-il premier ?" to "fr") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("97 è primo?" to "it") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("97 é primo?" to "pt") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("97 простое?" to "ru") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("97 là số nguyên tố" to "vi") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("هل 97 أولي؟" to "ar") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("97 是质数吗" to "zh-Hans") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
-            ("Gleichung der Geraden durch (1|2) und (3|4)" to "de") to "y = x + 1 distance 2√2",
-            ("Gerade durch (1|2) und (3|6)" to "de") to "y = 2x distance 2√5",
-            ("focus of y^2=8x" to "en") to "parabola foci (2, 0) e 1 vertex (0, 0) directrix x = -2",
-            ("plot the parabola y=x^2" to "en") to "graph of x^2",
-            ("Wahrheitstafel von p und q" to "de") to "0001 dnf p ∧ q cnf p ∧ q",
-            ("table de vérité de p et non q" to "fr") to "0010 dnf p ∧ ¬q cnf p ∧ ¬q",
-            ("таблица истинности p и q" to "ru") to "0001 dnf p ∧ q cnf p ∧ q",
-            ("真值表 p 且 q" to "zh-Hans") to "0001 dnf p ∧ q cnf p ∧ q",
-            ("convert 5 km to mi" to "en") to "78125/25146 mi",
-            ("đổi 5 km sang mi" to "vi") to "78125/25146 mi",
-            ("rechne 5 km in mi um" to "de") to "78125/25146 mi",
-            ("5 km dalam mi" to "id") to "78125/25146 mi",
-            ("solve x^2=4" to "en") to "x = -2; 2",
-            ("factor x^2-1" to "en") to "(x - 1)(x + 1)",
-            ("factors of 360" to "en") to "2^3 · 3^2 · 5 d=24 σ=1170 φ=96 μ=0 next 367 bin 101101000",
-            ("truth table of p and q implies r" to "en") to "11111101 dnf ¬p ∨ ¬q ∨ r cnf ¬p ∨ ¬q ∨ r",
-            ("5 km in mi" to "en") to "78125/25146 mi",
-            ("derivative of x^2" to "en") to "2x",
-        )
-        val wrong = cases.mapNotNull { (input, expected) ->
-            val got = answerOf(Reports.of(TextInput.read(input.first, input.second)).result)
-            if (got != expected) "${input.first}: $got, not $expected" else null
-        }
-        assertEquals("", wrong.joinToString("\n"))
-    }
 }

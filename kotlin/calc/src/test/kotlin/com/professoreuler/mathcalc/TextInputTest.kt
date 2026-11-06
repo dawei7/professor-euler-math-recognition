@@ -5,8 +5,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * What a learner types on the Calculator's keyboard, in words of English or German, read and worked out: each list reports
- * all its differences.
+ * What a learner types on the Calculator's keyboard, formulas and English functions, in English and German, read and worked
+ * out: each list reports all its differences.
  */
 class TextInputTest {
     private fun typed(text: String, language: String = "en"): String {
@@ -36,11 +36,23 @@ class TextInputTest {
     }
 
     @Test
-    fun whatALineAsksForIsShownAsALearnerWritesIt() {
-        assertEquals("\\int x\\cdot e^{x} \\, dx", TextInput.display(TextInput.read("integrate x*e^x dx")))
-        assertEquals("\\frac{d}{dy}\\left(x^{2} y\\right)", TextInput.display(TextInput.read("derivative of x^2 y with respect to y")))
-        assertEquals("\\frac{d}{dx}\\left(x^{3}\\right)", TextInput.display(TextInput.read("Ableitung von x^3", "de")))
-        assertEquals("x^{2}=4", TextInput.display(TextInput.read("solve x^2=4")))
+    fun aCallIsShownAsTheCall() {
+        assertEquals("\\operatorname{integral}\\left(x\\cdot e^{x}, x\\right)", TextInput.display(TextInput.read("integral(x*e^x, x)")))
+        assertEquals("\\operatorname{derivative}\\left(x^{2} y, y\\right)", TextInput.display(TextInput.read("derivative(x^2 y, y)")))
+        // d/dx is notation, written as the function it is.
+        assertEquals("\\operatorname{derivative}\\left(x^{3}, x\\right)", TextInput.display(TextInput.read("d/dx x^3")))
+        assertEquals("\\operatorname{solve}\\left(x^{2}=4, x\\right)", TextInput.display(TextInput.read("solve(x^2=4, x)")))
+        // A formula alone is shown as it is.
+        assertEquals("x^{2}=4", TextInput.display(TextInput.read("x^2=4")))
+    }
+
+    /** No command words in any language (owner, 6 November 2026): the words are letters, the functions are English. */
+    @Test
+    fun wordsAreNoCommands() {
+        assertEquals(null, TextInput.read("solve x^2 = 4").choice)
+        assertEquals(null, TextInput.read("löse x^2 = 4", "de").choice)
+        assertEquals(null, TextInput.read("5 km in mi").choice)
+        assertEquals(null, TextInput.read("ggT(12, 18)", "de").choice)
     }
 
     @Test
@@ -48,68 +60,62 @@ class TextInputTest {
         "2+3*4" to "14",
         "sqrt(8)" to "2√2 ≈ 2.828427125",
         "x^2+3x-4=0" to "x = -4; 1",
-        "solve x^2 = 4 for x" to "x = -2; 2",
-        "factor x^2-1" to "(x - 1)(x + 1)",
-        "expand (x+1)^3" to "x^3 + 3x^2 + 3x + 1",
-        "simplify (x^2-4)/(x+2)" to "x - 2 (x ≠ -2)",
+        "solve(x^2 = 4, x)" to "x = -2; 2",
+        "factor(x^2-1)" to "(x - 1)(x + 1)",
+        "expand((x+1)^3)" to "x^3 + 3x^2 + 3x + 1",
+        "simplify((x^2-4)/(x+2))" to "x - 2 (x ≠ -2)",
         "d/dx x^3" to "3x^2",
-        "integrate x^2 from 0 to 3" to "9",
-        "limit sin(x)/x as x->0" to "1",
-        "lim x->0 (1-cos(x))/x^2" to "1/2 = 0.5",
+        "integral(x^2, x, 0, 3)" to "9",
+        "limit(sin(x)/x, x, 0)" to "1",
+        "limit((1-cos(x))/x^2, x, 0)" to "1/2 = 0.5",
         "e^(i pi)" to "-1",
         "gamma(5)" to "24",
-        "derivative of x^2 y with respect to y" to "x^2",
+        "derivative(x^2 y, y)" to "x^2",
         "5!" to "120",
         "2^10" to "1024",
         "|x-1| = 3" to "x = -2; 4",
         "3x+2=11" to "x = 3",
         "sin(30°)" to "1/2 = 0.5",
         "√2·√8" to "4",
-        "sum k for k=1 to 100" to "5050",
+        "sum(k, k, 1, 100)" to "5050",
     ))
 
     @Test
     fun german() = check("de", listOf(
-        "löse x^2=9 nach x" to "x = -3; 3",
-        "Ableitung von x^3 nach x" to "3x^2",
-        "Integral von x^2 von 0 bis 3" to "9",
-        "Grenzwert von sin(x)/x für x gegen 0" to "1",
-        "faktorisiere x^2+4x+4" to "(x + 2)^2",
-        "vereinfache (x^2-1)/(x-1)" to "x + 1 (x ≠ 1)",
-        "Summe von k für k=1 bis 100" to "5050",
-        "berechne 2,5*4" to "10",
-        // English is understood whatever the app's language.
-        "solve 2x = 6" to "x = 3",
+        "solve(x^2=9, x)" to "x = -3; 3",
+        "derivative(x^3, x)" to "3x^2",
+        "integral(x^2, x, 0, 3)" to "9",
+        "limit(sin(x)/x, x, 0)" to "1",
+        "factor(x^2+4x+4)" to "(x + 2)^2",
+        "simplify((x^2-1)/(x-1))" to "x + 1 (x ≠ 1)",
+        "sum(k, k, 1, 100)" to "5050",
+        // Decimal commas: a comma between two digits is in its number.
+        "calculate(2,5*4)" to "10",
+        "2,5*4" to "10",
     ))
 
-    /** What the Calculator's guide and manual show, read as a learner types it. */
+    /** What the Calculator's guide shows, read as it is written. */
     @Test
     fun asTheGuideWritesIt() = check("en", listOf(
         // An initial value after a comma is a line of its own.
         "y' = y, y(0) = 1" to "y = Ce^x [linear] | y = e^x",
         "y'' + y = 0, y(0) = 0, y'(0) = 1" to "y = C_2·sin(x) + C_1·cos(x) [constant_coefficients] | y = sin(x)",
-        // Logic in words, without "truth table of".
-        "p implies q" to "1101 dnf ¬p ∨ q cnf ¬p ∨ q",
-        "p and not q or r" to "01011101 dnf (p ∧ ¬q) ∨ r cnf (p ∨ r) ∧ (¬q ∨ r)",
-        "p xor q" to "0110 dnf (¬p ∧ q) ∨ (p ∧ ¬q) cnf (p ∨ q) ∧ (¬p ∨ ¬q)",
+        "truthtable(p → q)" to "1101 dnf ¬p ∨ q cnf ¬p ∨ q",
+        "p ∧ ¬q ∨ r" to "01011101 dnf (p ∧ ¬q) ∨ r cnf (p ∨ r) ∧ (¬q ∨ r)",
+        "p ⊕ q" to "0110 dnf (¬p ∧ q) ∨ (p ∧ ¬q) cnf (p ∨ q) ∧ (¬p ∨ ¬q)",
         // a_(n+1) is a subscript; × the cross product; a quotient with i as a + bi.
         "a_(n+1) = 2a_n + 1; a_0 = 0" to "a_n = 2^n - 1 | 0, 1, 3, 7, 15, 31, 63, 127",
         "(1, 2, 3) × (4, 5, 6)" to "(-3, 6, -3)",
         "1/(1 + i)" to "1/2 - i/2",
-        "trapezoid x^2 from 0 to 1" to "trapezoid 6 rows → 0.3333740234",
-        "1 stone in kg" to "317514659/50000000 kg",
-        "2 pints in l" to "473176473/500000000 l",
-        "760 torr in atm" to "1 atm",
-    ))
-
-    @Test
-    fun germanAsTheHandbookWritesIt() = check("de", listOf(
-        "p und nicht q" to "0010 dnf p ∧ ¬q cnf p ∧ ¬q",
-        // Infinity in words; a start of Newton's method "mit Startwert"; "2 ab" stays a product.
-        "Integral von 1/x^2 von 1 bis unendlich" to "1",
-        "Grenzwert von 1/x für x -> -unendlich" to "0",
-        "Newton-Verfahren x^2 - 2 mit Startwert 1" to "newton 7 rows → 1.4142135624",
-        "faktorisiere a^2 + 2 ab + b^2" to "(a + b)^2",
+        "trapezoid(x^2, x, 0, 1)" to "trapezoid 6 rows → 0.3333740234",
+        "convert(1 stone, kg)" to "317514659/50000000 kg",
+        "convert(2 pints, l)" to "473176473/500000000 l",
+        "convert(760 torr, atm)" to "1 atm",
+        // Infinity by its English name or its sign.
+        "integral(1/x^2, x, 1, infinity)" to "1",
+        "limit(1/x, x, -∞)" to "0",
+        "newton(x^2 - 2, 1)" to "newton 7 rows → 1.4142135624",
+        "factor(a^2 + 2 ab + b^2)" to "(a + b)^2",
     ))
 
     @Test

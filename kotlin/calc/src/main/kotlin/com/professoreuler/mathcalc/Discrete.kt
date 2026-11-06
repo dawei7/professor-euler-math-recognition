@@ -23,9 +23,9 @@ object Discrete {
     private val MANY = 2..10_000
     private val LIST = 1..10_000
 
-    /** The names, as typed or as `\operatorname{…}` (ggT, kgV, pgcd, ppcm, mcd, mcm as the languages write them), and how many arguments each takes. */
+    /** The names, as typed or as `\operatorname{…}` (English in every language), and how many arguments each takes. */
     val NAMES: Map<String, IntRange> = mapOf(
-        "gcd" to MANY, "ggt" to MANY, "pgcd" to MANY, "mcd" to MANY, "lcm" to MANY, "kgv" to MANY, "ppcm" to MANY, "mcm" to MANY,
+        "gcd" to MANY, "lcm" to MANY,
         "mod" to 2..2, "modinv" to 2..2, "powmod" to 3..3,
         "binom" to 2..2, "ncr" to 2..2, "choose" to 2..2, "npr" to 2..2, "perm" to 2..2,
         "catalan" to 1..1, "bell" to 1..1, "stirling" to 2..2, "stirling1" to 2..2, "partitions" to 1..1,
@@ -67,8 +67,8 @@ object Discrete {
         if (args.size !in arity || args.any { it.symbols().isNotEmpty() || it is Expr.Mat }) return null
         Budget.check()
         return when (key) {
-            "gcd", "ggt", "pgcd", "mcd" -> big(args.map { whole(it).abs() }.reduce { a, b -> a.gcd(b) })
-            "lcm", "kgv", "ppcm", "mcm" -> big(args.map { whole(it).abs() }.reduce { a, b -> if (a.signum() == 0 || b.signum() == 0) ZERO else a / a.gcd(b) * b })
+            "gcd" -> big(args.map { whole(it).abs() }.reduce { a, b -> a.gcd(b) })
+            "lcm" -> big(args.map { whole(it).abs() }.reduce { a, b -> if (a.signum() == 0 || b.signum() == 0) ZERO else a / a.gcd(b) * b })
             "mod" -> {
                 val m = whole(args[1]).abs()
                 if (m.signum() == 0) throw CalcException(Failure.DIVISION_BY_ZERO)
