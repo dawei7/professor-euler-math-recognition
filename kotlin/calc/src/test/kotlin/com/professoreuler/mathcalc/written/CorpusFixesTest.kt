@@ -31,6 +31,9 @@ class CorpusFixesTest {
         "laplace(1)" to "1/s", "laplace(5)" to "5/s",
         "inverse(x)" to "ARGUMENTS", "det([[1, 2, 3], [4, 5, 6]])" to "SIZES", "solve(x^2 = 4, y)" to "ARGUMENTS",
         "extrema(x^2)" to "ARGUMENTS",
+        // A series asked for by name is worked out as asked, whether its chip was found in time or not (under load,
+        // taylor(tan(x), x, 0, 7) was refused): ln(x − 1) about 2 is (x − 2) − (x − 2)²/2 + (x − 2)³/3.
+        "taylor(ln(x - 1), x, 2, 3)" to "x + (1/3)(x - 2)^3 - (1/2)(x - 2)^2 - 2",
         // A consistent system's least-squares solution is its solution.
         "leastsquares(x + y = 2, x - y = 0, 2x + y = 3)" to "x = 1, y = 1",
     ))

@@ -879,7 +879,9 @@ object MathCalc {
             }
             // Asked for by name, in any letter it has (or none: derivative(c, x) is 0), with the others as constants: a transform
             // in t (s), a function's residues in z, its gradient and Laplacian in its coordinates ([variablesOf]).
-            val onRequest = (if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION) else emptySet()) +
+            // A series asked for by name as well: its chip is looked for in 400 ms, which a busy device may not have (taylor(tan x)
+            // was then refused as a call with arguments it does not take).
+            val onRequest = (if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION, Mode.SERIES) else emptySet()) +
                 setOf(Mode.DERIVATIVE, Mode.INTEGRAL, Mode.GRADIENT, Mode.LAPLACIAN) +
                 (if ("t" in letters) setOf(Mode.LAPLACE) else emptySet()) + (if ("s" in letters) setOf(Mode.INVERSE_LAPLACE) else emptySet()) +
                 (if (letters.size == 1 || "z" in letters) setOf(Mode.RESIDUES) else emptySet())
