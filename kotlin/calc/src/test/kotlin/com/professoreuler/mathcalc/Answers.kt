@@ -79,7 +79,7 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     is Outcome.Statistics -> o.summary.let { k ->
         "n=${k.n} mean " + c.text(k.mean) + " median " + c.text(k.median) + " sd " + (k.sampleSd?.let { c.text(it) } ?: "-") + " q1 " + c.text(k.q1) + " q3 " + c.text(k.q3)
     }
-    is Outcome.Regression -> "y = " + c.text(o.line.slope) + "x + " + c.text(o.line.intercept) + " r " + c.text(o.line.r)
+    is Outcome.Regression -> "y = " + c.text(o.line.slope) + "x + " + c.text(o.line.intercept) + " r " + (o.line.r?.let { c.text(it) } ?: "undefined")
     is Outcome.Converted -> c.text(o.result) + " ${o.to}"
     is Outcome.Triangles -> o.triangles.joinToString(" | ") { t ->
         "sides " + t.sides.joinToString(", ") { c.text(it) } + " angles " + t.angles.joinToString(", ") { c.text(it) } + " area " + c.text(t.area)
@@ -133,6 +133,34 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.Interpolated -> o.interpolant.let { p -> "p(${p.letter}) = " + c.text(p.polynomial) + " newton " + p.newton.joinToString(", ") { c.text(it) } }
     is Outcome.SplineThrough -> o.spline.pieces.joinToString(" | ") { p -> "[" + c.text(p.from) + ", " + c.text(p.to) + "] " + c.text(p.polynomial) }
+    is Outcome.PdeType -> o.classification.let { k ->
+        (k.type?.name?.lowercase() ?: k.regions.joinToString("; ") { r ->
+            r.type.name.lowercase() + " where " + (r.set?.let { c.text(it) } ?: if (r.points.isNotEmpty()) r.letter + " = " + r.points.joinToString(", ") { c.text(it) }
+                else "Δ " + r.relation.name.lowercase() + " 0")
+        }) + " Δ = " + c.text(k.discriminant) + (k.canonical?.let { f -> " | ξ = " + c.text(f.xi) + ", η = " + c.text(f.eta) + " | " + f.terms.joinToString(" + ") { c.text(it) }.replace("+ -", "- ") + " = " + c.text(f.rhs) } ?: "")
+    }
+    is Outcome.PdeSeries -> o.solution.let { s ->
+        "u = " + (s.sum?.let { c.text(it) } ?: (s.terms.joinToString(" + ") { c.text(it) } + " + …")) +
+            s.coefficients.joinToString("") { k ->
+                " | ${k.name}_n = " + c.text(k.formula) + k.exceptions.joinToString("") { (m, v) -> ", ${k.name}_$m = " + c.text(v) } +
+                    (k.zero?.let { ", ${k.name}_0 = " + c.text(it) } ?: "")
+            } + s.checks.joinToString("") { k -> if (k.exact) " | exact" else " | ${k.terms} terms < ${k.digit}e${k.exponent}" }
+    }
+    is Outcome.Basis -> (if (o.nullSpace) "ker" else "col") + " dim ${o.dimension} of ${o.space}" +
+        (if (o.vectors.isEmpty()) " {0}" else " span " + o.vectors.joinToString(" ") { c.text(it) })
+    is Outcome.RankCases -> "rank ${o.generic}" + o.special.joinToString("") { (v, r) -> " | ${o.parameter} = ${c.text(v)}: rank $r" } +
+        (if (o.undefined.isNotEmpty()) " | undefined at " + o.undefined.joinToString(", ") { c.text(it) } else "")
+    is Outcome.TangentLine -> "${o.line.first} = " + c.text(o.line.second) + " at (" + c.text(o.at) + ", " + c.text(o.value) + ") slope " + c.text(o.slope)
+    is Outcome.Optimized -> o.program.let { p ->
+        when (p.status) {
+            LinearProgram.Status.OPTIMAL -> (if (p.maximize) "max " else "min ") + c.text(p.value!!) + " at " +
+                p.letters.indices.joinToString(", ") { "${p.letters[it]} = " + c.text(p.point!![it]) }
+            LinearProgram.Status.UNBOUNDED -> "unbounded"
+            LinearProgram.Status.INFEASIBLE -> "no feasible point"
+        } + (if (p.free.isNotEmpty()) " (free " + p.free.joinToString(", ") + ")" else "")
+    }
+    is Outcome.RootSum -> (if (isZero(o.rest)) "" else c.text(o.rest) + " + ") +
+        o.sums.joinToString(" + ") { (q, s) -> "Σ_{${o.root}: ${c.text(q)} = 0} ${o.root}·ln(${c.text(s)})" } + " + C"
     is Outcome.GraphFacts -> graphFacts(o.facts)
     is Outcome.ShortestPaths -> o.paths.let { p ->
         if (p.negativeCycle != null) "negative cycle " + (p.negativeCycle + p.negativeCycle.first()).joinToString(" → ") + " weight " + c.text(p.cycleWeight!!)
