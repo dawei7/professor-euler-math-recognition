@@ -35,6 +35,8 @@ object CommandFunctions {
         VECTORS,
         /** euler(f, y(x₀) = y₀), euler(…, b), euler(…, b, h): where the method ends and its step, numbers. */
         STEP,
+        /** The integrals over curves, surfaces and regions in coordinates, the derivatives at a point, the Fourier transform ([MultiCalls]). */
+        MULTI,
     }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
@@ -157,6 +159,16 @@ object CommandFunctions {
         Function("norm", Mode.NORM, Shape.NORM, listOf("p")),
         Function("gramschmidt", Mode.GRAM_SCHMIDT, Shape.VECTORS),
         Function("projection", Mode.PROJECTION, Shape.VECTORS),
+        Function("polarintegral", Mode.POLAR_INTEGRAL, Shape.MULTI, listOf("r", "a", "b", "θ", "c", "d")),
+        Function("cylindricalintegral", Mode.CYLINDRICAL_INTEGRAL, Shape.MULTI, listOf("r", "a", "b", "θ", "c", "d", "z", "e", "g")),
+        Function("sphericalintegral", Mode.SPHERICAL_INTEGRAL, Shape.MULTI, listOf("r", "a", "b", "θ", "c", "d", "φ", "e", "g")),
+        Function("lineintegral", Mode.LINE_INTEGRAL, Shape.MULTI, listOf("C", "t", "a", "b")),
+        Function("surfaceintegral", Mode.SURFACE_INTEGRAL, Shape.MULTI, listOf("S", "u", "a", "b", "v", "c", "d")),
+        Function("flux", Mode.FLUX, Shape.MULTI, listOf("S", "u", "a", "b", "v", "c", "d")),
+        Function("directionalderivative", Mode.DIRECTIONAL_DERIVATIVE, Shape.MULTI, listOf("P", "u")),
+        Function("tangentplane", Mode.TANGENT_PLANE, Shape.MULTI, listOf("P")),
+        Function("fouriertransform", Mode.FOURIER_TRANSFORM, Shape.MULTI, listOf("t")),
+        Function("invfouriertransform", Mode.INVERSE_FOURIER_TRANSFORM, Shape.MULTI, listOf("ω")),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -184,6 +196,7 @@ object CommandFunctions {
         if (!balanced(inner)) return null
         val args = arguments(inner)?.map { it.trim() } ?: return refused(f, inner)
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
+        if (f.shape == Shape.MULTI) return MultiCalls.read(f, args) ?: refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         if (f.shape == Shape.APPLIED) return Applied.read(f, args) ?: refused(f, inner)
         if (f.shape == Shape.NETWORK) return Networks.typed(f.name, args) ?: refused(f, inner)
@@ -219,6 +232,8 @@ object CommandFunctions {
                 Typed("\\frac{d^{$n}}{d$x^{$n}}\\left($body\\right)")
             }
             Shape.BOUNDS -> {
+                // integral(f, x, a, b, y, c, d) and with z, e, g: a double or triple integral, the first letter innermost.
+                if (f.mode == Mode.INTEGRAL && params.size > 3) return MultiCalls.iterated(formula, params) ?: refused(f, inner)
                 // integral(f), integral(f, x), integral(f, a, b), integral(f, x, a, b): told apart by their number.
                 val v = when (params.size) {
                     1, 3 -> letter(0) ?: return refused(f, inner)
@@ -509,6 +524,8 @@ object CommandFunctions {
      * as it sees fit).
      */
     fun latex(typed: Typed): String? {
+        // A double or triple integral, and the calls kept as they are (polarintegral, lineintegral …).
+        MultiCalls.latex(typed)?.let { return it }
         val c = typed.choice
         val l = typed.latex.trim()
         Applied.latex(typed)?.let { return it }

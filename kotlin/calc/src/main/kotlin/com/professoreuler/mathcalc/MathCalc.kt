@@ -96,6 +96,8 @@ enum class Failure {
      * (written in another order, it may be).
      */
     ZERO_DIAGONAL,
+    /** tangentplane(F = G, P) at a point P that is not on the surface: F(P) ≠ G(P). */
+    NOT_ON_SURFACE,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -424,6 +426,35 @@ enum class Mode {
 
     /** The orthogonal projection of a vector onto another, or onto the span of several. */
     PROJECTION,
+    /** A double integral in polar coordinates (r, θ), dA = r dr dθ ([Multiple]). */
+    POLAR_INTEGRAL,
+
+    /** A triple integral in cylindrical coordinates (r, θ, z), dV = r dr dθ dz. */
+    CYLINDRICAL_INTEGRAL,
+
+    /** A triple integral in spherical coordinates (r, θ, φ), θ from the z-axis, φ about it: dV = r² sin θ dr dθ dφ. */
+    SPHERICAL_INTEGRAL,
+
+    /** The line integral of a function (∫ f ds) or of a vector field (∫ F · dr) along a curve r(t) ([VectorCalculus]). */
+    LINE_INTEGRAL,
+
+    /** The surface integral ∬ f dS of a function over a surface r(u, v). */
+    SURFACE_INTEGRAL,
+
+    /** The flux of a vector field through a surface r(u, v), or of a plane field across a curve r(t). */
+    FLUX,
+
+    /** The directional derivative of f at a point in a direction, ∇f · u/|u|. */
+    DIRECTIONAL_DERIVATIVE,
+
+    /** The tangent plane of z = f(x, y) or of F(x, y, z) = 0 at a point. */
+    TANGENT_PLANE,
+
+    /** The Fourier transform F(ω) = ∫ f(t)·e^(−iωt) dt ([FourierTransform]). */
+    FOURIER_TRANSFORM,
+
+    /** The inverse Fourier transform f(t) = (1/(2π))·∫ F(ω)·e^(iωt) dω. */
+    INVERSE_FOURIER_TRANSFORM,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -809,6 +840,8 @@ object MathCalc {
         Networks.calculation(latex, millis, fractions)?.let { return it }
         // The statistics commands read their arguments themselves.
         StatCommands.calculate(latex, choice, millis, fractions)?.let { return it }
+        // Integrals over curves, surfaces and regions in coordinates, derivatives at a point, the Fourier transform.
+        MultiCalls.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags(assumptions)
         var choices = emptyList<Choice>()
@@ -964,7 +997,7 @@ object MathCalc {
             val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() < NumberTheory.MOST_FACTORED }
             val complexNumber = v.hasI() && Complex.parts(v)?.second != null
             // A definite integral with numbers for bounds: the trapezoidal and Simpson's rules beside its value.
-            val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
+            val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null && !Multiple.isNested(it) }
                 ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
             val facts = integer(v)?.takeIf { it >= TWO && it < NumberTheory.MOST_FACTORED && integral == null }
             val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.takeIf { integral == null }?.let { Choice(Mode.FACTOR) },
@@ -1010,7 +1043,7 @@ object MathCalc {
             val steps = sides.zipWithNext { a, b -> Verify.same(a, b) }
             if (wroteCalculus) {
                 val op = written.last() as? Expr.Op
-                val definite = op?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
+                val definite = op?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null && !Multiple.isNested(it) }
                     ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
                 val choices = listOfNotNull(Choice(Mode.CALCULATE), definite?.let { Choice(Mode.TRAPEZOID) }, definite?.let { Choice(Mode.SIMPSON) })
                 return Plan(choices, Choice(Mode.CALCULATE)) { c ->
