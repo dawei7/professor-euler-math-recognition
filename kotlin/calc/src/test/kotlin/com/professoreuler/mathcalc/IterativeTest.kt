@@ -162,7 +162,7 @@ class IterativeTest {
             // 4x + y = 1, 2x + 5y = 2: x = 1/6, y = 1/3.
             assertEquals(listOf(Rational.of(1).div(Rational.of(6)), Rational.of(1).div(Rational.of(3))), it.exact!!.map { rational(it) })
             close(1.0 / 6, it.result!![0])
-            close(1.0 / 3, it.result!![1])
+            close(1.0 / 3, it.result[1])
             assertTrue((it.tests[0] as Iterative.Test.Dominance).holds)
             // The textbook system of Burden and Faires: x = (1, 2, −1, 1).
             val bf = iteration("$method([[10, -1, 2, 0], [-1, 11, -1, 3], [2, -1, 10, -1], [0, 3, -1, 8]], [6, 25, -11, 15])")
