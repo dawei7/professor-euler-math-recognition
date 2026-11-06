@@ -471,6 +471,18 @@ private fun known(f: Func, args: List<Expr>): Expr? {
     when (f) {
         Func.SIN, Func.COS, Func.TAN, Func.COT, Func.SEC, Func.CSC -> {
             piMultiple(x)?.let { c -> Trig.exact(f, c)?.let { return it } }
+            // A whole multiple of π added to the angle: tan and cot have period π, sin, cos, sec and csc change sign with each
+            // π (tan(x + π) = tan x, sin(x + π) = −sin x, cos(x − 2π) = cos x).
+            if (x is Expr.Add) {
+                val shift = x.terms.firstOrNull { t -> piMultiple(t)?.let { it.isInteger && it.signum != 0 } == true }
+                if (shift != null) {
+                    val n = piMultiple(shift)!!
+                    val rest = add(x.terms.filter { it !== shift })
+                    val same = fn(f, rest)
+                    val odd = n.num.testBit(0)
+                    return if (f == Func.TAN || f == Func.COT || !odd) same else neg(same)
+                }
+            }
             // Odd and even: sin(−x) = −sin x, cos(−x) = cos x.
             val (k, rest) = splitCoefficient(x)
             if (k is Expr.Num && k.value.signum < 0) {
@@ -494,6 +506,11 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             if (x is Expr.Pow && x.base == Expr.E) return x.exp
             // Where complex values are wanted, ln(−r) = ln r + iπ.
             if (Domain.isComplex) rational(x)?.let { if (it.signum < 0) return add(fn(Func.LN, num(-it)), mul(Expr.I, Expr.PI)) }
+            // The same for every negative real constant, −e, −π, −√2 as for −2: ln(−e) = 1 + iπ (its sign decided by the balls).
+            if (Domain.isComplex && x !is Expr.Num && x.symbols().isEmpty() && !x.hasI() && !x.hasInfinity() && !x.hasOp() &&
+                x !is Expr.Real && Numeric.value(x)?.let { it < 0 } == true && Precise.signOf(x) == -1) {
+                return add(fn(Func.LN, neg(x)), mul(Expr.I, Expr.PI))
+            }
             rational(x)?.let { if (it.signum <= 0) throw CalcException(Failure.UNDEFINED) }
             if (x is Expr.Real) return Expr.Real(kotlin.math.ln(x.value).also { if (!it.isFinite()) throw CalcException(Failure.UNDEFINED) })
             // ln of a whole power of a number: ln 8 = 3 ln 2 (the smallest base).
@@ -524,7 +541,8 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             // A real number written with roots, π or functions: by its sign (|√2| is √2).
             if (x.symbols().isEmpty() && !x.hasI() && !x.hasInfinity()) Numeric.value(x)?.let { v ->
                 if (v > 1e-9) return x
-                if (v < -1e-9) return neg(x)
+                // A sum's negative term by term: |π − 4| = 4 − π, not −(−4 + π).
+                if (v < -1e-9) return if (x is Expr.Add) add(x.terms.map { neg(it) }) else neg(x)
             }
             if (x is Expr.Fn && x.f == Func.ABS) return x
             if (x is Expr.Pow && integer(x.exp)?.testBit(0) == false && x.base.isReal()) return x
@@ -542,7 +560,15 @@ private fun known(f: Func, args: List<Expr>): Expr? {
             for (k in 2..r.num.toInt()) p *= BigInteger.valueOf(k.toLong())
             return Expr.Num(Rational.of(p))
         }
-        Func.SINH, Func.COSH, Func.TANH -> if (isZero(x)) return if (f == Func.COSH) Expr.ONE else Expr.ZERO
+        Func.SINH, Func.COSH, Func.TANH -> {
+            if (isZero(x)) return if (f == Func.COSH) Expr.ONE else Expr.ZERO
+            // Odd and even as sin and cos: sinh(−x) = −sinh x, cosh(−x) = cosh x, tanh(−x) = −tanh x.
+            val (k, rest) = splitCoefficient(x)
+            if (k is Expr.Num && k.value.signum < 0) {
+                val flipped = fn(f, mul(Expr.Num(-k.value), rest))
+                return if (f == Func.COSH) flipped else neg(flipped)
+            }
+        }
         Func.GAMMA, Func.DIGAMMA, Func.ERF, Func.ERFC, Func.ZETA, Func.BESSELJ, Func.LAMBERTW -> return SpecialValues.known(f, args)
     }
     return null

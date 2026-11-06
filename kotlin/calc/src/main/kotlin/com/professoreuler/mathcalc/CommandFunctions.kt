@@ -12,7 +12,12 @@ package com.professoreuler.mathcalc
  */
 object CommandFunctions {
     /** How a function's arguments after the formula are read. */
-    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT }
+    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT, REGION,
+        /** odeseries(f), odeseries(f, a), odeseries(f, a, n): a point (a number) and the highest power. */
+        POINT_ORDER,
+        /** dormandprince(f), dormandprince(f, b): where the method ends. */
+        UNTIL,
+    }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
     class Function(val name: String, val mode: Mode?, val shape: Shape, val params: List<String> = emptyList())
@@ -67,6 +72,16 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("complexplot", Mode.COMPLEX_PLOT, Shape.REGION, listOf("z", "c", "r")),
+        Function("venn", Mode.VENN, Shape.FORMULA),
+        Function("svd", Mode.SVD, Shape.FORMULA),
+        Function("jordan", Mode.JORDAN, Shape.FORMULA),
+        Function("odeseries", Mode.ODE_SERIES, Shape.POINT_ORDER, listOf("a", "n")),
+        Function("dormandprince", Mode.DORMAND_PRINCE, Shape.UNTIL, listOf("b")),
+        Function("slopefield", Mode.SLOPE_FIELD, Shape.FORMULA),
+        Function("phaseportrait", Mode.PHASE_PORTRAIT, Shape.FORMULA),
+        Function("interpolate", Mode.INTERPOLATION, Shape.POINTS),
+        Function("spline", Mode.SPLINE, Shape.POINTS),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -97,6 +112,9 @@ object CommandFunctions {
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
+        // Lines after the formula only where the function takes them (a system, initial values, constraints): gradient(f, x = 1)
+        // is no gradient at a point, and never anything else.
+        if (lines.size > 1 && f.name in ONE_LINE) return refused(f, inner)
         val formula = lines.joinToString("; ")
         val l = TextInput
         fun letter(k: Int): String? = params.getOrNull(k)?.let { l.letterOf(it) }
@@ -128,6 +146,8 @@ object CommandFunctions {
                     else -> return refused(f, inner)
                 }
                 val bounds = if (params.size >= 2) params.takeLast(2) else emptyList()
+                // The trapezoidal and Simpson's rules approximate a definite integral: without its bounds there is none.
+                if (f.mode != Mode.INTEGRAL && bounds.isEmpty()) return refused(f, inner)
                 val body = l.latex(formula)
                 if (bounds.size == 2) {
                     val x = v ?: l.mainLetterOf(body)
@@ -147,7 +167,8 @@ object CommandFunctions {
                     else -> return refused(f, inner)
                 }
                 val body = l.latex(formula)
-                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} $body")
+                // The whole formula in brackets: written as notation, lim takes only the term after it (lim x² − x is 9 − x).
+                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} ${bracketed(body)}")
             }
             Shape.SUM -> {
                 // sum(f), sum(f, k), sum(f, k, a), sum(f, k, a, b): from 1 to ∞ where they are not given.
@@ -156,7 +177,7 @@ object CommandFunctions {
                 val k = letter(0) ?: "k"
                 val lower = params.getOrNull(1) ?: "1"
                 val upper = params.getOrNull(2)?.let { l.latex(it) } ?: "\\infty"
-                Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} $body")
+                Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} ${bracketed(body)}")
             }
             Shape.SERIES -> {
                 // taylor(f), taylor(f, x), taylor(f, a), taylor(f, a, n), taylor(f, x, a), taylor(f, x, a, n).
@@ -175,8 +196,70 @@ object CommandFunctions {
                     point = if (params.size == 2) l.latex(params[0]) + "," + l.latex(params[1]) else null))
             Shape.PERIOD -> if (params.size > 1) refused(f, inner)
                 else Typed(l.latex(formula), Choice(Mode.FOURIER, point = params.getOrNull(0)?.let { l.latex(it) }))
+            Shape.REGION -> {
+                // complexplot(f), complexplot(f, z), complexplot(f, c, r), complexplot(f, z, c, r): told apart by their number;
+                // the square centred at c with half side r.
+                val v = when (params.size) {
+                    1, 3 -> letter(0) ?: return refused(f, inner)
+                    0, 2 -> null
+                    else -> return refused(f, inner)
+                }
+                val body = l.latex(formula)
+                val z = v ?: complexLetter(body)
+                val square = if (params.size >= 2) params.takeLast(2) else emptyList()
+                // complexplot(f, z, z, 2): the letter is no centre or size of its own square.
+                if (square.any { l.letterOf(it) == z }) return refused(f, inner)
+                Typed(body, Choice(Mode.COMPLEX_PLOT, z, point = if (square.size == 2) square.joinToString(",") { l.latex(it) } else null))
+            }
+            // odeseries(f, a, n): the point a number (never a letter), the order a whole number.
+            Shape.POINT_ORDER -> {
+                if (params.size > 2 || (params.isNotEmpty() && letter(0) != null)) return refused(f, inner)
+                val order = params.getOrNull(1)?.let { it.toIntOrNull()?.takeIf { n -> n in 1..MAX_ORDER } ?: return refused(f, inner) }
+                Typed(l.latex(formula), Choice(f.mode!!, point = params.getOrNull(0)?.let { l.latex(it) }, order = order))
+            }
+            // dormandprince(f, b): the end b a number.
+            Shape.UNTIL -> if (params.size > 1 || (params.size == 1 && letter(0) != null)) refused(f, inner)
+                else Typed(l.latex(formula), Choice(f.mode!!, point = params.getOrNull(0)?.let { l.latex(it) }))
             else -> refused(f, inner)
         }
+    }
+
+    /**
+     * The functions of one formula, which take no further line (an equation, an initial value) after it; the others take them
+     * as a system, initial values, constraints or a triangle's values (solve, dsolve, extrema, triangle …).
+     */
+    private val ONE_LINE = setOf("factor", "expand", "simplify", "calculate", "partialfractions", "derivative", "integral", "limit", "sum",
+        "taylor", "det", "inverse", "eigenvalues", "rref", "transpose", "decompose", "expm", "gradient", "divergence", "curl", "jacobian",
+        "laplacian", "laplace", "invlaplace", "fourier", "newton", "bisection", "trapezoid", "simpson", "polar", "residues", "facts",
+        "truthtable", "conic", "diophantine", "svd", "jordan", "complexplot", "venn")
+
+    /**
+     * [body] in brackets, as the argument of an operator written as notation (Σ, lim), which takes only the term after it: a
+     * function's whole first argument is its argument, always (sum(k + 1, k, 1, 3) is Σ (k + 1) = 9, never Σ k + 1).
+     */
+    private fun bracketed(body: String): String = "\\left($body\\right)"
+
+    /** [s] without the brackets [bracketed] put around it (one pair around the whole, not \left(a\right) + \left(b\right)). */
+    private fun unbracketed(s: String): String {
+        val t = s.trim()
+        if (!t.startsWith("\\left(") || !t.endsWith("\\right)")) return t
+        val inner = t.substring(6, t.length - 7)
+        var depth = 0
+        var k = 0
+        while (k < inner.length) {
+            when {
+                inner.startsWith("\\left", k) -> { depth++; k += 5 }
+                inner.startsWith("\\right", k) -> { depth--; if (depth < 0) return t; k += 6 }
+                else -> k++
+            }
+        }
+        return if (depth == 0) inner else t
+    }
+
+    /** The letter of a complex function: z where it has one, else its only letter, else z. */
+    private fun complexLetter(body: String): String {
+        val main = TextInput.mainLetterOf(body)
+        return if (Regex("""(?<![A-Za-z\\])z(?![A-Za-z])""").containsMatchIn(body) || main == "x" && !Regex("""(?<![A-Za-z\\])x(?![A-Za-z])""").containsMatchIn(body)) "z" else main
     }
 
     /** The highest order of a series a call may ask for. */
@@ -191,11 +274,14 @@ object CommandFunctions {
         return when (f.shape) {
             // The elements of a list.
             Shape.LIST -> Typed(l.listLatex(args.joinToString(", ")), Choice(f.mode!!))
-            Shape.POINTS -> Typed(l.pointsLatex(args.joinToString(", "), matrix = f.mode == Mode.REGRESSION), Choice(f.mode!!))
+            Shape.POINTS -> Typed(l.pointsLatex(args.joinToString(", "), matrix = f.mode in MATRIX_POINTS), Choice(f.mode!!))
             Shape.CONVERT -> if (args.size == 2) l.conversion(args[0], args[1]) else null
             else -> null
         }
     }
+
+    /** The functions of points whose points are the rows of one matrix (a line's and a plane's are vectors, one to a line). */
+    private val MATRIX_POINTS = setOf(Mode.REGRESSION, Mode.INTERPOLATION, Mode.SPLINE)
 
     /** The call as the editor or the display writes it, its LaTeX dressing taken off: \left( is (, \operatorname{solve} is solve. */
     private fun plain(s: String): String = s
@@ -286,11 +372,11 @@ object CommandFunctions {
             }
         }
         if (c == null) {
-            LIM.matchEntire(l)?.let { m -> return call("limit", listOf(m.groupValues[3], m.groupValues[1], m.groupValues[2])) }
+            LIM.matchEntire(l)?.let { m -> return call("limit", listOf(unbracketed(m.groupValues[3]), m.groupValues[1], m.groupValues[2])) }
             NTH.matchEntire(l)?.let { m -> return call("derivative", listOf(m.groupValues[3], m.groupValues[2], m.groupValues[1])) }
             SUM.matchEntire(l)?.let { m ->
                 val upper = m.groupValues[3]
-                return call("sum", listOf(m.groupValues[4], m.groupValues[1], m.groupValues[2]) + upper)
+                return call("sum", listOf(unbracketed(m.groupValues[4]), m.groupValues[1], m.groupValues[2]) + upper)
             }
             return null
         }
@@ -306,9 +392,12 @@ object CommandFunctions {
             Shape.START -> lines + listOfNotNull(c.point)
             Shape.INTERVAL -> lines + (c.point?.split(',') ?: emptyList())
             Shape.PERIOD -> lines + listOfNotNull(c.point)
+            Shape.REGION -> lines + listOfNotNull(c.letter ?: complexLetter(l)) + (c.point?.split(',') ?: emptyList())
             Shape.LIST -> elements(l) ?: return null
             Shape.POINTS -> points(l) ?: return null
             Shape.CONVERT -> listOf(l + "\\ \\text{" + (c.letter ?: return null) + "}", "\\text{" + (c.point ?: return null) + "}")
+            Shape.POINT_ORDER -> lines + listOfNotNull(c.point, c.order?.takeIf { c.point != null }?.toString())
+            Shape.UNTIL -> lines + listOfNotNull(c.point)
             else -> return null
         }
         return call(f.name, args)
