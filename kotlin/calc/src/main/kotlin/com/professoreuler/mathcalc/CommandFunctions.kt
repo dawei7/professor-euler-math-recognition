@@ -17,6 +17,8 @@ object CommandFunctions {
         POINT_ORDER,
         /** dormandprince(f), dormandprince(f, b): where the method ends. */
         UNTIL,
+        /** Read and written by [Applied]: a curve's point or bounds, two curves, a matrix with its letter. */
+        APPLIED,
         /** A whole number (or its numeral) and a base: tobase(255, 16), frombase(FF, 16) ([Bases]). */
         BASE,
     }
@@ -84,6 +86,23 @@ object CommandFunctions {
         Function("phaseportrait", Mode.PHASE_PORTRAIT, Shape.FORMULA),
         Function("interpolate", Mode.INTERPOLATION, Shape.POINTS),
         Function("spline", Mode.SPLINE, Shape.POINTS),
+        Function("pdetype", Mode.PDE_TYPE, Shape.FORMULA),
+        Function("pdsolve", Mode.PDE, Shape.FORMULA),
+        Function("rank", Mode.RANK, Shape.FORMULA),
+        Function("trace", Mode.TRACE, Shape.FORMULA),
+        Function("nullspace", Mode.NULL_SPACE, Shape.FORMULA),
+        Function("columnspace", Mode.COLUMN_SPACE, Shape.FORMULA),
+        Function("charpoly", Mode.CHARACTERISTIC_POLYNOMIAL, Shape.APPLIED, listOf("λ")),
+        Function("adjugate", Mode.ADJUGATE, Shape.FORMULA),
+        Function("tangentline", Mode.TANGENT_LINE, Shape.APPLIED, listOf("x", "a")),
+        Function("normalline", Mode.NORMAL_LINE, Shape.APPLIED, listOf("x", "a")),
+        Function("arclength", Mode.ARC_LENGTH, Shape.APPLIED, listOf("x", "a", "b")),
+        Function("areabetween", Mode.AREA_BETWEEN, Shape.APPLIED, listOf("g", "x", "a", "b")),
+        Function("volumex", Mode.VOLUME_X, Shape.APPLIED, listOf("x", "a", "b")),
+        Function("volumey", Mode.VOLUME_Y, Shape.APPLIED, listOf("x", "a", "b")),
+        Function("meanvalue", Mode.MEAN_VALUE, Shape.APPLIED, listOf("x", "a", "b")),
+        Function("maximize", Mode.MAXIMIZE, Shape.FORMULA),
+        Function("minimize", Mode.MINIMIZE, Shape.FORMULA),
         Function("tobase", Mode.TO_BASE, Shape.BASE, listOf("b")),
         Function("frombase", Mode.FROM_BASE, Shape.BASE, listOf("b")),
     )
@@ -115,8 +134,12 @@ object CommandFunctions {
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
         if (f.shape == Shape.BASE) return Bases.read(f.mode!!, args) ?: refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
+        if (f.shape == Shape.APPLIED) return Applied.read(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
+        // Lines after the formula only where the function takes them (a system, initial values, constraints): gradient(f, x = 1)
+        // is no gradient at a point, and never anything else.
+        if (lines.size > 1 && f.name in ONE_LINE) return refused(f, inner)
         val formula = lines.joinToString("; ")
         val l = TextInput
         fun letter(k: Int): String? = params.getOrNull(k)?.let { l.letterOf(it) }
@@ -148,6 +171,8 @@ object CommandFunctions {
                     else -> return refused(f, inner)
                 }
                 val bounds = if (params.size >= 2) params.takeLast(2) else emptyList()
+                // The trapezoidal and Simpson's rules approximate a definite integral: without its bounds there is none.
+                if (f.mode != Mode.INTEGRAL && bounds.isEmpty()) return refused(f, inner)
                 val body = l.latex(formula)
                 if (bounds.size == 2) {
                     val x = v ?: l.mainLetterOf(body)
@@ -167,7 +192,8 @@ object CommandFunctions {
                     else -> return refused(f, inner)
                 }
                 val body = l.latex(formula)
-                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} $body")
+                // The whole formula in brackets: written as notation, lim takes only the term after it (lim x² − x is 9 − x).
+                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} ${bracketed(body)}")
             }
             Shape.SUM -> {
                 // sum(f), sum(f, k), sum(f, k, a), sum(f, k, a, b): from 1 to ∞ where they are not given.
@@ -176,7 +202,7 @@ object CommandFunctions {
                 val k = letter(0) ?: "k"
                 val lower = params.getOrNull(1) ?: "1"
                 val upper = params.getOrNull(2)?.let { l.latex(it) } ?: "\\infty"
-                Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} $body")
+                Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} ${bracketed(body)}")
             }
             Shape.SERIES -> {
                 // taylor(f), taylor(f, x), taylor(f, a), taylor(f, a, n), taylor(f, x, a), taylor(f, x, a, n).
@@ -221,6 +247,38 @@ object CommandFunctions {
                 else Typed(l.latex(formula), Choice(f.mode!!, point = params.getOrNull(0)?.let { l.latex(it) }))
             else -> refused(f, inner)
         }
+    }
+
+    /**
+     * The functions of one formula, which take no further line (an equation, an initial value) after it; the others take them
+     * as a system, initial values, constraints or a triangle's values (solve, dsolve, extrema, triangle …).
+     */
+    private val ONE_LINE = setOf("factor", "expand", "simplify", "calculate", "partialfractions", "derivative", "integral", "limit", "sum",
+        "taylor", "det", "inverse", "eigenvalues", "rref", "transpose", "decompose", "expm", "gradient", "divergence", "curl", "jacobian",
+        "laplacian", "laplace", "invlaplace", "fourier", "newton", "bisection", "trapezoid", "simpson", "polar", "residues", "facts",
+        "truthtable", "conic", "diophantine", "svd", "jordan", "complexplot", "venn")
+
+    /**
+     * [body] in brackets, as the argument of an operator written as notation (Σ, lim), which takes only the term after it: a
+     * function's whole first argument is its argument, always (sum(k + 1, k, 1, 3) is Σ (k + 1) = 9, never Σ k + 1).
+     */
+    private fun bracketed(body: String): String = "\\left($body\\right)"
+
+    /** [s] without the brackets [bracketed] put around it (one pair around the whole, not \left(a\right) + \left(b\right)). */
+    private fun unbracketed(s: String): String {
+        val t = s.trim()
+        if (!t.startsWith("\\left(") || !t.endsWith("\\right)")) return t
+        val inner = t.substring(6, t.length - 7)
+        var depth = 0
+        var k = 0
+        while (k < inner.length) {
+            when {
+                inner.startsWith("\\left", k) -> { depth++; k += 5 }
+                inner.startsWith("\\right", k) -> { depth--; if (depth < 0) return t; k += 6 }
+                else -> k++
+            }
+        }
+        return if (depth == 0) inner else t
     }
 
     /** The letter of a complex function: z where it has one, else its only letter, else z. */
@@ -332,6 +390,7 @@ object CommandFunctions {
     fun latex(typed: Typed): String? {
         val c = typed.choice
         val l = typed.latex.trim()
+        Applied.latex(typed)?.let { return it }
         if (c == null || c.mode == Mode.TRAPEZOID || c.mode == Mode.SIMPSON) {
             DEFINITE.matchEntire(l)?.let { m ->
                 val name = when (c?.mode) { Mode.TRAPEZOID -> "trapezoid"; Mode.SIMPSON -> "simpson"; else -> "integral" }
@@ -339,11 +398,11 @@ object CommandFunctions {
             }
         }
         if (c == null) {
-            LIM.matchEntire(l)?.let { m -> return call("limit", listOf(m.groupValues[3], m.groupValues[1], m.groupValues[2])) }
+            LIM.matchEntire(l)?.let { m -> return call("limit", listOf(unbracketed(m.groupValues[3]), m.groupValues[1], m.groupValues[2])) }
             NTH.matchEntire(l)?.let { m -> return call("derivative", listOf(m.groupValues[3], m.groupValues[2], m.groupValues[1])) }
             SUM.matchEntire(l)?.let { m ->
                 val upper = m.groupValues[3]
-                return call("sum", listOf(m.groupValues[4], m.groupValues[1], m.groupValues[2]) + upper)
+                return call("sum", listOf(unbracketed(m.groupValues[4]), m.groupValues[1], m.groupValues[2]) + upper)
             }
             return null
         }

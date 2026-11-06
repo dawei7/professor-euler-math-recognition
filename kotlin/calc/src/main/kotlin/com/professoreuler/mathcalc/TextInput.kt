@@ -108,12 +108,28 @@ object TextInput {
 
     /** Points typed as (1, 2) and (3, 4): each a vector, one to a line, or ([matrix]) the rows of one matrix. */
     internal fun pointsLatex(main: String, matrix: Boolean): String {
-        val points = Regex("""[(\[]\s*([^()\[\]]+?)\s*[)\]]""").findAll(main).map { it.groupValues[1].trim() }
-            // (1|2) as German textbooks write a point: its coordinates with a bar between (a decimal with a point there too).
-            .map { if ('|' in it) it.split('|').joinToString(", ") { c -> c.trim() } else it }
-            .filter { ',' in it }.toList()
-        if (points.size < 2) return latex(main)
-        val rows = points.map { p -> p.split(',').joinToString(", ") { it.trim() } }
+        // Each point a bracket of coordinates, which may be any exact numbers: (1, sqrt(2)), (0, \sqrt{2}) from the editor, (2, 1/3).
+        val points = ArrayList<List<String>>()
+        fun scan(s: String) {
+            var k = 0
+            while (k < s.length) {
+                if (s[k] != '(' && s[k] != '[') { k++; continue }
+                val close = matching(s, k) ?: return
+                val inside = s.substring(k + 1, close).trim()
+                val coordinates = parts(inside, ',').map { it.trim() }
+                when {
+                    // A bracket of points, ((1, 2), (3, 4)): the points inside it.
+                    coordinates.size > 1 && coordinates.all { it.startsWith("(") || it.startsWith("[") } -> scan(inside)
+                    coordinates.size > 1 -> points += coordinates
+                    // (1|2) as German textbooks write a point: its coordinates with a bar between (a decimal with a point there too).
+                    '|' in inside -> points += inside.split('|').map { it.trim() }
+                }
+                k = close + 1
+            }
+        }
+        scan(main)
+        if (points.size < 2 || points.any { p -> p.any { it.isEmpty() } }) return latex(main)
+        val rows = points.map { p -> p.joinToString(", ") }
         return if (matrix) latex("[" + rows.joinToString(", ") { "[$it]" } + "]") else latex(rows.joinToString("; ") { "[$it]" })
     }
 
@@ -125,11 +141,33 @@ object TextInput {
 
     /** convert(5 km, mi): a number with its unit ("5 km", "5km", "20 °C") and the unit wanted. */
     internal fun conversion(value: String, wanted: String): Typed? {
-        val m = Regex("""^\s*(-?\d+(?:[.,]\d+)?(?:/\d+)?)\s*(\S+)\s*$""").matchEntire(value) ?: return null
-        val from = m.groupValues[2].takeIf { Units.known(it) } ?: return null
-        val to = wanted.trim().takeIf { Units.known(it) } ?: return null
+        val m = Regex("""^\s*(-?\d+(?:[.,]\d+)?(?:/\d+)?)\s*(\S.*?)\s*$""").matchEntire(value) ?: return null
+        val from = unitText(m.groupValues[2]).takeIf { Units.known(it) } ?: return null
+        val to = unitText(wanted).takeIf { Units.known(it) } ?: return null
         return Typed(latex(m.groupValues[1]), Choice(Mode.UNITS, from, to))
     }
+
+    /**
+     * A unit as the editor or a keyboard writes it, as it is shown: km/h^{2} and km/h^2 as km/h², N\cdot m and N*m as N·m,
+     * s^{-1} as s⁻¹ (spaces around · and / dropped).
+     */
+    internal fun unitText(written: String): String {
+        var t = written.trim().replace("\\cdot", "·").replace("\\,", " ").replace("⋅", "·").replace("*", "·")
+        // One digit as its superscript (m², s⁻¹); a power of more digits stays as it is written.
+        t = Regex("""\^(?:\{(-?\d)\}|(-?\d)(?!\d))""").replace(t) { m ->
+            val power = m.groupValues[1].ifEmpty { m.groupValues[2] }
+            (if (power.startsWith("-")) "⁻" else "") + SUPERSCRIPT_DIGITS[power.last() - '0']
+        }
+        t = Regex("""\s*([·/])\s*""").replace(t, "$1")
+        // A space between two units is their product, as the editor writes N m.
+        t = Regex("""(?<=\p{L})\s+(?=\p{L})""").replace(t, "·")
+        return t
+    }
+
+    private val SUPERSCRIPT_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+
+    /** A number in scientific notation: its digits (with a decimal point), e or E, and the power of ten (with its sign). */
+    private val SCIENTIFIC = Regex("""(\d+(?:\.\d+)?|\.\d+)[eE]([+-]?\d+)(?![\d.])""")
 
     internal fun letterOf(s: String?): String? {
         val t = s?.trim()?.trimEnd('.', ',', '?') ?: return null
@@ -215,6 +253,8 @@ object TextInput {
     fun latex(math00: String): String {
         // a_(n+1) typed is the subscript a_{n+1}.
         val math0 = math00.replace(Regex("""_\(([^()]*)\)"""), "_{$1}")
+            // u_xx, u_xt typed: the second derivative's two letters are one subscript, u_{xx} (not u_x times x).
+            .replace(PARTIAL_TYPED, "u_{$1}")
         // {1, 2, 3} ∪ {3, 4}: braces of sets.
         val math = if ('{' in math0 && SET_OPERATIONS.any { it in math0 } && "{{" !in math0.replace(" ", ""))
             math0.replace("{", " \\{ ").replace("}", " \\} ") else math0
@@ -268,6 +308,15 @@ object TextInput {
                     emit(s.substring(i, j))
                     i = j
                 }
+                // Scientific notation as every calculator and programming language writes it: 1e3 is 1000, 3.2e-4 is 0.00032,
+                // one number (1/2e3 is 1/2000). The e must follow the digits directly, its power right after it; e on its own
+                // stays Euler's number (2e, 2e - 1, e^3).
+                (c.isDigit() || c == '.') && (i == 0 || !(s[i - 1].isLetterOrDigit() || s[i - 1] == '.' || s[i - 1] == '_')) &&
+                    SCIENTIFIC.matchAt(s, i) != null -> {
+                    val m = SCIENTIFIC.matchAt(s, i)!!
+                    emit("(${m.groupValues[1]} \\cdot 10^{${m.groupValues[2]}})")
+                    i = m.range.last + 1
+                }
                 c in 'a'..'z' || c in 'A'..'Z' -> {
                     var j = i
                     while (j < s.length && (s[j] in 'a'..'z' || s[j] in 'A'..'Z')) j++
@@ -279,6 +328,14 @@ object TextInput {
                     val (exponent, next) = exponentAt(s, i)
                     emit("^{${latex(exponent)}}")
                     i = next
+                }
+                // A subscript of several digits typed after _ is all of them: log_27(9) is to the base 27 (as the engine writes
+                // log_10(2)), x_12 is x₁₂; LaTeX would take only the first digit of an unbraced subscript.
+                c == '_' && s.getOrNull(i + 1)?.isDigit() == true && s.getOrNull(i + 2)?.isDigit() == true -> {
+                    var j = i + 1
+                    while (j < s.length && s[j].isDigit()) j++
+                    emit("_{${s.substring(i + 1, j)}}")
+                    i = j
                 }
                 c == '<' && s.getOrNull(i + 1) == '>' -> { emit("\\ne "); i += 2 }
                 c == '!' && s.getOrNull(i + 1) == '=' -> { emit("\\ne "); i += 2 }
@@ -469,6 +526,9 @@ object TextInput {
         return b.toString()
     }
 
+    /** u with the letters of a partial derivative of order two or more: u_xx, u_xy, u_tt. */
+    private val PARTIAL_TYPED = Regex("""(?<![A-Za-z])u_([xyt]{2,4})(?![A-Za-z0-9])""")
+
     private val DD = Regex("^d(?:\\^([0-9]+))?\\s*/\\s*d([A-Za-z])(?:\\^([0-9]+))?(?![A-Za-z0-9])\\s*")
     private val ARROW = Regex("->|→|\\\\to")
     private val LEADING_APPROACH = Regex("^\\s*([A-Za-z])\\s*(?:->|→)\\s*(\\S+)\\s+")
@@ -531,6 +591,7 @@ object TextInput {
         "ln" to "ln", "log" to "log", "exp" to "exp",
         "erf" to "erf", "erfc" to "erfc", "zeta" to "zeta", "digamma" to "digamma",
         "lambertw" to "lambertw", "besselj" to "besselj",
+        // One name for one operation: sgn, never also sign (refused as a name the calculator does not know).
         "sgn" to "sgn",
     )
 

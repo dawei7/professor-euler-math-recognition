@@ -67,6 +67,16 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Partial differential equations: the type and the canonical form; separation of variables.
+    PDE_COEFFICIENTS, PDE_DISCRIMINANT, PDE_HYPERBOLIC, PDE_PARABOLIC, PDE_ELLIPTIC, PDE_CHARACTERISTIC, PDE_NEW_VARIABLES, PDE_CANONICAL,
+    PDE_SEPARATE, PDE_EIGENVALUES, PDE_OTHER_FACTOR, PDE_SUPERPOSE, PDE_FOURIER_COEFFICIENTS, PDE_PARTIAL_SUMS, PDE_FINITE, PDE_STEADY_STATE,
+    // Rank, trace, null space, column space, characteristic polynomial, adjugate ([AppliedSteps]).
+    RANK_ECHELON, RANK_MINOR, RANK_CASE, TRACE_SUM, NULL_FREE, COLUMN_PIVOTS, CHARPOLY_DET, ADJ_COFACTORS, ADJ_TRANSPOSE, ADJ_CHECK,
+    // Tangent and normal, arc length, area, volumes, mean value.
+    DERIVATIVE_OF, TANGENT_POINT, TANGENT_SLOPE, TANGENT_FORMULA, NORMAL_SLOPE, NORMAL_FORMULA, NORMAL_VERTICAL, ARC_FORMULA, ARC_SQUARE,
+    INTEGRAL_NUMERIC, AREA_CROSSINGS, AREA_PIECE, AREA_PIECES, VOLUME_DISCS, VOLUME_SHELLS, MEAN_FORMULA,
+    // Linear programs.
+    LP_CORNERS, LP_VALUES, LP_SIMPLEX, LP_DUAL, LP_UNBOUNDED, LP_INFEASIBLE,
     // Other bases, and the gcd and lcm of polynomials ([FunctionSteps]).
     BASE_DIVIDE, BASE_REMAINDERS, BASE_PLACE_VALUES, GCD_DIVIDE, GCD_LAST, LCM_PRODUCT,
 }
@@ -98,6 +108,8 @@ object Steps {
         FunctionSteps.of(c, latex)?.let { return it }
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
+        PdeSteps.of(c)?.let { return it }
+        AppliedSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

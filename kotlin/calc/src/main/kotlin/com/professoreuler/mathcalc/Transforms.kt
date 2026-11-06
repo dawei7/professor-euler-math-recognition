@@ -15,19 +15,28 @@ object Transforms {
     fun laplace(f: Expr, t: Expr.Sym, s: Expr.Sym): Expr? {
         val expanded = tidy(Algebra.expand(asExponentials(f)))
         val terms = if (expanded is Expr.Add) expanded.terms else listOf(expanded)
-        var growth = 0.0
+        val rates = ArrayList<Expr>()
         val parts = ArrayList<Expr>()
         for (term in terms) {
             val (transform, rate) = laplaceTerm(term, t, s) ?: return null
             parts += transform
-            growth = max(growth, rate)
+            rates += rate
         }
         val result = tidy(add(parts))
-        // Checked at s₀ beyond every growth rate: ∫₀^∞ e^(−s₀t) f(t) dt by quadrature.
-        val s0 = growth + 2.0
-        val numeric = Quadrature.integrate({ x -> kotlin.math.exp(-s0 * x) * Numeric.eval(f, mapOf(t.name to x)) }, 0.0, Double.POSITIVE_INFINITY)
-        val exact = Numeric.eval(result, mapOf(s.name to s0))
-        if (numeric != null && exact.isFinite() && abs(numeric - exact) > 1e-6 * max(1.0, abs(exact))) return null
+        // Checked at s₀ beyond every growth rate: ∫₀^∞ e^(−s₀t) f(t) dt by quadrature. Other letters (e^(at)) are constants,
+        // the check taken at two values of them; a check that cannot be made is no check passed.
+        val others = (f.symbols() - t.name).sorted()
+        val samples = if (others.isEmpty()) listOf(emptyMap()) else listOf(0.37, -0.81).map { v -> others.associateWith { v } }
+        for (env in samples) {
+            val growth = rates.maxOf { Numeric.eval(it, env).takeIf { r -> r.isFinite() } ?: return null }.coerceAtLeast(0.0)
+            val s0 = kotlin.math.ceil(growth) + 2.0
+            // e^(−s₀t)·f(t) as one expression: its exponentials combined, so that far out it is a small number, not 0·∞.
+            val integrand = tidy(mul(exp(mul(num(-s0.toLong()), t)), f))
+            val numeric = Quadrature.integrate({ x -> Numeric.eval(integrand, env + (t.name to x)) }, 0.0, Double.POSITIVE_INFINITY)
+            val exact = Numeric.eval(result, env + (s.name to s0))
+            if (numeric == null || !exact.isFinite()) return null
+            if (abs(numeric - exact) > 1e-6 * max(1.0, abs(exact))) return null
+        }
         return result
     }
 
@@ -46,7 +55,7 @@ object Transforms {
     }
 
     /** One term c·tⁿ·e^(at)·trig(bt): its transform and the growth rate a. */
-    private fun laplaceTerm(term: Expr, t: Expr.Sym, s: Expr.Sym): Pair<Expr, Double>? {
+    private fun laplaceTerm(term: Expr, t: Expr.Sym, s: Expr.Sym): Pair<Expr, Expr>? {
         val factors = if (term is Expr.Mul) term.factors else listOf(term)
         var constant: Expr = Expr.ONE
         var n = 0
@@ -83,8 +92,8 @@ object Transforms {
         // tⁿ·g(t) ↦ (−1)ⁿ dⁿ/dsⁿ G(s).
         var g = base
         repeat(n) { g = neg(Calculus.derivative(g, s)) }
-        val rate = Numeric.value(a) ?: return null
-        return tidy(mul(constant, g)) to rate
+        // The growth rate e^(at) has (a letter in it stands as a constant, which the check gives values).
+        return tidy(mul(constant, g)) to tidy(a)
     }
 
     /**
