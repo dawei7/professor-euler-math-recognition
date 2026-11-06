@@ -457,11 +457,12 @@ internal object Distributions {
         }
     }
 
-    /** P(a ≤ X ≤ b) = F(b) − F(a) (negative where a > b, as `normalcdf` has it); a bound may be ±∞. */
+    /** P(a ≤ X ≤ b) = F(b) − F(a) for a ≤ b (a > b is refused, as by `normalcdf`); a bound may be ±∞. */
     private fun cdf(d: Continuous, a: Expr, b: Expr): Expr {
         val order = compare(a, b)
         if (order == 0) return Expr.ZERO
-        if (order > 0) return tidy(neg(cdf(d, b, a)))
+        // P(a ≤ X ≤ b) is of an interval: a lower bound above the upper one is refused, as normalcdf refuses it.
+        if (order > 0) throw CalcException(Failure.UNDEFINED)
         // Clipped to the support: below its start F is 0, beyond its end 1.
         val lo = clip(d, a)
         val hi = clip(d, b)
@@ -768,7 +769,7 @@ internal object Distributions {
     private fun exponentialCdf(a: Expr, b: Expr, lambda: Expr): Expr {
         val order = compare(a, b)
         if (order == 0) return Expr.ZERO
-        if (order > 0) return tidy(neg(exponentialCdf(b, a, lambda)))
+        if (order > 0) throw CalcException(Failure.UNDEFINED)
         fun survival(e: Expr): Expr = when {
             infinity(e) > 0 -> Expr.ZERO
             signOf(e) <= 0 -> Expr.ONE
@@ -797,7 +798,7 @@ internal object Distributions {
     private fun uniformCdf(c: Expr, d: Expr, a: Expr, b: Expr): Expr {
         val order = compare(c, d)
         if (order == 0) return Expr.ZERO
-        if (order > 0) return tidy(neg(uniformCdf(d, c, a, b)))
+        if (order > 0) throw CalcException(Failure.UNDEFINED)
         val from = if (compare(c, a) < 0) a else if (compare(c, b) > 0) b else c
         val to = if (compare(d, b) > 0) b else if (compare(d, a) < 0) a else d
         val value = tidy((to - from) / (b - a))

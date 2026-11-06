@@ -114,9 +114,10 @@ internal object Describe {
         if (LinAlg.isNull(s.sxx) || LinAlg.isNull(s.syy)) throw CalcException(Failure.UNDEFINED)
         val value = tidy(s.sxy / sqrt(tidy(s.sxx * s.syy)))
         val line = Stats.regression(points.map { it.first }, points.map { it.second }) ?: throw CalcException(Failure.UNVERIFIED)
-        if (!LinAlg.isNull(tidy(value - line.r))) {
+        val r = line.r ?: throw CalcException(Failure.UNVERIFIED)
+        if (!LinAlg.isNull(tidy(value - r))) {
             val a = Numeric.value(value)
-            val b = Numeric.value(line.r)
+            val b = Numeric.value(r)
             if (a == null || b == null || !StatNumbers.agree(a, b, 1e-12)) throw CalcException(Failure.UNVERIFIED)
         }
         return value
