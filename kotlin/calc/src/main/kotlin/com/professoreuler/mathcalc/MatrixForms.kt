@@ -180,8 +180,8 @@ object MatrixForms {
         val r = rational(e)
         if (r != null) return BigDecimal(r.num).divide(BigDecimal(r.den), MC) to 0.0
         val d = Numeric.value(e) ?: return null
-        // Not rational (√2): its double, which is within half an ulp.
-        return BigDecimal(d) to Math.ulp(d)
+        // Not rational (√2): its double, within a few ulps of the value (64 of them allowed).
+        return BigDecimal(d) to 64 * Math.ulp(d)
     }
 
     private fun sqrtBig(x: BigDecimal): BigDecimal {

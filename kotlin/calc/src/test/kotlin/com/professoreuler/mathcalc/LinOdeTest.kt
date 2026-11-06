@@ -70,6 +70,15 @@ class LinOdeTest {
         val t = svd("svd([[1, 0], [0, 1], [1, 1]])")
         assertEquals(listOf("√3", "1"), t.values.map { text(it) })
         checkSvd(arrayOf(doubleArrayOf(1.0, 0.0), doubleArrayOf(0.0, 1.0), doubleArrayOf(1.0, 1.0)), t)
+        // An entry that is a root: AᵀA = [[2, √2], [√2, 2]], eigenvalues 2 ± √2.
+        val root = svd("svd([[sqrt(2), 1], [0, 1]])")
+        assertEquals(listOf(sqrt(2 + sqrt(2.0)), sqrt(2 - sqrt(2.0))), root.values.map { d(it) })
+        checkSvd(arrayOf(doubleArrayOf(sqrt(2.0), 1.0), doubleArrayOf(0.0, 1.0)), root, 1e-12)
+        // One row: σ = |(3, 4)| = 5, exact.
+        val row = svd("svd([[3, 4]])")
+        assertTrue(row.exact)
+        assertEquals(listOf("5"), row.values.map { text(it) })
+        checkSvd(arrayOf(doubleArrayOf(3.0, 4.0)), row, 1e-12)
     }
 
     @Test
