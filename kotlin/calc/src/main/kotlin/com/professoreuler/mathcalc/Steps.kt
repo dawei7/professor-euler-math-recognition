@@ -57,6 +57,13 @@ enum class StepKey {
     // Triangles, statistics, the regression line, units, conics.
     TRI_COSINES, TRI_SINES, TRI_ANGLE_SUM, TRI_AMBIGUOUS, TRI_AREA, STAT_MEAN, STAT_SORTED, STAT_MEDIAN, STAT_VARIANCE, STAT_SD,
     REG_SUMS, REG_SLOPE, REG_INTERCEPT, UNIT_FACTOR, UNIT_OFFSET, CONIC_COMPLETE, CONIC_STANDARD,
+    // Rank, trace, null space, column space, characteristic polynomial, adjugate ([AppliedSteps]).
+    RANK_ECHELON, RANK_MINOR, RANK_CASE, TRACE_SUM, NULL_FREE, COLUMN_PIVOTS, CHARPOLY_DET, ADJ_COFACTORS, ADJ_TRANSPOSE, ADJ_CHECK,
+    // Tangent and normal, arc length, area, volumes, mean value.
+    DERIVATIVE_OF, TANGENT_POINT, TANGENT_SLOPE, TANGENT_FORMULA, NORMAL_SLOPE, NORMAL_FORMULA, NORMAL_VERTICAL, ARC_FORMULA, ARC_SQUARE,
+    INTEGRAL_NUMERIC, AREA_CROSSINGS, AREA_PIECE, AREA_PIECES, VOLUME_DISCS, VOLUME_SHELLS, MEAN_FORMULA,
+    // Linear programs.
+    LP_CORNERS, LP_VALUES, LP_SIMPLEX, LP_DUAL, LP_UNBOUNDED, LP_INFEASIBLE,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -84,6 +91,7 @@ object Steps {
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
+        AppliedSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

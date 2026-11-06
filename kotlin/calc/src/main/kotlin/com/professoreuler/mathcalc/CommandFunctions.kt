@@ -12,7 +12,9 @@ package com.professoreuler.mathcalc
  */
 object CommandFunctions {
     /** How a function's arguments after the formula are read. */
-    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT }
+    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT,
+        /** Read and written by [Applied]: a curve's point or bounds, two curves, a matrix with its letter. */
+        APPLIED }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
     class Function(val name: String, val mode: Mode?, val shape: Shape, val params: List<String> = emptyList())
@@ -67,6 +69,21 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("rank", Mode.RANK, Shape.FORMULA),
+        Function("trace", Mode.TRACE, Shape.FORMULA),
+        Function("nullspace", Mode.NULL_SPACE, Shape.FORMULA),
+        Function("columnspace", Mode.COLUMN_SPACE, Shape.FORMULA),
+        Function("charpoly", Mode.CHARACTERISTIC_POLYNOMIAL, Shape.APPLIED, listOf("λ")),
+        Function("adjugate", Mode.ADJUGATE, Shape.FORMULA),
+        Function("tangentline", Mode.TANGENT_LINE, Shape.APPLIED, listOf("x", "a")),
+        Function("normalline", Mode.NORMAL_LINE, Shape.APPLIED, listOf("x", "a")),
+        Function("arclength", Mode.ARC_LENGTH, Shape.APPLIED, listOf("x", "a", "b")),
+        Function("areabetween", Mode.AREA_BETWEEN, Shape.APPLIED, listOf("g", "x", "a", "b")),
+        Function("volumex", Mode.VOLUME_X, Shape.APPLIED, listOf("x", "a", "b")),
+        Function("volumey", Mode.VOLUME_Y, Shape.APPLIED, listOf("x", "a", "b")),
+        Function("meanvalue", Mode.MEAN_VALUE, Shape.APPLIED, listOf("x", "a", "b")),
+        Function("maximize", Mode.MAXIMIZE, Shape.FORMULA),
+        Function("minimize", Mode.MINIMIZE, Shape.FORMULA),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -95,6 +112,7 @@ object CommandFunctions {
         val args = arguments(inner)?.map { it.trim() } ?: return refused(f, inner)
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
+        if (f.shape == Shape.APPLIED) return Applied.read(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
         val formula = lines.joinToString("; ")
@@ -279,6 +297,7 @@ object CommandFunctions {
     fun latex(typed: Typed): String? {
         val c = typed.choice
         val l = typed.latex.trim()
+        Applied.latex(typed)?.let { return it }
         if (c == null || c.mode == Mode.TRAPEZOID || c.mode == Mode.SIMPSON) {
             DEFINITE.matchEntire(l)?.let { m ->
                 val name = when (c?.mode) { Mode.TRAPEZOID -> "trapezoid"; Mode.SIMPSON -> "simpson"; else -> "integral" }

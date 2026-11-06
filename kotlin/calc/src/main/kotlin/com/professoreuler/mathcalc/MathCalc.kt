@@ -48,6 +48,8 @@ enum class Failure {
     UNKNOWN_FUNCTION,
     /** A command's function (solve, det …) inside a formula, as 2·det(A): it takes a line of its own. */
     COMMAND_INSIDE,
+    /** An optimization whose objective or constraints are not linear: maximize and minimize take linear ones only. */
+    NOT_LINEAR,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -191,6 +193,51 @@ enum class Mode {
 
     /** The plane through three points. */
     PLANE,
+
+    /** A matrix's rank, checked: a minor of that size is not 0 and the null space has the rest ([Applied]). */
+    RANK,
+
+    /** A square matrix's trace, the sum of its diagonal. */
+    TRACE,
+
+    /** A basis of a matrix's null space, each vector checked: A·v = 0. */
+    NULL_SPACE,
+
+    /** A basis of a matrix's column space: its columns at the pivots. */
+    COLUMN_SPACE,
+
+    /** A square matrix's characteristic polynomial det(λI − A), checked against its principal minors. */
+    CHARACTERISTIC_POLYNOMIAL,
+
+    /** A square matrix's adjugate, checked: A·adj(A) = det(A)·I. */
+    ADJUGATE,
+
+    /** The tangent line of y = f(x) at x = a ([Choice.letter] x, [Choice.point] a). */
+    TANGENT_LINE,
+
+    /** The normal line of y = f(x) at x = a. */
+    NORMAL_LINE,
+
+    /** The arc length of y = f(x) on [a, b] ([Choice.point] "a,b"). */
+    ARC_LENGTH,
+
+    /** The area between two curves (the formula's two lines) on [a, b], or between their intersections. */
+    AREA_BETWEEN,
+
+    /** The volume of the solid y = f(x), a ≤ x ≤ b, turned about the x-axis (discs). */
+    VOLUME_X,
+
+    /** The volume of the solid y = f(x), a ≤ x ≤ b, turned about the y-axis (shells). */
+    VOLUME_Y,
+
+    /** The mean value of f on [a, b]: 1/(b − a)·∫ₐᵇ f dx. */
+    MEAN_VALUE,
+
+    /** A linear objective maximized under linear constraints (the formula's first line, then the constraints). */
+    MAXIMIZE,
+
+    /** A linear objective minimized under linear constraints. */
+    MINIMIZE,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -374,6 +421,31 @@ sealed class Outcome {
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
 
     data class Failed(val failure: Failure) : Outcome()
+
+    /**
+     * A basis of a matrix's [nullSpace] (vectors x with A·x = 0) or else its column space (the span of its columns): [vectors]
+     * (empty for the space {0}), the [dimension] and the dimension of the [space] the vectors lie in (A's columns for the null
+     * space, its rows for the column space). Shown as ker A = span{v₁, v₂} (or {0}) with dim ker A = 2, or col A = span{…}.
+     */
+    data class Basis(val vectors: List<Expr.Mat>, val nullSpace: Boolean, val dimension: Int, val space: Int) : Outcome()
+
+    /**
+     * The rank of a matrix with one letter [parameter] in it, case by case: [generic] for every real value but those in
+     * [special] (each value with its rank there) and [undefined] (where an entry is not defined). Shown as "rank A = 2 for
+     * k ≠ ±2; rank A = 1 for k = −2 and for k = 2".
+     */
+    data class RankCases(val parameter: String, val generic: Int, val special: List<Pair<Expr, Int>>, val undefined: List<Expr>) : Outcome()
+
+    /**
+     * The tangent (or, [normal], the normal) of y = [function]([x]) at x = [at]: through ([at], [value]), where f′([at]) is
+     * [slope]; [line] its equation, "y" to m·x + c, or "x" to [at] where it is vertical (the normal where f′ = 0). Shown as
+     * the equation, with the point and the slope, and drawn: the curve and the line.
+     */
+    data class TangentLine(val function: Expr, val x: String, val at: Expr, val value: Expr, val slope: Expr, val line: Pair<String, Expr>,
+        val normal: Boolean) : Outcome()
+
+    /** A linear program maximized or minimized ([LinearProgram]): its optimum, or that it has none, with the certificate. */
+    data class Optimized(val program: LinearProgram.Solution) : Outcome()
 }
 
 /**
@@ -461,6 +533,8 @@ object MathCalc {
             val others = if (flags.plusMinus) Parser(tokens, Flags(assumptions).also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
             Budget.within(millis) {
+                // The applied functions (rank, tangentline, maximize …), asked for by their call, are worked out on their own.
+                if (logic == null) Applied.outcome(statements, choice)?.let { o -> choices = listOf(choice!!); shown = choice; return@within o }
                 val plan = if (logic != null) logicPlan(logic)
                     else odePlan(statements, flags.odeVariable) ?: plan(statements, others, style, flags.degrees, flags.moduli)
                 choices = plan.choices

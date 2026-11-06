@@ -72,6 +72,8 @@ object Reports {
         panels += Panel(PanelKind.RESULT, result.choice)
         // A value converted between units has its digits in its own answer.
         if (constant != null && result.choice?.mode != Mode.UNITS) panels += Panel(PanelKind.DIGITS)
+        // An applied function's formula is no number of its answer (volumex(2, 0, 1) is 4π, not 2).
+        if (result.choice?.mode in Applied.MODES) panels.removeAll { it.kind == PanelKind.DIGITS }
         val others = result.choices.filter { it != result.choice }
         // A graph is worth seeing early, as Wolfram Alpha shows its plots (a surface first); a function's curve sketch beside it.
         others.filter { it.mode == Mode.SURFACE }.forEach { panels += Panel(PanelKind.CHOICE, it) }
