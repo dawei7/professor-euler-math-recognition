@@ -82,6 +82,36 @@ class TextInputTest {
         "solve 2x = 6" to "x = 3",
     ))
 
+    /** What the Calculator's guide and manual show, read as a learner types it. */
+    @Test
+    fun asTheGuideWritesIt() = check("en", listOf(
+        // An initial value after a comma is a line of its own.
+        "y' = y, y(0) = 1" to "y = Ce^x [linear] | y = e^x",
+        "y'' + y = 0, y(0) = 0, y'(0) = 1" to "y = C_2·sin(x) + C_1·cos(x) [constant_coefficients] | y = sin(x)",
+        // Logic in words, without "truth table of".
+        "p implies q" to "1101 dnf ¬p ∨ q cnf ¬p ∨ q",
+        "p and not q or r" to "01011101 dnf (p ∧ ¬q) ∨ r cnf (p ∨ r) ∧ (¬q ∨ r)",
+        "p xor q" to "0110 dnf (¬p ∧ q) ∨ (p ∧ ¬q) cnf (p ∨ q) ∧ (¬p ∨ ¬q)",
+        // a_(n+1) is a subscript; × the cross product; a quotient with i as a + bi.
+        "a_(n+1) = 2a_n + 1; a_0 = 0" to "a_n = 2^n - 1 | 0, 1, 3, 7, 15, 31, 63, 127",
+        "(1, 2, 3) × (4, 5, 6)" to "(-3, 6, -3)",
+        "1/(1 + i)" to "1/2 - i/2",
+        "trapezoid x^2 from 0 to 1" to "trapezoid 6 rows → 0.3333740234",
+        "1 stone in kg" to "317514659/50000000 kg",
+        "2 pints in l" to "473176473/500000000 l",
+        "760 torr in atm" to "1 atm",
+    ))
+
+    @Test
+    fun germanAsTheHandbookWritesIt() = check("de", listOf(
+        "p und nicht q" to "0010 dnf p ∧ ¬q cnf p ∧ ¬q",
+        // Infinity in words; a start of Newton's method "mit Startwert"; "2 ab" stays a product.
+        "Integral von 1/x^2 von 1 bis unendlich" to "1",
+        "Grenzwert von 1/x für x -> -unendlich" to "0",
+        "Newton-Verfahren x^2 - 2 mit Startwert 1" to "newton 7 rows → 1.4142135624",
+        "faktorisiere a^2 + 2 ab + b^2" to "(a + b)^2",
+    ))
+
     @Test
     fun reportOfANumber() {
         val r = Reports.of("2^{10}")

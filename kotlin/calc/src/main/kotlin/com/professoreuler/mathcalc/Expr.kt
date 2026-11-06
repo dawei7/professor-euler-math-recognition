@@ -939,6 +939,48 @@ internal object Trig {
 // Complex numbers written as a + b·i.
 
 internal object Complex {
+    /**
+     * A constant built from numbers, i, sums, products and whole powers as a + b·i with a and b free of i: 1/(1 + i) is
+     * 1/2 − i/2. Null where i stands inside a function or a power that is not whole.
+     */
+    fun normal(e: Expr): Pair<Expr, Expr>? {
+        if (!e.isConstant()) return null
+        if (!e.hasI()) return e to Expr.ZERO
+        return when (e) {
+            Expr.I -> Expr.ZERO to Expr.ONE
+            is Expr.Add -> e.terms.map { normal(it) ?: return null }.let { ps -> add(ps.map { it.first }) to add(ps.map { it.second }) }
+            is Expr.Mul -> {
+                var a: Expr = Expr.ONE
+                var b: Expr = Expr.ZERO
+                for (f in e.factors) {
+                    val (c, d) = normal(f) ?: return null
+                    val re = add(mul(a, c), neg(mul(b, d)))
+                    b = add(mul(a, d), mul(b, c))
+                    a = re
+                }
+                a to b
+            }
+            is Expr.Pow -> {
+                val n = integer(e.exp)?.takeIf { it.bitLength() < 10 }?.toInt() ?: return null
+                val (a, b) = normal(e.base) ?: return null
+                // A negative power by the conjugate over a² + b².
+                val (p, q) = if (n < 0) {
+                    val m = add(pow(a, Expr.TWO), pow(b, Expr.TWO))
+                    mul(a, pow(m, Expr.MINUS_ONE)) to neg(mul(b, pow(m, Expr.MINUS_ONE)))
+                } else a to b
+                var re: Expr = Expr.ONE
+                var im: Expr = Expr.ZERO
+                repeat(kotlin.math.abs(n)) {
+                    val r2 = add(mul(re, p), neg(mul(im, q)))
+                    im = add(mul(re, q), mul(im, p))
+                    re = r2
+                }
+                re to im
+            }
+            else -> null
+        }
+    }
+
     /** (real part, imaginary part) of a number written with i; imaginary part null where there is no i. */
     fun parts(e: Expr): Pair<Expr, Expr?>? {
         if (!e.isConstant()) return null

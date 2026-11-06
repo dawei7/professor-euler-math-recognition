@@ -98,8 +98,10 @@ object Ode {
         val xs = Expr.Sym(x)
         val ys = Expr.Sym(y)
         val y1 = marker(y, 1)
+        // A method's solution only where it holds; else the next method (a separable integral may not, Bernoulli may).
+        fun ok(s: Solution?) = s?.takeIf { holds(equation, it, y, x) }
         // Exact first: M + N·y′ = 0 with ∂M/∂y = ∂N/∂x (and the equation linear in y′).
-        exact(equation, ys, xs, y1)?.let { return it }
+        ok(exact(equation, ys, xs, y1))?.let { return it }
         val slopes = Solve.equation(equation, Expr.ZERO, y1)
         val f = slopes.values.singleOrNull()?.let { tidy(it) } ?: return null
         if (f.has(y1)) return null
@@ -108,11 +110,11 @@ object Ode {
             return Solution(tidy(g + c(null)), null, listOf("C"), Method.INTEGRATION)
         }
         // Linear in y first (y′ = −2y + 4 is y = 2 + Ce^(−2x), not an implicit logarithm), then separable.
-        if (!tidy(Calculus.derivative(f, ys)).has(ys)) linear(f, ys, xs)?.let { return it }
-        separable(f, ys, xs)?.let { return it }
-        linear(f, ys, xs)?.let { return it }
-        bernoulli(f, ys, xs)?.let { return it }
-        homogeneous(f, ys, xs)?.let { return it }
+        if (!tidy(Calculus.derivative(f, ys)).has(ys)) ok(linear(f, ys, xs))?.let { return it }
+        ok(separable(f, ys, xs))?.let { return it }
+        ok(linear(f, ys, xs))?.let { return it }
+        ok(bernoulli(f, ys, xs))?.let { return it }
+        ok(homogeneous(f, ys, xs))?.let { return it }
         return null
     }
 
@@ -175,7 +177,17 @@ object Ode {
 
     /** y′ = −p·y + q·yⁿ: v = y^(1−n) makes it linear. */
     private fun bernoulli(f: Expr, ys: Expr.Sym, xs: Expr.Sym): Solution? {
-        val terms = (tidy(Algebra.expand(f)).let { if (it is Expr.Add) it.terms else listOf(it) })
+        // Its terms, also where they stand on one bar: (x²y² − y)/x is x·y² − y/x.
+        val expanded = tidy(Algebra.expand(f))
+        val sum = (expanded as? Expr.Mul)?.factors?.firstOrNull { it is Expr.Add }
+        val terms = when {
+            expanded is Expr.Add -> expanded.terms
+            sum != null -> {
+                val rest = mul((expanded as Expr.Mul).factors.filter { it !== sum })
+                (sum as Expr.Add).terms.map { tidy(Algebra.expand(mul(rest, it))) }
+            }
+            else -> listOf(expanded)
+        }
         var p: Expr = Expr.ZERO
         var q: Expr = Expr.ZERO
         var n: Rational? = null

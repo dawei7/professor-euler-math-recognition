@@ -536,7 +536,13 @@ object MathCalc {
         if (letters.isEmpty()) {
             val steps = sides.zipWithNext { a, b -> same(a, b) }
             if (equation) return Plan(listOf(Choice(Mode.COMPARE)), Choice(Mode.COMPARE)) { Outcome.Checked(steps.all { it }) }
-            val v = sides.last()
+            // A complex number as a + b·i, where it is a quotient or a power of one (1/(1 + i) is 1/2 − i/2), checked equal.
+            val v = sides.last().let { e ->
+                if (e !is Expr.Mat && e.hasI() && Complex.parts(e) == null) {
+                    Complex.normal(e)?.let { (a, b) -> Calculus.tidy(add(Calculus.tidy(a), mul(Calculus.tidy(b), Expr.I))) }
+                        ?.takeIf { n -> LinAlg.isNull(Calculus.tidy(n - e)) } ?: e
+                } else e
+            }
             val alternatives = others?.let { o -> o[0].sides.filterNotNull().lastOrNull()?.let { Calculus.evaluate(it) } }
             val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() <= Factor.MOST_PRIME }
             val complexNumber = v.hasI() && Complex.parts(v)?.second != null

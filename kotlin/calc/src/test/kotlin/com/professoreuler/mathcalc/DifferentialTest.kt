@@ -25,6 +25,10 @@ class DifferentialTest {
         ("y'=y^{2}" to null) to "y = -1/(C + x) [separable]",
         ("y'+\\frac{y}{x}=x" to null) to "y = ((1/3)x^3 + C)/x [linear]",
         ("y'=y+xy^{2}" to null) to "y = 1/(C/e^x - x + 1) [bernoulli]",
+        // Bernoulli with its terms on one bar ((x²y² − y)/x), and after a separable integral that does not hold.
+        ("y'+\\frac{y}{x}=xy^{2}" to null) to "y = 1/(x(C - x)) [bernoulli]",
+        ("xy'+y=x^{2}y^{2}" to null) to "y = 1/(x(C - x)) [bernoulli]",
+        ("y'=2y-y^{3}" to null) to "y = 1/√(C/e^(4x) + 1/2) [bernoulli]",
         ("2xy+(x^{2}+1)y'=0" to null) to "0 = x^2y + y - C [exact]",
         ("y'=\\frac{x}{y}" to null) to "0 = -(1/2)x^2 + (1/2)y^2 - C [separable]",
     )

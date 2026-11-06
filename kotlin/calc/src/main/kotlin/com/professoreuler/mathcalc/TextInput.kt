@@ -46,9 +46,13 @@ object TextInput {
         })
     }
 
-    private fun readWords(text: String, language: String): Typed {
+    private fun readWords(written: String, language: String): Typed {
         val vocabularies = listOfNotNull(Vocabulary.of(language), Vocabulary.ENGLISH).distinct()
-        conversion(text)?.let { return it }
+        conversion(written)?.let { return it }
+        // "y' = y, y(0) = 1": an initial value after a comma is a line of its own.
+        val initial = if ('\'' in written) written.replace(INITIAL_AFTER_COMMA, "; ") else written
+        // "bis unendlich", "jusqu'à l'infini", "到无穷大": infinity in words of any language is ∞.
+        val text = infinity(initial)
         // "maximize x*y subject to x + y = 10": the constraint a line of its own, as "x*y; x + y = 10" writes it.
         val trimmed = vocabularies.fold(text) { t, v -> v.constrained(t) }
         derivativeOperator(trimmed)?.let { return it }
@@ -81,7 +85,32 @@ object TextInput {
                 return commandOf(command, lines.mapIndexed { k, l -> if (k == i) words.joinToString(" ") else l }.joinToString("; "), vocabularies)
             }
         }
+        // "p and not q", "p implies q": logic in words, every other word a single letter.
+        bareLogic(trimmed, vocabularies)?.let { return it }
         return Typed(latex(trimmed))
+    }
+
+    /** Infinity in the app's languages, as words between spaces and, in scripts written without them, as characters. */
+    private val INFINITY_WORDS = Regex(
+        "(?i)(?<![\\p{L}\\p{M}'’])(?:unendlich|l['’]infini|infini|infinito|oneindig|nieskończoność|nieskonczonosc|sonsuz|" +
+            "vô cùng|vô cực|tak hingga|takhingga|бесконечность|нескінченність|ما لا نهاية|اللانهاية|אינסוף|अनंत|अनन्त|무한대)" +
+            "(?![\\p{L}\\p{M}])",
+    )
+    private val INFINITY_CHARACTERS = Regex("無限大|无穷大|無窮大|无穷|無窮|อนันต์")
+
+    private fun infinity(text: String): String = text.replace(INFINITY_WORDS, "∞").replace(INFINITY_CHARACTERS, "∞")
+
+    private val INITIAL_AFTER_COMMA = Regex(""",\s*(?=\p{L}'*\(\s*-?[0-9.,]+\s*\)\s*=)""")
+
+    private val LOGIC_SYMBOLS = Regex("""[∧∨¬⇒⇔⊕→↔()\s]+""")
+
+    /** A formula of logic written with words alone (and, or, not, implies in the app's language or English): its truth table. */
+    private fun bareLogic(text: String, vocabularies: List<Vocabulary>): Typed? {
+        val symbols = logicWords(text, vocabularies.map { it.language.substringBefore('-') })
+        if (symbols == text) return null
+        val letters = symbols.split(LOGIC_SYMBOLS).filter { it.isNotEmpty() }
+        if (letters.isEmpty() || letters.any { it.length != 1 || !it[0].isLetter() }) return null
+        return Typed(latex(symbols), Choice(Mode.LOGIC))
     }
 
     /**
@@ -583,7 +612,9 @@ object TextInput {
         return out
     }
 
-    fun latex(math0: String): String {
+    fun latex(math00: String): String {
+        // a_(n+1) typed is the subscript a_{n+1}.
+        val math0 = math00.replace(Regex("""_\(([^()]*)\)"""), "_{$1}")
         // {1, 2, 3} ∪ {3, 4}: braces of sets.
         val math = if ('{' in math0 && SET_OPERATIONS.any { it in math0 } && "{{" !in math0.replace(" ", ""))
             math0.replace("{", " \\{ ").replace("}", " \\} ") else math0
@@ -773,7 +804,8 @@ object TextInput {
         val b = StringBuilder()
         for (ch in math) {
             when (ch) {
-                '×', '·', '⋅', '∙' -> b.append('*')
+                '×' -> b.append(" \\times ")
+                '·', '⋅', '∙' -> b.append('*')
                 '÷', '∕' -> b.append('/')
                 '−', '–', '—' -> b.append('-')
                 '√' -> b.append("sqrt")
@@ -1192,7 +1224,7 @@ class Vocabulary internal constructor(
                 Command.BISECTION to listOf("bisection method for", "bisection method", "bisection"),
                 Command.EULER to listOf("euler's method for", "euler's method", "euler method"),
                 Command.RUNGE_KUTTA to listOf("runge-kutta method for", "runge-kutta method", "runge-kutta", "runge kutta", "rk4"),
-                Command.TRAPEZOID to listOf("trapezoidal rule for", "trapezoidal rule", "trapezoid rule"),
+                Command.TRAPEZOID to listOf("trapezoidal rule for", "trapezoidal rule", "trapezoid rule", "trapezoid rule for", "trapezoid"),
                 Command.SIMPSON to listOf("simpson's rule for", "simpson's rule", "simpson rule", "simpson"),
                 Command.POLAR to listOf("polar form of", "polar form", "exponential form of"),
                 Command.RESIDUES to listOf("residues of", "residues", "residue of", "poles of"),
@@ -1272,7 +1304,7 @@ class Vocabulary internal constructor(
                 Command.DIOPHANTINE to listOf("ganzzahlige lösungen von", "ganzzahlige lösungen", "diophantische gleichung", "löse in den ganzen zahlen", "löse in ganzen zahlen"),
             ),
             of = setOf("von"),
-            from = words("von"),
+            from = words("von", "mit startwert", "startwert"),
             to = words("bis", "gegen"),
             forWords = words("für"),
             respect = words("nach"),

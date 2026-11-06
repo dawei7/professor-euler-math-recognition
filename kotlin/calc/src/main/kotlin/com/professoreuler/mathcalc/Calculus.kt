@@ -469,10 +469,26 @@ object Calculus {
                 val lead = part.factor[2]
                 val p = part.factor[1] / lead
                 val q = part.factor[0] / lead
-                val disc = num(Rational.of(4) * q - p * p)
-                val s = sqrt(disc)
-                result = result + num(bCoef / (Rational.of(2) * lead)) * ln(factorExpr) +
-                    num((c - bCoef * p / Rational.of(2)) / lead) * num(2) / s * fn(Func.ATAN, (num(2) * x + num(p)) / s)
+                val disc = Rational.of(4) * q - p * p
+                val k = (c - bCoef * p / Rational.of(2)) / lead
+                // No real roots: the factor keeps its sign (negative where its leading coefficient is). Real roots that are no
+                // rationals (x² − 2): the logarithms of absolute values, 1/√(p² − 4q) · (ln|x − r₁| − ln|x − r₂|) at its roots
+                // r = −p/2 ± √(p² − 4q)/2.
+                val logOf = when {
+                    disc.signum < 0 -> fn(Func.ABS, factorExpr)
+                    lead.signum > 0 -> factorExpr
+                    else -> neg(factorExpr)
+                }
+                val rest = when {
+                    k.signum == 0 -> Expr.ZERO
+                    disc.signum > 0 -> sqrt(num(disc)).let { s -> num(k) * num(2) / s * fn(Func.ATAN, (num(2) * x + num(p)) / s) }
+                    else -> sqrt(num(Rational.ZERO - disc)).let { s ->
+                        val centre = x + num(p / Rational.of(2))
+                        val half = s / num(2)
+                        num(k) / s * (ln(fn(Func.ABS, centre - half)) - ln(fn(Func.ABS, centre + half)))
+                    }
+                }
+                result = result + num(bCoef / (Rational.of(2) * lead)) * ln(logOf) + rest
             }
         }
         return result

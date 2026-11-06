@@ -16,6 +16,20 @@ class CalculusDeepTest {
         assertEquals("", wrong.joinToString("\n"))
     }
 
+    /**
+     * A quadratic denominator with real roots that are no rationals keeps the absolute values: ln(x² − 2) alone holds only where
+     * |x| > √2, though it differentiates back as well. One with no real roots keeps its sign.
+     */
+    @Test fun quadraticsWithIrrationalRoots() = check(
+        "\\int\\frac{x}{x^{2}-2}dx" to "(1/2)ln(|x^2 - 2|) + C",
+        "\\int\\frac{x}{2-x^{2}}dx" to "-(1/2)ln(|x^2 - 2|) + C",
+        "\\int\\frac{1}{x^{2}-2}dx" to "(1/4)√2·ln(|x - √2|) - (1/4)√2·ln(|x + √2|) + C",
+        "\\int\\frac{1}{2x-x^{3}}dx" to "(1/2)ln(|x|) - (1/4)ln(|x^2 - 2|) + C",
+        "\\int_{0}^{1}\\frac{1}{x^{2}-2}dx" to "√2·ln(-1 + √2)/4 - √2·ln(1 + √2)/4 ≈ -0.6232252401",
+        "\\int\\frac{1}{-x^{2}-1}dx" to "-arctan(x) + C",
+        "\\int\\frac{2x+3}{x^{2}+x+1}dx" to "(4/3)√3·arctan((2/3)x√3 + √3/3) + ln(x^2 + x + 1) + C",
+    )
+
     /** Indeterminate forms a learner meets: 0⁰, ∞⁰, 1^∞, ∞ − ∞ and 0·∞, by the leading term of a series. */
     @Test fun limitsBySeries() = check(
         "\\lim_{x\\to 0^{+}}x^{x}" to "1",
