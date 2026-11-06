@@ -329,8 +329,8 @@ object Analysis {
                     Func.TAN, Func.SEC -> out += Condition.NonZero(fn(Func.COS, u))
                     Func.COT, Func.CSC -> out += Condition.NonZero(fn(Func.SIN, u))
                     Func.SIN, Func.COS, Func.ATAN, Func.ACOT, Func.SINH, Func.COSH, Func.TANH, Func.ABS, Func.ERF, Func.ERFC -> {}
-                    Func.SECH, Func.ASINH, Func.SI -> {}
-                    Func.COTH, Func.CSCH, Func.EI -> out += Condition.NonZero(u)
+                    Func.SECH, Func.ASINH -> {}
+                    Func.COTH, Func.CSCH -> out += Condition.NonZero(u)
                     Func.ACOSH -> out += Condition.NonNegative(u - Expr.ONE)
                     Func.ATANH -> {
                         out += Condition.Positive(Expr.ONE - u)
@@ -338,7 +338,6 @@ object Analysis {
                     }
                     Func.ACOTH -> out += Condition.Positive(u * u - Expr.ONE)
                     Func.ASEC, Func.ACSC -> out += Condition.NonNegative(u * u - Expr.ONE)
-                    Func.CI -> out += Condition.Positive(u)
                     Func.ELLIPTICK -> out += Condition.Positive(Expr.ONE - u * u)
                     Func.ELLIPTICE -> out += Condition.NonNegative(Expr.ONE - u * u)
                     // Steps and special functions: their domains are not put in these terms.

@@ -533,6 +533,18 @@ internal object MoreFunctions {
         }
     }
 
+    /**
+     * The Taylor coefficients c₀ … c_[terms] of [f] at [y0] where its derivatives there are only limits: Si at 0,
+     * Σ (−1)^k y^(2k+1) / ((2k + 1)·(2k + 1)!). Null for every other function and point.
+     */
+    fun seriesAtZero(f: Func, y0: Expr, terms: Int): List<Expr>? {
+        if (f != Func.SI || !isZero(y0)) return null
+        return (0..terms).map { j ->
+            if (j % 2 == 0) Expr.ZERO
+            else num(Rational.of(if ((j / 2) % 2 == 0) 1L else -1L) / Rational.of(Special.factorial(j.toLong()) * BigInteger.valueOf(j.toLong())))
+        }
+    }
+
     /** ∫ f(u) du of the table (tanh too), or null; the caller divides by u′ for a linear u. Each is differentiated back. */
     fun tableIntegral(f: Func, u: Expr): Expr? = when (f) {
         Func.TANH -> ln(fn(Func.COSH, u))

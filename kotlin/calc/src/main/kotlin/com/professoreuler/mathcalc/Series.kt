@@ -351,8 +351,11 @@ internal object Series {
             val y = Expr.Sym("\u0001y")
             var d: Expr = fn(f, y)
             val coefficients = ArrayList<Expr>()
+            // Si at 0, whose derivatives there are limits (sin y / y): its own series.
+            MoreFunctions.seriesAtZero(f, y0, terms)?.let { coefficients += it }
             var factorial = Rational.ONE
             for (k in 0..terms) {
+                if (coefficients.size > terms) break
                 if (k > 0) {
                     d = Calculus.tidy(Calculus.derivative(d, y))
                     factorial = factorial * Rational.of(k.toLong())

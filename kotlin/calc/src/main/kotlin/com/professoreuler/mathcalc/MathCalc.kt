@@ -756,7 +756,8 @@ object MathCalc {
                 factorable && polynomial && asWritten -> Choice(Mode.FACTOR)
                 else -> Choice(Mode.SIMPLIFY)
             }
-            val onRequest = if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION) else emptySet()
+            // A series asked for at a point of its own (taylor(arcsec(x), x, 2, 3)) although none is offered at 0 or 1.
+            val onRequest = if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION, Mode.SERIES) else emptySet()
             return Plan(choices, likeliest, onRequest) { c ->
                 when (c.mode) {
                     Mode.LAPLACE -> Outcome.Expression(Transforms.laplace(last, x, Expr.Sym("s")) ?: throw CalcException(Failure.UNSOLVED))
