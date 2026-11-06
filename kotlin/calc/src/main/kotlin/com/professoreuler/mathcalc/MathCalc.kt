@@ -68,6 +68,14 @@ enum class Failure {
     NO_DISCRETE_LOG,
     /** Points of an interpolation or a spline with the same x: no function passes through both (or a point given twice). */
     SAME_X,
+    /**
+     * A negative weight where it cannot be: Dijkstra's algorithm (which takes a visited vertex's distance as final; Bellman–Ford
+     * takes negative weights in a directed graph), an undirected edge in Bellman–Ford (back and forth along it is a walk of any
+     * negative weight), a negative capacity in a flow network.
+     */
+    NEGATIVE_WEIGHT,
+    /** A graph that is not connected where the task needs it so: it has no spanning tree. */
+    NOT_CONNECTED,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -242,6 +250,30 @@ enum class Mode {
 
     /** The natural cubic spline through points. */
     SPLINE,
+
+    /** A graph's facts: degrees, components, tree, bipartite, Euler trail, chromatic number, planarity ([Networks]). */
+    GRAPH_FACTS,
+
+    /** Shortest paths from a vertex by Dijkstra's algorithm. */
+    DIJKSTRA,
+
+    /** Shortest paths from a vertex by the Bellman–Ford algorithm, negative weights and cycles included. */
+    BELLMAN_FORD,
+
+    /** A minimum spanning tree by Kruskal's algorithm. */
+    KRUSKAL,
+
+    /** A minimum spanning tree by Prim's algorithm. */
+    PRIM,
+
+    /** A topological order of a directed graph, or the cycle that prevents one. */
+    TOPOLOGICAL_ORDER,
+
+    /** A maximum flow by the Edmonds–Karp algorithm, with a minimum cut. */
+    MAX_FLOW,
+
+    /** The number of walks of length k, from the powers of the adjacency matrix. */
+    WALKS,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -465,6 +497,21 @@ sealed class Outcome {
 
     /** The natural cubic spline through points ([Interpolation.spline]): a cubic on each interval between two of them. */
     data class SplineThrough(val spline: Interpolation.Spline) : Outcome()
+
+    /** A graph's facts ([Networks.Facts]), with its picture. */
+    data class GraphFacts(val facts: Networks.Facts) : Outcome()
+
+    /** Shortest paths from a vertex, or a negative cycle ([Networks.Paths]), with the picture of the path. */
+    data class ShortestPaths(val paths: Networks.Paths) : Outcome()
+
+    /** A minimum spanning tree ([Networks.Tree]), with the picture of the tree. */
+    data class SpanningTree(val tree: Networks.Tree) : Outcome()
+
+    /** A topological order, or the cycle that prevents one ([Networks.Order]). */
+    data class TopologicalOrder(val order: Networks.Order) : Outcome()
+
+    /** A maximum flow and a minimum cut of the same capacity ([Networks.Flow]). */
+    data class MaxFlow(val flow: Networks.Flow) : Outcome()
 }
 
 /**
@@ -542,6 +589,8 @@ object MathCalc {
         assumptions: Assumptions = Assumptions()): Calculation {
         // A picture asked for by name, and physical constants, are worked out on their own.
         Additions.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
+        // A call of a graph's functions (graph, dijkstra, kruskal …), read and worked out on its own ([Networks]).
+        Networks.calculation(latex, millis, fractions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags(assumptions)
         var choices = emptyList<Choice>()

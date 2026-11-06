@@ -67,6 +67,10 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Graphs: shortest paths, spanning trees, a topological order, a maximum flow, walks.
+    GRAPH_SOURCE, GRAPH_VISIT, GRAPH_LOWER, GRAPH_ROUND, GRAPH_ROUND_STABLE, GRAPH_NEGATIVE_CYCLE, GRAPH_DISTANCES_CHECK,
+    GRAPH_PATH, GRAPH_SORT_EDGES, GRAPH_TAKE_EDGE, GRAPH_SKIP_EDGE, GRAPH_PRIM_START, GRAPH_PRIM_EDGE, GRAPH_TREE_CHECK,
+    GRAPH_TOPO_TAKE, GRAPH_TOPO_CYCLE, GRAPH_TOPO_CHECK, GRAPH_AUGMENT, GRAPH_MIN_CUT, GRAPH_ADJACENCY, GRAPH_MATRIX_POWER,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -95,6 +99,7 @@ object Steps {
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
+        NetworkSteps.of(c, latex)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()
