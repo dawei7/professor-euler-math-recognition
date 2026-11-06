@@ -64,6 +64,10 @@ object Discrete {
     fun call(name: String, args: List<Expr>): Expr? {
         val key = name.lowercase()
         val arity = NAMES[key] ?: return null
+        // gcd and lcm of polynomials in one letter: gcd(x² − 1, x² + 2x + 1) = x + 1.
+        if ((key == "gcd" || key == "lcm") && args.any { it.symbols().isNotEmpty() } && args.none { it is Expr.Mat }) {
+            return PolynomialGcd.call(key, args)
+        }
         if (args.any { it.symbols().isNotEmpty() || it is Expr.Mat }) return null
         if (args.size !in arity) throw CalcException(Failure.ARGUMENTS)
         Budget.check()

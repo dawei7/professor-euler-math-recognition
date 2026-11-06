@@ -12,7 +12,9 @@ package com.professoreuler.mathcalc
  */
 object CommandFunctions {
     /** How a function's arguments after the formula are read. */
-    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT }
+    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT,
+        /** A whole number (or its numeral) and a base: tobase(255, 16), frombase(FF, 16) ([Bases]). */
+        BASE }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
     class Function(val name: String, val mode: Mode?, val shape: Shape, val params: List<String> = emptyList())
@@ -67,6 +69,8 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("tobase", Mode.TO_BASE, Shape.BASE, listOf("b")),
+        Function("frombase", Mode.FROM_BASE, Shape.BASE, listOf("b")),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -94,6 +98,7 @@ object CommandFunctions {
         if (!balanced(inner)) return null
         val args = arguments(inner)?.map { it.trim() } ?: return refused(f, inner)
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
+        if (f.shape == Shape.BASE) return Bases.read(f.mode!!, args) ?: refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
@@ -309,6 +314,7 @@ object CommandFunctions {
             Shape.LIST -> elements(l) ?: return null
             Shape.POINTS -> points(l) ?: return null
             Shape.CONVERT -> listOf(l + "\\ \\text{" + (c.letter ?: return null) + "}", "\\text{" + (c.point ?: return null) + "}")
+            Shape.BASE -> Bases.arguments(c, l) ?: return null
             else -> return null
         }
         return call(f.name, args)

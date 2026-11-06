@@ -502,6 +502,30 @@ object Solve {
             Func.ASIN -> isolate(u, fn(Func.SIN, rhs), x, out, depth + 1)
             Func.ACOS -> isolate(u, fn(Func.COS, rhs), x, out, depth + 1)
             Func.ATAN -> isolate(u, fn(Func.TAN, rhs), x, out, depth + 1)
+            // The hyperbolic functions and their inverses (sinh u = c: u = arsinh c; cosh u = c ≥ 1: u = ±arcosh c).
+            Func.SINH -> isolate(u, fn(Func.ASINH, rhs), x, out, depth + 1)
+            Func.COSH, Func.SECH -> {
+                val c = if (lhs.f == Func.COSH) rhs else pow(rhs, Expr.MINUS_ONE)
+                val cv = Numeric.value(c)
+                if (rv != null && (cv == null || cv < 1)) return
+                val a = fn(Func.ACOSH, c)
+                isolate(u, a, x, out, depth + 1)
+                if (!isZero(a)) isolate(u, neg(a), x, out, depth + 1)
+            }
+            Func.TANH -> if (rv == null || abs(rv) < 1) isolate(u, fn(Func.ATANH, rhs), x, out, depth + 1)
+            Func.COTH -> if (rv == null || abs(rv) > 1) isolate(u, fn(Func.ACOTH, rhs), x, out, depth + 1)
+            Func.CSCH -> if (rv == null || rv != 0.0) isolate(u, fn(Func.ASINH, pow(rhs, Expr.MINUS_ONE)), x, out, depth + 1)
+            Func.ASINH -> isolate(u, fn(Func.SINH, rhs), x, out, depth + 1)
+            Func.ACOSH -> if (rv == null || rv >= 0) isolate(u, fn(Func.COSH, rhs), x, out, depth + 1)
+            Func.ATANH -> isolate(u, fn(Func.TANH, rhs), x, out, depth + 1)
+            Func.ACOTH -> if (rv == null || rv != 0.0) isolate(u, fn(Func.COTH, rhs), x, out, depth + 1)
+            // arcsec u = c in [0, π] without π/2: u = 1/cos c; arccsc u = c in [−π/2, π/2] without 0: u = 1/sin c.
+            Func.ASEC -> if (rv == null || (rv >= 0 && rv <= Math.PI && abs(rv - Math.PI / 2) > 1e-12)) {
+                isolate(u, pow(fn(Func.COS, rhs), Expr.MINUS_ONE), x, out, depth + 1)
+            }
+            Func.ACSC -> if (rv == null || (abs(rv) <= Math.PI / 2 && rv != 0.0)) {
+                isolate(u, pow(fn(Func.SIN, rhs), Expr.MINUS_ONE), x, out, depth + 1)
+            }
             else -> numericRoots(lhs - rhs, x, out)
         }
     }

@@ -314,6 +314,10 @@ internal class Write(private val style: Style, private val latex: Boolean) {
                 val order = expr(f.args[0])
                 if (latex) "\\operatorname{J}_{$order}\\left($arg\\right)" else "besselj($order; $arg)"
             }
+            Func.BESSELY -> {
+                val order = expr(f.args[0])
+                if (latex) "\\operatorname{Y}_{$order}\\left($arg\\right)" else "bessely($order, $arg)"
+            }
             else -> if (latex) "${f.f.latex}\\left($arg\\right)" else "${f.f.text}($arg)"
         }
     }
@@ -337,7 +341,8 @@ internal class Write(private val style: Style, private val latex: Boolean) {
         /** LaTeX that ends in a command's name: \pi, \infty. */
         private val COMMAND_END = Regex("\\\\[a-zA-Z]+$")
 
-        private val SQUARED_FUNCTIONS = setOf(Func.SIN, Func.COS, Func.TAN, Func.COT, Func.SEC, Func.CSC, Func.SINH, Func.COSH, Func.TANH)
+        private val SQUARED_FUNCTIONS = setOf(Func.SIN, Func.COS, Func.TAN, Func.COT, Func.SEC, Func.CSC, Func.SINH, Func.COSH, Func.TANH) +
+            setOf(Func.COTH, Func.SECH, Func.CSCH)
 
         /** A term that is written with a minus: a negative number, or a negative number times something. */
         fun isNegative(t: Expr): Boolean = when (t) {

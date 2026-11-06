@@ -191,6 +191,12 @@ enum class Mode {
 
     /** The plane through three points. */
     PLANE,
+
+    /** A whole number written in another base, 2 to 36 ([Choice.point]): tobase(255, 16) is FF₁₆. */
+    TO_BASE,
+
+    /** A numeral of a base, 2 to 36 ([Choice.letter] its digits, [Choice.point] the base), as a whole number: frombase(FF, 16) is 255. */
+    FROM_BASE,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -374,6 +380,9 @@ sealed class Outcome {
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
 
     data class Failed(val failure: Failure) : Outcome()
+
+    /** A whole number [value] written in [base] (2 to 36): its [digits], 0–9 then A–Z, a minus first where it is negative. */
+    data class InBase(val value: BigInteger, val base: Int, val digits: String) : Outcome()
 }
 
 /**
@@ -566,8 +575,9 @@ object MathCalc {
             val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.takeIf { integral == null }?.let { Choice(Mode.FACTOR) },
                 facts?.let { Choice(Mode.NUMBER_FACTS) },
                 if (complexNumber) Choice(Mode.POLAR) else null, integral?.let { Choice(Mode.TRAPEZOID) }, integral?.let { Choice(Mode.SIMPSON) })
-            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS)) { c ->
-                if (c.mode == Mode.UNITS) {
+            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS, Mode.TO_BASE, Mode.FROM_BASE)) { c ->
+                if (c.mode == Mode.TO_BASE || c.mode == Mode.FROM_BASE) Bases.outcome(c, v)
+                else if (c.mode == Mode.UNITS) {
                     val from = c.letter ?: throw CalcException(Failure.UNREADABLE)
                     val to = c.point ?: throw CalcException(Failure.UNREADABLE)
                     Outcome.Converted(v, from, to, Units.convert(v, from, to) ?: throw CalcException(Failure.UNREADABLE))
@@ -1037,12 +1047,16 @@ object MathCalc {
             is Expr.Mul -> t.factors.all(::ok)
             is Expr.Pow -> ok(t.base) && ok(t.exp)
             is Expr.Fn -> ((t.f == Func.LN || t.f == Func.LOG || t.f == Func.ABS) && t.args.all(::ok)) ||
+                // arcosh 2, sinh 2: the hyperbolic functions and their inverses at a number, as a solution says them.
+                (t.f in HYPERBOLIC && t.args.size == 1 && t.args[0] is Expr.Num) ||
                 // 2cos(2π/9): a cubic's roots where all three are real, which radicals cannot write; sin(47°) stays a decimal.
                 ((t.f == Func.COS || t.f == Func.SIN) && t.args.size == 1 && smallPiMultiple(t.args[0]))
             else -> false
         }
         return ok(e)
     }
+
+    private val HYPERBOLIC = setOf(Func.SINH, Func.COSH, Func.TANH, Func.ASINH, Func.ACOSH, Func.ATANH, Func.ACOTH)
 
     /** A rational multiple of π with a small denominator (2π/9, π/7), not a degree's 47π/180. */
     private fun smallPiMultiple(a: Expr): Boolean {

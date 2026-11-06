@@ -57,6 +57,8 @@ enum class StepKey {
     // Triangles, statistics, the regression line, units, conics.
     TRI_COSINES, TRI_SINES, TRI_ANGLE_SUM, TRI_AMBIGUOUS, TRI_AREA, STAT_MEAN, STAT_SORTED, STAT_MEDIAN, STAT_VARIANCE, STAT_SD,
     REG_SUMS, REG_SLOPE, REG_INTERCEPT, UNIT_FACTOR, UNIT_OFFSET, CONIC_COMPLETE, CONIC_STANDARD,
+    // Other bases, and the gcd and lcm of polynomials ([FunctionSteps]).
+    BASE_DIVIDE, BASE_REMAINDERS, BASE_PLACE_VALUES, GCD_DIVIDE, GCD_LAST, LCM_PRODUCT,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -83,6 +85,7 @@ object Steps {
         val c = MathCalc.calculate(latex, choice, assumptions = assumptions)
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
         // The later areas, from what their outcomes hold.
+        FunctionSteps.of(c, latex)?.let { return it }
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
