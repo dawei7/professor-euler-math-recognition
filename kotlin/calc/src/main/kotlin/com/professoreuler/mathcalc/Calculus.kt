@@ -853,11 +853,20 @@ object Calculus {
      */
     fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?, numericFallback: Boolean): Expr? {
         val numeric = numericLimit(e, x, a, side)
-        // An exact value must agree with values near the point, where those settle.
+        // An exact value must agree with values near the point: in doubles where they settle, else in balls of many bits at
+        // points ever nearer (where doubles overflow, eˣ at x = 1000, or settle too slowly), else at values of the formula's
+        // other letters ((1 + a/x)^x → e^a at a = 7/10 and 19/10). What cannot be compared with values is not given.
         fun agrees(exact: Expr): Boolean {
+            if (exact.hasDecimal() && !e.hasDecimal()) return false
             val ev = if (exact == Expr.INF) Double.POSITIVE_INFINITY else if (exact == neg(Expr.INF)) Double.NEGATIVE_INFINITY else Numeric.value(exact)
-            return numeric == null || ev == null || (ev.isInfinite() && numeric.isInfinite() && ev.sign == numeric.sign) ||
-                (ev.isFinite() && numeric.isFinite() && abs(ev - numeric) <= 1e-4 * max(1.0, abs(ev)))
+            if (ev != null && numeric != null) {
+                if ((ev.isInfinite() && numeric.isInfinite() && ev.sign == numeric.sign) ||
+                    (ev.isFinite() && numeric.isFinite() && abs(ev - numeric) <= 1e-4 * max(1.0, abs(ev)))) return true
+                // Doubles can mislead (e^√x/x¹⁰ is 5·10⁻¹⁷ at x = 1000 and overflows before it grows): balls decide.
+                return (e.symbols() - x.name).isEmpty() && NearValues.approach(e, x, a, side, exact) == true
+            }
+            if ((e.symbols() + exact.symbols() - x.name).isEmpty()) return NearValues.approach(e, x, a, side, exact) == true
+            return withLetters(e, exact, x, a, side)
         }
         var disagreed = false
         exactLimit(e, x, a, side, 0)?.let { if (agrees(it)) return it else disagreed = true }
@@ -869,8 +878,36 @@ object Calculus {
             null
         }
         series?.let { if (agrees(it)) return it else disagreed = true }
+        // Gruntz's algorithm for exp-log functions: (e^(1/x − e^(−x)) − e^(1/x))/e^(−x) → −1, (eˣ + x)^(1/x) → e.
+        Gruntz.limit(e, x, a, side)?.let { if (agrees(it)) return it else disagreed = true }
         if (disagreed || !numericFallback) return null
         return numeric?.let { if (it.isInfinite()) (if (it > 0) Expr.INF else neg(Expr.INF)) else Expr.Real(it) }
+    }
+
+    /**
+     * A limit with letters other than x checked at two values of them: the formula's limit there, from values near the point
+     * (in doubles, else in balls), against the exact limit with the same values put in.
+     */
+    private fun withLetters(e: Expr, exact: Expr, x: Expr.Sym, a: Expr, side: Int?): Boolean {
+        val letters = (e.symbols() + exact.symbols() + a.symbols() - x.name).toList()
+        for (setting in 0..1) {
+            try {
+                val values = letters.withIndex().associate { (j, name) -> name to num(Rational.of(7L + 12 * setting + 3L * j) / Rational.of(10)) }
+                fun put(t: Expr) = values.entries.fold(t) { acc, (name, v) -> acc.substitute(Expr.Sym(name), v) }
+                val es = put(e)
+                val xs = put(exact)
+                val at = put(a)
+                val ev = if (xs == Expr.INF) Double.POSITIVE_INFINITY else if (xs == neg(Expr.INF)) Double.NEGATIVE_INFINITY else Numeric.value(xs) ?: return false
+                val n = numericLimit(es, x, at, side)
+                val ok = if (n != null) (ev.isInfinite() && n.isInfinite() && ev.sign == n.sign) || (ev.isFinite() && n.isFinite() && abs(ev - n) <= 1e-4 * max(1.0, abs(ev)))
+                    else NearValues.approach(es, x, at, side, xs) == true
+                if (!ok) return false
+            } catch (c: CalcException) {
+                if (c.failure == Failure.TOO_LONG) throw c
+                return false
+            }
+        }
+        return true
     }
 
     /**
@@ -1011,6 +1048,8 @@ object Calculus {
         if (zeroBottom && !zeroTop) {
             val below = Numeric.eval(e, mapOf(x.name to (Numeric.value(a) ?: return null) - 1e-7))
             val above = Numeric.eval(e, mapOf(x.name to (Numeric.value(a) ?: return null) + 1e-7))
+            // The sign from values: only where they are numbers (NaN or an overflow says nothing about it).
+            if (side != 1 && !below.isFinite() || side != -1 && !above.isFinite()) return null
             val s = when (side) {
                 -1 -> below.sign
                 1 -> above.sign
@@ -1137,7 +1176,8 @@ object Calculus {
             -1 -> Numeric.eval(e, mapOf(x.name to av - h))
             else -> Numeric.eval(e, mapOf(x.name to av + h))
         }
-        return if (v.isNaN()) null else v
+        // An infinite double near a point is an overflow (e^(1/t) at t = 10⁻⁶), not the value's size: unknown.
+        return if (v.isFinite()) v else null
     }
 
     /** Values at points ever nearer a: where they settle, their limit; ±∞ where they grow without bound. */
@@ -1149,21 +1189,22 @@ object Calculus {
                     (if (a == Expr.INF) 1.0 else -1.0) * Math.pow(10.0, k.toDouble())
                 } else (Numeric.value(a) ?: return null) + sign * Math.pow(10.0, -k.toDouble())
                 val v = Numeric.eval(e, mapOf(x.name to t))
-                // 0/0 of rounding, nearer a than the digits reach: the values before it are the ones to go by.
-                if (v.isNaN()) break
+                // 0/0 of rounding, nearer a than the digits reach: the values before it are the ones to go by. An infinite
+                // double is an overflow (e^1000), never a sign of growth: ln(eˣ + x) − x at x = 1000 is ∞ − 1000 in doubles.
+                if (!v.isFinite()) break
                 values += v
             }
             if (values.size < 3) return null
             // Without bound: each of the last four steps at least three times as far from 0, with one sign.
             val tail = values.takeLast(5)
             if (tail.size == 5 && tail.zipWithNext().all { (p, q) -> abs(q) >= 3 * abs(p) && p.sign == q.sign } &&
-                (tail.last().isInfinite() || abs(tail.last()) > 1e6)) return tail.last().sign * Double.POSITIVE_INFINITY
+                abs(tail.last()) > 1e6) return tail.last().sign * Double.POSITIVE_INFINITY
             // Where the step between two values suddenly grows tenfold, rounding has taken over (1 − cos x at x = 10⁻⁸ is 0
             // in a double): only the values before it count.
             var trusted = values.size
             for (j in 1 until values.size - 1) {
                 val step = abs(values[j + 1] - values[j])
-                if (values[j + 1].isInfinite() || (step > 10 * abs(values[j] - values[j - 1]) && step > 1e-10 * max(1.0, abs(values[j])))) {
+                if (step > 10 * abs(values[j] - values[j - 1]) && step > 1e-10 * max(1.0, abs(values[j]))) {
                     trusted = j + 1
                     break
                 }
