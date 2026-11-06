@@ -128,6 +128,9 @@ class CommandFunctionsTest {
         "maxflow((s -> a, 3), (a -> t, 2), (s -> t, 1), s, t)",
         "walks((1, 2), (2, 3), (3, 1), 3)",
         "walks([[0, 1], [1, 0]], 4, 1, 1)",
+        "gradientdescent(x^2 + y^2, [1, 2], 0.25, 20)",
+        "valueiteration([[1, 0], [0, 1]], [[0, 1], [0, 1]], [[1, 0], [0, 2]], 0.9)",
+        "policyevaluation([[0.5, 0.5], [0, 1]], [[1], [0]], 0.5, [[1], [1]])",
     )
 
     @Test

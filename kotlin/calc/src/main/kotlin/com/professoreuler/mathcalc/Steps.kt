@@ -81,6 +81,9 @@ enum class StepKey {
     GRAPH_SOURCE, GRAPH_VISIT, GRAPH_LOWER, GRAPH_ROUND, GRAPH_ROUND_STABLE, GRAPH_NEGATIVE_CYCLE, GRAPH_DISTANCES_CHECK,
     GRAPH_PATH, GRAPH_SORT_EDGES, GRAPH_TAKE_EDGE, GRAPH_SKIP_EDGE, GRAPH_PRIM_START, GRAPH_PRIM_EDGE, GRAPH_TREE_CHECK,
     GRAPH_TOPO_TAKE, GRAPH_TOPO_CYCLE, GRAPH_TOPO_CHECK, GRAPH_AUGMENT, GRAPH_MIN_CUT, GRAPH_ADJACENCY, GRAPH_MATRIX_POWER,
+    // Machine learning: softmax, the information measures, Markov decision processes, gradient descent ([LearningSteps]).
+    SOFTMAX_EXP, SOFTMAX_DIVIDE, SOFTMAX_CHECK, ENTROPY_SUM, CROSS_ENTROPY_SUM, KL_SUM, MI_MARGINALS, MI_SUM, INFO_CHECK,
+    MDP_BELLMAN, MDP_SWEEPS, MDP_EVALUATE, MDP_OPTIMAL, MDP_POLICY_PARTS, MDP_LINEAR, GD_GRADIENT, GD_STEP, GD_MINIMUM,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -112,6 +115,7 @@ object Steps {
         PdeSteps.of(c)?.let { return it }
         AppliedSteps.of(c, latex, assumptions)?.let { return it }
         NetworkSteps.of(c, latex)?.let { return it }
+        LearningSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()
