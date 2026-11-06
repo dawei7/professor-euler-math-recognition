@@ -24,14 +24,10 @@ internal object Gruntz {
 
     /** Where the algorithm cannot go on (a function it does not know, an oscillation, a coefficient it cannot decide). */
     private class Fail : Exception() {
-        // The trace only while a test asks for it ([trace]): a failure is an everyday outcome, not worth its stack.
-        override fun fillInStackTrace(): Throwable = if (trace != null) super.fillInStackTrace() else this
+        override fun fillInStackTrace(): Throwable = this
     }
 
     private fun fail(): Nothing = throw Fail()
-
-    /** For tests: told why a limit was not found. */
-    internal var trace: ((Throwable) -> Unit)? = null
 
     /** lim as [x] → [a] (finite, ∞ or −∞) from [side] (1 above, −1 below, null both) of [e]: exact, ±∞, or null. */
     fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?): Expr? {
@@ -40,17 +36,13 @@ internal object Gruntz {
             val run = Run(y)
             reciprocalLogs(Calculus.tidy(run.limitInf(run.normal(f()))))
         } catch (z: Fail) {
-            trace?.invoke(z)
             null
         } catch (z: CalcException) {
             if (z.failure == Failure.TOO_LONG) throw z
-            trace?.invoke(z)
             null
         } catch (z: ArithmeticException) {
-            trace?.invoke(z)
             null
         } catch (z: Imprecise) {
-            trace?.invoke(z)
             null
         } catch (z: StackOverflowError) {
             null
