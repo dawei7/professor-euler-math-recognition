@@ -90,6 +90,10 @@ enum class StepKey {
     FIN_NOMINAL, FIN_ANNUITY_FV, FIN_ANNUITY_PV, FIN_ANNUITY_DUE, FIN_LOAN_PAYMENT, FIN_LOAN_TERM, FIN_NPV, FIN_SUBSTITUTE,
     FIN_IRR_POLYNOMIAL, FIN_IRR_RATES, FIN_SCHEDULE_ROW, FIN_SCHEDULE_LAST, FIN_EQUAL_PRINCIPAL, FIN_STRAIGHT_LINE,
     FIN_DEPRECIATION_LAST, FIN_DECLINING,
+    // Hypothesis tests, confidence intervals, fits, Markov chains.
+    TEST_HYPOTHESES, TEST_SAMPLE, TEST_STATISTIC, TEST_DF, TEST_P_VALUE, TEST_REJECT, TEST_KEEP, CHI_EXPECTED,
+    INTERVAL_CRITICAL, INTERVAL_MARGIN, INTERVAL_WILSON, FIT_LINEARIZE, FIT_NORMAL_EQUATIONS, FIT_NUMERICAL, FIT_R_SQUARED,
+    MARKOV_SYSTEM, MARKOV_POWER, MARKOV_CHECK,
     // Divide-and-conquer recurrences, growth as n → ∞, Huffman codes.
     MASTER_PARTS, MASTER_CRITICAL, MASTER_CASE_1, MASTER_CASE_2, MASTER_CASE_3, MASTER_GAP, MASTER_SEVERAL, AKRA_P, AKRA_INTEGRAL,
     GROWTH_LIMIT, GROWTH_ZERO, GROWTH_FINITE, GROWTH_INFINITE, HUFFMAN_MERGE, HUFFMAN_CODES, HUFFMAN_AVERAGE,
@@ -119,6 +123,7 @@ object Steps {
         val c = MathCalc.calculate(latex, choice, assumptions = assumptions)
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
         // The later areas, from what their outcomes hold.
+        StatSteps.of(c, latex)?.let { return it }
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
         PdeSteps.of(c)?.let { return it }

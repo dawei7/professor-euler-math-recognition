@@ -47,7 +47,15 @@ class StepsTest {
         "[10000, 5\\%, 4]" to Choice(Mode.AMORTIZATION), "[10000, 5\\%, 4]" to Choice(Mode.EQUAL_PRINCIPAL),
         "[10000, 1000, 5]" to Choice(Mode.STRAIGHT_LINE), "[10000, 20\\%, 5]" to Choice(Mode.DECLINING_BALANCE),
         "[-100, 230, -132]" to Choice(Mode.IRR), "[100, 200]" to Choice(Mode.IRR),
-    ) + APPLIED + ALGORITHMS
+    ) + APPLIED + listOf(
+        // The statistics commands, as they are typed.
+        "ttest([5.1, 4.9, 5.3, 5.2], 5)", "ttest(52, 4, 25, 50)", "ztest([5.1, 4.9, 5.3, 5.2], 5, 0.2)",
+        "welchtest([20, 22, 19, 24, 25], [28, 27, 30, 26, 29])", "chisqgof([18, 22, 20, 40], [25, 25, 25, 25])",
+        "chisqindep([[10, 20], [30, 40]])", "tinterval([5.1, 4.9, 5.3, 5.2])", "zinterval(52, 36, 6)", "propinterval(45, 100)",
+        "fitpoly((1, 2), (2, 4), (3, 5), (4, 4), 2)", "fitexp((1, 3), (2, 5), (3, 10), (4, 19))", "fitpow((1, 2), (2, 8), (3, 18))",
+        "fitlog((1, 2), (2, 3), (4, 4), (8, 5.1))", "fitlogistic((0, 10), (1, 25), (2, 55), (3, 85), (4, 95), (5, 99))",
+        "stationary([[0.9, 0.1], [0.5, 0.5]])", "markov([[0.9, 0.1], [0.5, 0.5]], [1, 0], 3)",
+    ).map { TextInput.read(it).let { t -> t.latex to t.choice } } + ALGORITHMS
 
     /** The algorithms' steps (master theorem, Akra–Bazzi, growth, Huffman), as their calls are written. */
     private val ALGORITHMS: List<Pair<String, Choice?>> get() = listOf(
@@ -384,6 +392,16 @@ class StepsTest {
             "START VOLUME_DISCS INTEGRAL_TABLE DEFINITE_BOUNDS RESULT", "START VOLUME_SHELLS INTEGRAL_TABLE DEFINITE_BOUNDS RESULT",
             "START MEAN_FORMULA INTEGRAL_TABLE DEFINITE_BOUNDS RESULT", "START LP_CORNERS LP_VALUES LP_DUAL RESULT",
             "START LP_SIMPLEX LP_DUAL RESULT", "START LP_CORNERS LP_VALUES LP_UNBOUNDED", "START LP_INFEASIBLE",
+            "TEST_HYPOTHESES TEST_SAMPLE TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_KEEP",
+            "TEST_HYPOTHESES TEST_SAMPLE TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_REJECT",
+            "TEST_HYPOTHESES TEST_SAMPLE TEST_STATISTIC TEST_P_VALUE TEST_KEEP",
+            "TEST_HYPOTHESES TEST_SAMPLE TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_REJECT",
+            "CHI_EXPECTED TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_REJECT", "CHI_EXPECTED TEST_STATISTIC TEST_DF TEST_P_VALUE TEST_KEEP",
+            "TEST_SAMPLE INTERVAL_CRITICAL INTERVAL_MARGIN RESULT", "TEST_SAMPLE INTERVAL_CRITICAL INTERVAL_MARGIN RESULT",
+            "TEST_SAMPLE INTERVAL_CRITICAL INTERVAL_MARGIN RESULT INTERVAL_WILSON",
+            "FIT_NORMAL_EQUATIONS FIT_R_SQUARED RESULT", "FIT_LINEARIZE FIT_NORMAL_EQUATIONS FIT_R_SQUARED RESULT",
+            "FIT_LINEARIZE FIT_NORMAL_EQUATIONS FIT_R_SQUARED RESULT", "FIT_NORMAL_EQUATIONS FIT_R_SQUARED RESULT",
+            "FIT_NUMERICAL FIT_R_SQUARED RESULT", "START MARKOV_SYSTEM RESULT MARKOV_CHECK", "START MARKOV_POWER RESULT",
             "START MASTER_PARTS MASTER_CRITICAL MASTER_CASE_2 RESULT", "START MASTER_PARTS MASTER_CRITICAL MASTER_CASE_1 RESULT",
             "START MASTER_PARTS MASTER_CRITICAL MASTER_CASE_3 RESULT", "START MASTER_PARTS MASTER_CRITICAL MASTER_GAP",
             "START MASTER_SEVERAL", "START AKRA_P AKRA_INTEGRAL RESULT", "GROWTH_LIMIT GROWTH_ZERO", "GROWTH_LIMIT GROWTH_FINITE",
