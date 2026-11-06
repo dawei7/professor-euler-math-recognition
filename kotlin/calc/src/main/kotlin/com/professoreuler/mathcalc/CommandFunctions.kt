@@ -97,6 +97,9 @@ object CommandFunctions {
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
+        // Lines after the formula only where the function takes them (a system, initial values, constraints): gradient(f, x = 1)
+        // is no gradient at a point, and never anything else.
+        if (lines.size > 1 && f.name !in SEVERAL_LINES) return refused(f, inner)
         val formula = lines.joinToString("; ")
         val l = TextInput
         fun letter(k: Int): String? = params.getOrNull(k)?.let { l.letterOf(it) }
@@ -128,6 +131,8 @@ object CommandFunctions {
                     else -> return refused(f, inner)
                 }
                 val bounds = if (params.size >= 2) params.takeLast(2) else emptyList()
+                // The trapezoidal and Simpson's rules approximate a definite integral: without its bounds there is none.
+                if (f.mode != Mode.INTEGRAL && bounds.isEmpty()) return refused(f, inner)
                 val body = l.latex(formula)
                 if (bounds.size == 2) {
                     val x = v ?: l.mainLetterOf(body)
@@ -147,7 +152,8 @@ object CommandFunctions {
                     else -> return refused(f, inner)
                 }
                 val body = l.latex(formula)
-                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} $body")
+                // The whole formula in brackets: written as notation, lim takes only the term after it (lim x² − x is 9 − x).
+                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} ${bracketed(body)}")
             }
             Shape.SUM -> {
                 // sum(f), sum(f, k), sum(f, k, a), sum(f, k, a, b): from 1 to ∞ where they are not given.
@@ -156,7 +162,7 @@ object CommandFunctions {
                 val k = letter(0) ?: "k"
                 val lower = params.getOrNull(1) ?: "1"
                 val upper = params.getOrNull(2)?.let { l.latex(it) } ?: "\\infty"
-                Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} $body")
+                Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} ${bracketed(body)}")
             }
             Shape.SERIES -> {
                 // taylor(f), taylor(f, x), taylor(f, a), taylor(f, a, n), taylor(f, x, a), taylor(f, x, a, n).
@@ -177,6 +183,32 @@ object CommandFunctions {
                 else Typed(l.latex(formula), Choice(Mode.FOURIER, point = params.getOrNull(0)?.let { l.latex(it) }))
             else -> refused(f, inner)
         }
+    }
+
+    /** The functions that take further lines after their formula: a system, initial values, constraints, a triangle's values. */
+    private val SEVERAL_LINES = setOf("solve", "leastsquares", "extrema", "dsolve", "euler", "rungekutta", "triangle", "plot")
+
+    /**
+     * [body] in brackets, as the argument of an operator written as notation (Σ, lim), which takes only the term after it: a
+     * function's whole first argument is its argument, always (sum(k + 1, k, 1, 3) is Σ (k + 1) = 9, never Σ k + 1).
+     */
+    private fun bracketed(body: String): String = "\\left($body\\right)"
+
+    /** [s] without the brackets [bracketed] put around it (one pair around the whole, not \left(a\right) + \left(b\right)). */
+    private fun unbracketed(s: String): String {
+        val t = s.trim()
+        if (!t.startsWith("\\left(") || !t.endsWith("\\right)")) return t
+        val inner = t.substring(6, t.length - 7)
+        var depth = 0
+        var k = 0
+        while (k < inner.length) {
+            when {
+                inner.startsWith("\\left", k) -> { depth++; k += 5 }
+                inner.startsWith("\\right", k) -> { depth--; if (depth < 0) return t; k += 6 }
+                else -> k++
+            }
+        }
+        return if (depth == 0) inner else t
     }
 
     /** The highest order of a series a call may ask for. */
@@ -286,11 +318,11 @@ object CommandFunctions {
             }
         }
         if (c == null) {
-            LIM.matchEntire(l)?.let { m -> return call("limit", listOf(m.groupValues[3], m.groupValues[1], m.groupValues[2])) }
+            LIM.matchEntire(l)?.let { m -> return call("limit", listOf(unbracketed(m.groupValues[3]), m.groupValues[1], m.groupValues[2])) }
             NTH.matchEntire(l)?.let { m -> return call("derivative", listOf(m.groupValues[3], m.groupValues[2], m.groupValues[1])) }
             SUM.matchEntire(l)?.let { m ->
                 val upper = m.groupValues[3]
-                return call("sum", listOf(m.groupValues[4], m.groupValues[1], m.groupValues[2]) + upper)
+                return call("sum", listOf(unbracketed(m.groupValues[4]), m.groupValues[1], m.groupValues[2]) + upper)
             }
             return null
         }

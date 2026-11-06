@@ -65,7 +65,10 @@ internal object MoreSteps {
         fun eigen(o: Outcome.Eigenvalues) {
             val m = matrix() ?: return
             step("A = " + l(m), StepKey.START)
-            step("\\det(A - \\lambda I) = " + l(o.characteristic) + " = 0", StepKey.CHARACTERISTIC)
+            // The characteristic polynomial is monic, det(λI − A); the step (and its sentence) is det(A − λI), which for odd n is
+            // its negative: shown as what it says.
+            val det = if (m.size % 2 == 1) Calculus.tidy(Algebra.expand(neg(o.characteristic))) else o.characteristic
+            step("\\det(A - \\lambda I) = " + l(det) + " = 0", StepKey.CHARACTERISTIC)
             step(o.values.joinToString(",\\ ") { "\\lambda = " + v(it.value) + if (it.multiplicity > 1) "\\ (${it.multiplicity}\\times)" else "" },
                 StepKey.EIGENVALUES)
             for (e in o.values) for (vec in e.vectors) step("\\vec{v} = " + l(vec), StepKey.EIGENVECTOR, "\\lambda = " + v(e.value))

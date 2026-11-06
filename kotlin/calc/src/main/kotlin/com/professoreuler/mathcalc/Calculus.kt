@@ -1231,6 +1231,10 @@ object Calculus {
         table += Triple(1L, pow(k, num(-4)), pow(Expr.PI, num(4)) / num(90))
         table += Triple(1L, mul(pow(Expr.MINUS_ONE, k + Expr.ONE), pow(k, Expr.MINUS_ONE)), ln(Expr.TWO))
         table += Triple(1L, mul(pow(Expr.MINUS_ONE, k), pow(k, Expr.MINUS_ONE)), neg(ln(Expr.TWO)))
+        // Leibniz's series, Σ (−1)^k/(2k + 1) = π/4 from 0, and η(2) = Σ (−1)^(k+1)/k² = π²/12 (and its negative) from 1.
+        table += Triple(0L, mul(pow(Expr.MINUS_ONE, k), pow(mul(Expr.TWO, k) + Expr.ONE, Expr.MINUS_ONE)), Expr.PI / num(4))
+        table += Triple(1L, mul(pow(Expr.MINUS_ONE, k + Expr.ONE), pow(k, num(-2))), pow(Expr.PI, num(2)) / num(12))
+        table += Triple(1L, mul(pow(Expr.MINUS_ONE, k), pow(k, num(-2))), neg(pow(Expr.PI, num(2)) / num(12)))
         table += Triple(1L, pow(factorial(k), Expr.MINUS_ONE), Expr.E - Expr.ONE)
         table += Triple(0L, pow(factorial(k), Expr.MINUS_ONE), Expr.E)
         if (x != null) {
