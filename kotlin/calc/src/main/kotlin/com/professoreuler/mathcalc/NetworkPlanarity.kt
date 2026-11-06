@@ -18,15 +18,24 @@ internal object NetworkPlanarity {
     private const val MOST_VERTICES = 40
     private const val MOST_EDGES = 150
 
+    /** At most this many paths drawn in all, so that the same graph always gets the same answer, or none, in time. */
+    private const val MOST_STEPS = 60_000
+
     private class NotProved : RuntimeException()
+
+    /** The paths drawn so far by one call of [planarity] (calls may run side by side). */
+    private class Steps {
+        var count = 0
+    }
 
     fun planarity(net: Net): Networks.Planarity? {
         val n = net.n
         val edges = LinkedHashSet<Pair<Int, Int>>()
         for (a in net.arcs) if (a.u != a.v) edges += if (a.u < a.v) a.u to a.v else a.v to a.u
         if (n > MOST_VERTICES || edges.size > MOST_EDGES) return null
+        val steps = Steps()
         return try {
-            if (planar(n, edges.toList())) {
+            if (planar(n, edges.toList(), steps)) {
                 // Euler's formula for a plane drawing with c components: V − E + F = 1 + c (loops and repeated edges each one face more).
                 val components = NetworkFacts.components(net).size
                 Networks.Planarity(true, net.arcs.size - n + 1 + components, null, emptyList())
@@ -34,7 +43,7 @@ internal object NetworkPlanarity {
                 var keep = edges.toList()
                 for (e in edges) {
                     val without = keep - e
-                    if (!planar(n, without)) keep = without
+                    if (!planar(n, without, steps)) keep = without
                 }
                 val kind = kuratowski(keep) ?: return null
                 Networks.Planarity(false, null, kind, keep.map { net.names[it.first] to net.names[it.second] })
@@ -45,12 +54,12 @@ internal object NetworkPlanarity {
     }
 
     /** Whether every block of the simple graph [edges] has a drawing without crossings, each drawing checked. */
-    private fun planar(n: Int, edges: List<Pair<Int, Int>>): Boolean {
+    private fun planar(n: Int, edges: List<Pair<Int, Int>>, steps: Steps): Boolean {
         val adjacent = List(n) { ArrayList<Int>() }
         for ((u, v) in edges) { adjacent[u] += v; adjacent[v] += u }
         for (block in blocks(n, adjacent)) {
             if (block.size < 3) continue
-            val faces = dmp(block) ?: return false
+            val faces = dmp(block, steps) ?: return false
             if (!sphere(block, faces)) throw NotProved()
         }
         return true
@@ -98,7 +107,7 @@ internal object NetworkPlanarity {
     private class Fragment(val attachments: List<Int>, val inner: Set<Int>, val chord: Pair<Int, Int>?)
 
     /** The faces of a drawing of a 2-connected simple graph (each a cycle of its vertices), or null where it has none. */
-    private fun dmp(block: List<Pair<Int, Int>>): List<List<Int>>? {
+    private fun dmp(block: List<Pair<Int, Int>>, steps: Steps): List<List<Int>>? {
         val adjacent = HashMap<Int, MutableSet<Int>>()
         for ((u, v) in block) {
             adjacent.getOrPut(u) { LinkedHashSet() } += v
@@ -112,6 +121,7 @@ internal object NetworkPlanarity {
         val faces = arrayListOf(cycle, cycle.toList())
         while (drawnEdges.size < block.size) {
             Budget.check()
+            if (++steps.count > MOST_STEPS) throw NotProved()
             val fragments = ArrayList<Fragment>()
             for ((u, v) in block) if (key(u, v) !in drawnEdges && u in drawnVertices && v in drawnVertices) {
                 fragments += Fragment(listOf(minOf(u, v), maxOf(u, v)), emptySet(), u to v)
