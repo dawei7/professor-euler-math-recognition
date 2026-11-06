@@ -19,6 +19,8 @@ object CommandFunctions {
         UNTIL,
         /** Read and written by [Applied]: a curve's point or bounds, two curves, a matrix with its letter. */
         APPLIED,
+        /** dijkstra((1, 2, 4), (2, 3, 1), 1, 3): a graph's edges, then the vertices (or the length) its function asks for ([Networks]). */
+        NETWORK,
     }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
@@ -101,6 +103,14 @@ object CommandFunctions {
         Function("meanvalue", Mode.MEAN_VALUE, Shape.APPLIED, listOf("x", "a", "b")),
         Function("maximize", Mode.MAXIMIZE, Shape.FORMULA),
         Function("minimize", Mode.MINIMIZE, Shape.FORMULA),
+        Function("graph", Mode.GRAPH_FACTS, Shape.NETWORK),
+        Function("dijkstra", Mode.DIJKSTRA, Shape.NETWORK, listOf("s", "t")),
+        Function("bellmanford", Mode.BELLMAN_FORD, Shape.NETWORK, listOf("s", "t")),
+        Function("kruskal", Mode.KRUSKAL, Shape.NETWORK),
+        Function("prim", Mode.PRIM, Shape.NETWORK, listOf("s")),
+        Function("toposort", Mode.TOPOLOGICAL_ORDER, Shape.NETWORK),
+        Function("maxflow", Mode.MAX_FLOW, Shape.NETWORK, listOf("s", "t")),
+        Function("walks", Mode.WALKS, Shape.NETWORK, listOf("k", "u", "v")),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -130,6 +140,7 @@ object CommandFunctions {
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         if (f.shape == Shape.APPLIED) return Applied.read(f, args) ?: refused(f, inner)
+        if (f.shape == Shape.NETWORK) return Networks.typed(f.name, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
         // Lines after the formula only where the function takes them (a system, initial values, constraints): gradient(f, x = 1)
@@ -419,6 +430,8 @@ object CommandFunctions {
             Shape.CONVERT -> listOf(l + "\\ \\text{" + (c.letter ?: return null) + "}", "\\text{" + (c.point ?: return null) + "}")
             Shape.POINT_ORDER -> lines + listOfNotNull(c.point, c.order?.takeIf { c.point != null }?.toString())
             Shape.UNTIL -> lines + listOfNotNull(c.point)
+            // A graph's call is its own LaTeX ([Networks]).
+            Shape.NETWORK -> return l.takeIf { Networks.callOf(it)?.first == f.name }
             else -> return null
         }
         return call(f.name, args)
