@@ -303,6 +303,13 @@ object TextInput {
                 emit("\\log_{${s.substring(i, j)}}")
                 return j
             }
+            lower == "log" && i + 1 < s.length && s[i] == '_' && s[i + 1].isDigit() -> {
+                // log_10(1000) is to base 10, not to base 1 of 0·1000.
+                var j = i + 1
+                while (j < s.length && s[j].isDigit()) j++
+                emit("\\log_{${s.substring(i + 1, j)}}")
+                return j
+            }
             lower in WRAPPERS -> {
                 val (arg, next) = argumentAt(s, i)
                 if (arg == null) {

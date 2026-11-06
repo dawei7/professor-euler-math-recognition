@@ -86,6 +86,44 @@ object Precise {
         null
     }
 
+    /**
+     * The real constant [e] to [n] certified significant digits, as a decimal: what a result's "≈" shows, which a double's
+     * evaluation gets wrong where its terms cancel (√(10¹⁶ + 1) − 10⁸ is 5·10⁻⁹, no 0; e^(10⁻¹⁰) − 1 is 1.00000000005·10⁻¹⁰).
+     * Within a fifth of a second; null where the balls cannot take [e] (a decimal in it, a function they lack) or need longer.
+     */
+    internal fun decimal(e: Expr, n: Int = Format.DIGITS): java.math.BigDecimal? = try {
+        if (e.symbols().isNotEmpty() || e.hasOp() || hasReal(e)) null else Budget.within(200) {
+            val v = digits(e, n, complex = true)
+            if (!v.isReal) null else when (val re = v.re) {
+                Decimal.Zero -> java.math.BigDecimal.ZERO
+                is Decimal.Small -> java.math.BigDecimal.ZERO
+                is Decimal.Digits -> java.math.BigDecimal(BigInteger(re.digits), re.digits.length - 1 - re.exponent).let { if (re.negative) it.negate() else it }
+            }
+        }
+    } catch (x: CalcException) {
+        null
+    } catch (x: Imprecise) {
+        null
+    } catch (x: ArithmeticException) {
+        null
+    }
+
+    /**
+     * ⌊[e]⌋, ⌈[e]⌉ or sgn [e] ([f]) of a real constant that is no fraction, where its certified digits leave no doubt of it
+     * (⌊π⌋ = 3, sgn(e − π) = −1); null where they cannot (a value too near a whole number, or the balls cannot take [e]).
+     */
+    internal fun whole(e: Expr, f: Func): BigInteger? {
+        if (e is Expr.Num || e.symbols().isNotEmpty() || e.hasI() || e.hasInfinity() || e.hasOp()) return null
+        val d = decimal(e, 30)?.takeIf { it.signum() != 0 } ?: return null
+        if (f == Func.SIGN) return BigInteger.valueOf(d.signum().toLong())
+        // The value is within a unit of the last digit of d.
+        val unit = java.math.BigDecimal.ONE.movePointLeft(d.scale())
+        val mode = if (f == Func.FLOOR) java.math.RoundingMode.FLOOR else java.math.RoundingMode.CEILING
+        val lo = (d - unit).setScale(0, mode).toBigInteger()
+        val hi = (d + unit).setScale(0, mode).toBigInteger()
+        return lo.takeIf { it == hi }
+    }
+
     /** The value of a constant expression as a complex ball at [prec] bits; [env] gives letters their values. */
     internal fun eval(e: Expr, prec: Int, complex: Boolean, env: Map<String, CBall>): CBall {
         Budget.check()

@@ -65,8 +65,9 @@ internal object Sums {
     fun verdict(t: Expr, k: Expr.Sym, a: Expr): Verdict {
         val start = integer(a)?.toLong() ?: return Verdict.Unknown
         val terms = Calculus.limit(t, k, Expr.INF, null)
-        // The terms do not go to 0: no sum.
-        if (terms != null && !isZero(terms) && Numeric.value(terms)?.let { it != 0.0 } != false) return Verdict.Diverges
+        // The terms do not go to 0: no sum. Only an exact limit shows it; a decimal one is values at large k, which an
+        // alternating (−1)ᵏ/k fools.
+        if (terms != null && !terms.hasDecimal() && !isZero(terms) && Numeric.value(terms)?.let { it != 0.0 } != false) return Verdict.Diverges
         if (terms == null && Numeric.value(t.substitute(k, num(100000))).let { it != null && abs(it) > 1e-3 }) return Verdict.Unknown
         // A rational function of k: like 1/k^(degree difference).
         rationalDegrees(t, k)?.let { (difference, sign) ->

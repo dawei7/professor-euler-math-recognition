@@ -826,7 +826,11 @@ object MathCalc {
         if (v.hasI()) return Outcome.Expression(Algebra.expand(v), steps)
         if (v.hasInfinity()) return Outcome.Expression(v, steps)
         if (v is Expr.Num) return Outcome.Value(Num.Exact(v.value), steps, others = others)
-        val d = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
+        val double = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
+        // Its decimal from ball arithmetic, where the balls take it: a double's loses its digits where terms cancel
+        // (e^(10⁻¹⁰) − 1). A decimal near a simple fraction is no proof of it (tanh 15 and 1/2 + e^(−100) are no 1 and no 1/2), so
+        // a number not worked out exactly is shown as its decimal.
+        val d = Precise.decimal(v)?.toDouble() ?: double
         val shown = Algebra.rationalize(v)
         return Outcome.Value(Num.Approx(d), steps, exact = shown.takeIf { niceExact(it) }, others = others)
     }

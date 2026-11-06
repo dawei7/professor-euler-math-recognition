@@ -16,3 +16,10 @@ dependencies {
 tasks.test {
     testLogging { events("passed", "skipped", "failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
 }
+
+// The developer's comparison with SymPy (tools/calc_differential.py): the engine's answers to a file of tasks, from the
+// tests' classes. Never shipped.
+tasks.register<JavaExec>("differential") {
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.professoreuler.mathcalc.DifferentialKt")
+}

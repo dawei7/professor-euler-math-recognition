@@ -147,7 +147,9 @@ object CommandFunctions {
                     else -> return refused(f, inner)
                 }
                 val body = l.latex(formula)
-                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} $body")
+                // The whole formula in brackets: in LaTeX a limit (a sum) takes only the term after it, and limit(√(x² + x) − x,
+                // x, ∞) is of the difference, sum(3k + 5, k, 1, 9) of both terms.
+                Typed("\\lim_{${letter(0)?.takeIf { params.size == 2 } ?: l.mainLetterOf(body)} \\to ${l.latex(point)}} \\left($body\\right)")
             }
             Shape.SUM -> {
                 // sum(f), sum(f, k), sum(f, k, a), sum(f, k, a, b): from 1 to ∞ where they are not given.
@@ -156,7 +158,7 @@ object CommandFunctions {
                 val k = letter(0) ?: "k"
                 val lower = params.getOrNull(1) ?: "1"
                 val upper = params.getOrNull(2)?.let { l.latex(it) } ?: "\\infty"
-                Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} $body")
+                Typed("\\sum_{$k=${l.latex(lower)}}^{$upper} \\left($body\\right)")
             }
             Shape.SERIES -> {
                 // taylor(f), taylor(f, x), taylor(f, a), taylor(f, a, n), taylor(f, x, a), taylor(f, x, a, n).
@@ -286,11 +288,11 @@ object CommandFunctions {
             }
         }
         if (c == null) {
-            LIM.matchEntire(l)?.let { m -> return call("limit", listOf(m.groupValues[3], m.groupValues[1], m.groupValues[2])) }
+            LIM.matchEntire(l)?.let { m -> return call("limit", listOf(unbracketed(m.groupValues[3]), m.groupValues[1], m.groupValues[2])) }
             NTH.matchEntire(l)?.let { m -> return call("derivative", listOf(m.groupValues[3], m.groupValues[2], m.groupValues[1])) }
             SUM.matchEntire(l)?.let { m ->
                 val upper = m.groupValues[3]
-                return call("sum", listOf(m.groupValues[4], m.groupValues[1], m.groupValues[2]) + upper)
+                return call("sum", listOf(unbracketed(m.groupValues[4]), m.groupValues[1], m.groupValues[2]) + upper)
             }
             return null
         }
@@ -312,6 +314,24 @@ object CommandFunctions {
             else -> return null
         }
         return call(f.name, args)
+    }
+
+    /** A formula without the brackets [read] put around it as a whole: \left(x + 1\right) is x + 1; (x + 1)(x − 1) stays. */
+    private fun unbracketed(body: String): String {
+        val b = body.trim()
+        if (!b.startsWith("\\left(") || !b.endsWith("\\right)")) return b
+        val inner = b.substring("\\left(".length, b.length - "\\right)".length)
+        // Only where the first bracket closes at the end.
+        var depth = 0
+        var k = 0
+        while (k < inner.length) {
+            when {
+                inner.startsWith("\\left", k) -> { depth++; k += 5 }
+                inner.startsWith("\\right", k) -> { depth--; if (depth < 0) return b; k += 6 }
+                else -> k++
+            }
+        }
+        return if (depth == 0) inner.trim() else b
     }
 
     private fun call(name: String, args: List<String>): String = "\\operatorname{$name}\\left(" + args.joinToString(", ") + "\\right)"

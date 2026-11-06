@@ -115,6 +115,8 @@ object Stats {
             }
             "invnorm" -> {
                 if (args.isEmpty()) return null
+                // The median is μ exactly: Φ⁻¹(1/2) = 0 (bisection would leave 10⁻¹⁷ of rounding).
+                if (rational(args[0]) == Rational.of(1).div(Rational.of(2)) && args.size <= 3) return tidy(args.getOrElse(1) { Expr.ZERO })
                 val p = Numeric.value(args[0])?.takeIf { it > 0 && it < 1 } ?: return null
                 val mu = Numeric.value(args.getOrElse(1) { Expr.ZERO }) ?: return null
                 val sigma = Numeric.value(args.getOrElse(2) { Expr.ONE }) ?: return null

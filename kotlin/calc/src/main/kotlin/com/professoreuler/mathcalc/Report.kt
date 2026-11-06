@@ -62,11 +62,12 @@ object Reports {
         assumptions: Assumptions = Assumptions()): Report {
         val first = inDomain(complex) { MathCalc.calculate(latex, wanted, millis, fractions, assumptions) }
         // Words that name a mode but no letter ("derivative of x² y") take that mode for the formula's likeliest letter.
-        val result = if (wanted != null && wanted.letter == null && first.choice?.mode != wanted.mode) {
+        val chosen = if (wanted != null && wanted.letter == null && first.choice?.mode != wanted.mode) {
             first.choices.firstOrNull { it.mode == wanted.mode }?.let { c -> inDomain(complex) { MathCalc.calculate(latex, c, millis, fractions, assumptions) } } ?: first
         } else {
             first
         }
+        val result = if (wanted == null) chosen else inDomain(complex) { asked(latex, wanted, chosen, assumptions) }
         val constant = if (result.outcome is Outcome.Failed) null else inDomain(complex) { constantOf(latex, assumptions) }
         val panels = ArrayList<Panel>()
         panels += Panel(PanelKind.RESULT, result.choice)
@@ -124,6 +125,37 @@ object Reports {
                 }
             }
         }
+    }
+
+    /** Functions whose choice the likeliest answer stands for where the formula does not offer it: calculate(x²) simplifies. */
+    private val STANDING = setOf(Mode.CALCULATE, Mode.SIMPLIFY, Mode.EXPAND, Mode.FACTOR, Mode.PARTIAL_FRACTIONS, Mode.GRAPH, Mode.SOLVE,
+        // A system that has a solution is solved exactly: that is its least-squares solution, with residual 0.
+        Mode.LEAST_SQUARES)
+
+    /**
+     * What a function asked for, where the formula's choices do not include it: never another choice's answer in its place
+     * (laplace(1) is no 1, inverse(x) no x, the det of a 2 × 3 matrix no row reduction, the derivative of y² by x no y²). A formula
+     * without the function's letter has its own answer: its derivative is 0, its antiderivative the formula times the letter, its
+     * series the formula, and a number's Laplace transform the number over s. Another function fails, this formula being one it
+     * does not take; solve fails for a letter the equation does not hold.
+     */
+    private fun asked(latex: String, wanted: Choice, result: Calculation, assumptions: Assumptions): Calculation {
+        val same = result.choice?.mode == wanted.mode && (wanted.letter == null || result.choice?.letter == wanted.letter)
+        if (result.outcome is Outcome.Failed || same) return result
+        if (wanted.mode in STANDING && !(wanted.mode == Mode.SOLVE && wanted.letter != null)) return result
+        val f = try { expressionOf(latex, assumptions) } catch (e: CalcException) { null }
+        val x = Expr.Sym(wanted.letter ?: "x")
+        val plain = f != null && f !is Expr.Mat && !f.hasOp() && !f.hasInfinity()
+        val outcome = when {
+            wanted.mode == Mode.DERIVATIVE && plain && !f!!.has(x) -> Outcome.Expression(Expr.ZERO)
+            wanted.mode == Mode.INTEGRAL && plain && !f!!.has(x) -> Outcome.Expression(Calculus.tidy(mul(f, x)), plusC = true)
+            wanted.mode == Mode.SERIES && plain && !f!!.has(x) -> Outcome.Expression(f)
+            wanted.mode == Mode.LAPLACE && plain && f!!.symbols().isEmpty() -> Outcome.Expression(Calculus.tidy(f / Expr.Sym("s")))
+            f is Expr.Mat -> Outcome.Failed(if (f.size != f.columns) Failure.SIZES else Failure.TOO_LARGE)
+            else -> Outcome.Failed(Failure.ARGUMENTS)
+        }
+        return Calculation(outcome, result.decimalComma, result.decimals, result.fractions, result.choices, wanted, result.degrees,
+            result.assumptions, result.ambiguities)
     }
 
     /** The formula's value as a constant expression (no letters, its calculus worked out), if it is one. */

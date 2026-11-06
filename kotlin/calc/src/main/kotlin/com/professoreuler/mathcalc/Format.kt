@@ -53,8 +53,10 @@ internal object Format {
         val approx = if (latex) "\\approx " else "≈ "
         if (!e.isConstant() || e.hasI() || e.hasInfinity()) return expr(e, c, latex)
         val d = Numeric.value(e) ?: return expr(e, c, latex)
-        if (e is Expr.Real || !MathCalc.niceExact(e)) return approx + decimal(BigDecimal(d), c, latex)
-        return expr(e, c, latex) + " " + approx + decimal(BigDecimal(d), c, latex)
+        // The decimal from ball arithmetic where it can be had: 10⁸ − 3√1111111111111111 is 5·10⁻⁹, though a double makes it 0.
+        val digits = (if (e is Expr.Real) null else Precise.decimal(e)) ?: BigDecimal(d)
+        if (e is Expr.Real || !MathCalc.niceExact(e)) return approx + decimal(digits, c, latex)
+        return expr(e, c, latex) + " " + approx + decimal(digits, c, latex)
     }
 
     /**
@@ -102,7 +104,8 @@ internal object Format {
 
     private fun write(n: Num, c: Style, latex: Boolean): String {
         val approx = if (latex) "\\approx " else "≈ "
-        val r = n.rational ?: return approx + decimal(BigDecimal(n.double), c, latex)
+        // Only an exact number is written as a fraction; a double near one is no proof of it (MathCalc certifies those).
+        val r = (n as? Num.Exact)?.r ?: return approx + decimal(BigDecimal(n.double), c, latex)
         if (r.isInteger) {
             return if (r.num.abs().toString().length <= 15) r.num.toString() else approx + decimal(BigDecimal(r.num), c, latex)
         }
