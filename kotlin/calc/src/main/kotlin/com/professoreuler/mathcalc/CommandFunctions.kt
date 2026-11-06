@@ -82,6 +82,8 @@ object CommandFunctions {
         Function("phaseportrait", Mode.PHASE_PORTRAIT, Shape.FORMULA),
         Function("interpolate", Mode.INTERPOLATION, Shape.POINTS),
         Function("spline", Mode.SPLINE, Shape.POINTS),
+        Function("pdetype", Mode.PDE_TYPE, Shape.FORMULA),
+        Function("pdsolve", Mode.PDE, Shape.FORMULA),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */

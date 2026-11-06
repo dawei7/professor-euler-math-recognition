@@ -68,6 +68,12 @@ enum class Failure {
     NO_DISCRETE_LOG,
     /** Points of an interpolation or a spline with the same x: no function passes through both (or a point given twice). */
     SAME_X,
+
+    /**
+     * A boundary-value problem whose conditions do not fix one solution: a partial differential equation without the
+     * values at both ends or its initial values (u(0, t) = 0, u(L, t) = 0, u(x, 0) = f(x)), or with one of them twice.
+     */
+    CONDITIONS,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -245,6 +251,12 @@ enum class Mode {
 
     /** The natural cubic spline through points. */
     SPLINE,
+
+    /** A second-order linear partial differential equation's type (elliptic, parabolic, hyperbolic) and canonical form. */
+    PDE_TYPE,
+
+    /** A partial differential equation with its boundary and initial values, solved by separation of variables as a Fourier series. */
+    PDE,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -468,6 +480,12 @@ sealed class Outcome {
 
     /** The natural cubic spline through points ([Interpolation.spline]): a cubic on each interval between two of them. */
     data class SplineThrough(val spline: Interpolation.Spline) : Outcome()
+
+    /** A partial differential equation's type, its discriminant b² − 4ac and, with constant coefficients, its canonical form ([Pde.classify]). */
+    data class PdeType(val classification: Pde.Classification) : Outcome()
+
+    /** A partial differential equation's problem solved by separation of variables, as a Fourier series ([Pde.separate]). */
+    data class PdeSeries(val solution: Pde.Separated) : Outcome()
 }
 
 /**
@@ -558,7 +576,7 @@ object MathCalc {
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
             Budget.within(millis) {
                 val plan = if (logic != null) logicPlan(logic)
-                    else odePlan(statements, flags.odeVariable) ?: odeSystemPlan(statements, flags.odeVariable)
+                    else pdePlan(statements) ?: odePlan(statements, flags.odeVariable) ?: odeSystemPlan(statements, flags.odeVariable)
                         ?: plan(statements, others, style, flags.degrees, flags.moduli, flags.denominators)
                 choices = plan.choices
                 // A series asked for at a point or to a power of its own: the plan's series in that letter, so taken.
@@ -1441,6 +1459,23 @@ object MathCalc {
             val solutions = Solve.system(equations, letters) ?: Solve.linearFamily(equations, letters)?.let { listOf(it) }
                 ?: throw CalcException(Failure.UNSOLVED)
             Outcome.SystemSolved(letters, solutions)
+        }
+    }
+
+    /**
+     * A partial differential equation in u, its derivatives written u_t, u_xx (or ∂u/∂t), with lines of conditions u(0, t) = 0,
+     * u(x, 0) = f(x) beside it: solved by separation of variables where conditions are given, its type in either case ([Pde]).
+     */
+    private fun pdePlan(statements: List<Statement>): Plan? {
+        val reading = Pde.read(statements) ?: return null
+        val type = Choice(Mode.PDE_TYPE)
+        val solve = Choice(Mode.PDE)
+        val choices = if (reading.conditions.isEmpty()) listOf(type) else listOf(solve, type)
+        return Plan(choices, choices[0], setOf(Mode.PDE)) { c ->
+            if (c.mode == Mode.PDE) {
+                if (reading.conditions.isEmpty()) throw CalcException(Failure.CONDITIONS)
+                Outcome.PdeSeries(Pde.separate(reading))
+            } else Outcome.PdeType(Pde.classify(reading))
         }
     }
 

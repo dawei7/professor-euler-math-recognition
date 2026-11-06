@@ -303,6 +303,7 @@ class StepsTest {
         for ((latex, choice) in chosen + LATER) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         // Interpolation and splines; orders, primitive roots and discrete logarithms, typed as their functions.
         for (text in NUMBERS) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
+        for ((latex, choice) in PdeTest.STEP_TASKS) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
 

@@ -96,6 +96,8 @@ class CommandFunctionsTest {
         "phaseportrait(x' = y, y' = -x)",
         "interpolate((1, 2), (2, 3), (3, 5))",
         "spline((0, 0), (1, 1), (2, 0), (3, 1))",
+        "pdetype(u_xx + 4u_xy + u_yy = 0)",
+        "pdsolve(u_t = u_xx, u(0, t) = 0, u(pi, t) = 0, u(x, 0) = x(pi - x))",
     )
 
     @Test

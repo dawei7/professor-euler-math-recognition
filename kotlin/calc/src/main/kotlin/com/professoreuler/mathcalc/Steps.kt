@@ -67,6 +67,9 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Partial differential equations: the type and the canonical form; separation of variables.
+    PDE_COEFFICIENTS, PDE_DISCRIMINANT, PDE_HYPERBOLIC, PDE_PARABOLIC, PDE_ELLIPTIC, PDE_CHARACTERISTIC, PDE_NEW_VARIABLES, PDE_CANONICAL,
+    PDE_SEPARATE, PDE_EIGENVALUES, PDE_OTHER_FACTOR, PDE_SUPERPOSE, PDE_FOURIER_COEFFICIENTS, PDE_PARTIAL_SUMS, PDE_FINITE, PDE_STEADY_STATE,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -95,6 +98,7 @@ object Steps {
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
+        PdeSteps.of(c)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()
