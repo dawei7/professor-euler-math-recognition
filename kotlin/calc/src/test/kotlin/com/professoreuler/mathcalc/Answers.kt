@@ -133,6 +133,36 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.Interpolated -> o.interpolant.let { p -> "p(${p.letter}) = " + c.text(p.polynomial) + " newton " + p.newton.joinToString(", ") { c.text(it) } }
     is Outcome.SplineThrough -> o.spline.pieces.joinToString(" | ") { p -> "[" + c.text(p.from) + ", " + c.text(p.to) + "] " + c.text(p.polynomial) }
+    is Outcome.DivideAndConquer -> o.analysis.let { a ->
+        (if (a.method == DivideConquer.Method.MASTER) "master " else "akra-bazzi ") +
+            (a.case?.let { "case $it " } ?: "") + (a.gap?.let { "no case: ${it.name.lowercase()} " } ?: "") +
+            (a.critical?.let { "p = " + c.text(it) + " " } ?: a.criticalDigits?.let { "p ≈ " + Algorithms.decimal(it, c, latex = false) + " " } ?: "") +
+            (a.order?.let { "Θ(" + c.text(it) + ")" } ?: "")
+    }.trim()
+    is Outcome.Growth -> o.growth.let { g ->
+        if (!g.sorted) "lim = " + c.text(g.limits[0]) + " " + g.relations().joinToString(",") { it.name.lowercase() }
+        else g.order.indices.joinToString("") { k ->
+            (if (k == 0) "" else if (isZero(g.limits[k - 1])) " < " else " ~ ") + c.text(g.functions[g.order[k]])
+        }
+    }
+    is Outcome.DynamicTable -> o.table.let { t ->
+        (t.value?.let { c.text(it) } ?: "none") + when (t.problem) {
+            Dynamic.Problem.EDIT_DISTANCE -> " " + t.operations.filter { it.edit != Dynamic.Edit.KEEP }.joinToString(" ") { op ->
+                op.edit.name.lowercase() + " " + (op.from ?: "") + (if (op.from != null && op.to != null) "→" else "") + (op.to ?: "")
+            }
+            Dynamic.Problem.LCS -> " " + t.subsequence
+            Dynamic.Problem.KNAPSACK -> " items " + t.items.joinToString(",") + " weight " + c.text(t.weight!!)
+            Dynamic.Problem.COIN_CHANGE -> " coins " + t.coins.joinToString(",") { c.text(it) }
+            Dynamic.Problem.COIN_WAYS -> ""
+        }
+    }.trim()
+    is Outcome.HuffmanCode -> o.code.let { h ->
+        h.symbols.indices.joinToString(" ") { h.symbols[it] + "=" + h.codes[it] } + " L = " + c.text(h.average) + " H = " + c.textValue(h.entropy)
+    }
+    is Outcome.Trace -> o.trace.let { t ->
+        if (t.algorithm == Sorting.Algorithm.BINARY_SEARCH) "probes " + t.steps.joinToString(",") { it.at.toString() } + " " + (t.found?.let { "found at $it" } ?: "absent")
+        else t.result.joinToString(", ") { c.text(it) } + " comparisons ${t.comparisons}" + (t.swaps?.let { " swaps $it" } ?: "") + " steps ${t.steps.size}"
+    }
 }
 
 private fun equilibrium(c: Calculation, e: Fields.Equilibrium): String =

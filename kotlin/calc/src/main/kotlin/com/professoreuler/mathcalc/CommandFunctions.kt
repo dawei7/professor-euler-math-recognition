@@ -17,6 +17,8 @@ object CommandFunctions {
         POINT_ORDER,
         /** dormandprince(f), dormandprince(f, b): where the method ends. */
         UNTIL,
+        /** Read and written by [Algorithms]: words, lists, a recurrence, functions to compare. */
+        ALGORITHM,
     }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
@@ -82,6 +84,22 @@ object CommandFunctions {
         Function("phaseportrait", Mode.PHASE_PORTRAIT, Shape.FORMULA),
         Function("interpolate", Mode.INTERPOLATION, Shape.POINTS),
         Function("spline", Mode.SPLINE, Shape.POINTS),
+        Function("mastertheorem", Mode.MASTER_THEOREM, Shape.ALGORITHM),
+        Function("akrabazzi", Mode.AKRA_BAZZI, Shape.ALGORITHM),
+        Function("asymptotic", Mode.ASYMPTOTIC, Shape.ALGORITHM),
+        Function("growthorder", Mode.GROWTH_ORDER, Shape.ALGORITHM),
+        Function("editdistance", Mode.EDIT_DISTANCE, Shape.ALGORITHM),
+        Function("lcs", Mode.LCS, Shape.ALGORITHM),
+        Function("knapsack", Mode.KNAPSACK, Shape.ALGORITHM),
+        Function("coinchange", Mode.COIN_CHANGE, Shape.ALGORITHM),
+        Function("coinways", Mode.COIN_WAYS, Shape.ALGORITHM),
+        Function("huffman", Mode.HUFFMAN, Shape.ALGORITHM),
+        Function("insertionsort", Mode.INSERTION_SORT, Shape.ALGORITHM),
+        Function("selectionsort", Mode.SELECTION_SORT, Shape.ALGORITHM),
+        Function("bubblesort", Mode.BUBBLE_SORT, Shape.ALGORITHM),
+        Function("mergesort", Mode.MERGE_SORT, Shape.ALGORITHM),
+        Function("quicksort", Mode.QUICKSORT, Shape.ALGORITHM),
+        Function("binarysearch", Mode.BINARY_SEARCH, Shape.ALGORITHM),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -109,6 +127,7 @@ object CommandFunctions {
         if (!balanced(inner)) return null
         val args = arguments(inner)?.map { it.trim() } ?: return refused(f, inner)
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
+        if (f.shape == Shape.ALGORITHM) return Algorithms.read(f.mode!!, args) ?: refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         val lines = listOf(args[0]) + args.drop(1).filter { hasRelation(it) }
         val params = args.drop(1).filterNot { hasRelation(it) }
@@ -360,6 +379,8 @@ object CommandFunctions {
             Shape.CONVERT -> listOf(l + "\\ \\text{" + (c.letter ?: return null) + "}", "\\text{" + (c.point ?: return null) + "}")
             Shape.POINT_ORDER -> lines + listOfNotNull(c.point, c.order?.takeIf { c.point != null }?.toString())
             Shape.UNTIL -> lines + listOfNotNull(c.point)
+            // The call itself, as [Algorithms.read] wrote it.
+            Shape.ALGORITHM -> return l
             else -> return null
         }
         return call(f.name, args)

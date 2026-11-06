@@ -27,6 +27,17 @@ class StepsTest {
         "x^{2}+y^{2}-4x+6y=12" to null, "y^{2}=8x" to Choice(Mode.CONIC),
         "\\operatorname{constant}(electronmass)\\cdot \\operatorname{constant}(speedoflight)^{2}" to null,
         "\\operatorname{constant}(speedoflight, km/h)" to null,
+        """\operatorname{mastertheorem}\left(T(n) = 2T(n/2) + n\right)""" to null,
+        """\operatorname{mastertheorem}\left(T(n) = 9T(n/3) + n\right)""" to null,
+        """\operatorname{mastertheorem}\left(T(n) = 3T(n/4) + n \log(n)\right)""" to null,
+        """\operatorname{mastertheorem}\left(T(n) = 2T(n/2) + n/\log(n)\right)""" to null,
+        """\operatorname{mastertheorem}\left(T(n) = T(n/3) + T(2n/3) + n\right)""" to null,
+        """\operatorname{akrabazzi}\left(T(n) = T(n/3) + T(2n/3) + n\right)""" to null,
+        """\operatorname{asymptotic}\left(n \log(n), n^{2}\right)""" to null,
+        """\operatorname{asymptotic}\left(3n^{2} + n, n^{2}\right)""" to null,
+        """\operatorname{asymptotic}\left(2^{n}, n^{3}\right)""" to null,
+        """\operatorname{growthorder}\left(n^{2}, \log(n), 2^{n}\right)""" to null,
+        """\operatorname{huffman}\left(\text{a}=45, \text{b}=13, \text{c}=12\right)""" to null,
     )
 
 
@@ -321,6 +332,10 @@ class StepsTest {
             "START STAT_MEAN STAT_SORTED STAT_MEDIAN STAT_VARIANCE STAT_SD", "REG_SUMS REG_SLOPE REG_INTERCEPT RESULT",
             "UNIT_FACTOR RESULT", "UNIT_OFFSET RESULT", "START CONIC_COMPLETE CONIC_STANDARD", "START CONIC_STANDARD",
             "START CONSTANT_VALUES UNCERTAINTY_BOUND RESULT", "UNIT_FACTOR RESULT",
+            "START MASTER_PARTS MASTER_CRITICAL MASTER_CASE_2 RESULT", "START MASTER_PARTS MASTER_CRITICAL MASTER_CASE_1 RESULT",
+            "START MASTER_PARTS MASTER_CRITICAL MASTER_CASE_3 RESULT", "START MASTER_PARTS MASTER_CRITICAL MASTER_GAP",
+            "START MASTER_SEVERAL", "START AKRA_P AKRA_INTEGRAL RESULT", "GROWTH_LIMIT GROWTH_ZERO", "GROWTH_LIMIT GROWTH_FINITE",
+            "GROWTH_LIMIT GROWTH_INFINITE", "GROWTH_LIMIT GROWTH_LIMIT RESULT", "HUFFMAN_MERGE HUFFMAN_MERGE HUFFMAN_CODES HUFFMAN_AVERAGE",
         )
         val got = LATER.map { (latex, choice) -> Steps.of(latex, choice)?.joinToString(" ") { it.why.key.name } ?: "none" }
         assertEquals(expected.joinToString("\n"), got.joinToString("\n"))

@@ -68,6 +68,15 @@ enum class Failure {
     NO_DISCRETE_LOG,
     /** Points of an interpolation or a spline with the same x: no function passes through both (or a point given twice). */
     SAME_X,
+
+    /** A list that binary search needs sorted and is not: binarysearch([3, 1, 2], 2). */
+    NOT_SORTED,
+
+    /**
+     * No divide-and-conquer recurrence T(n) = a·T(n/b) + f(n): a term T(n − 1) or T(n) itself, a coefficient that is not a positive
+     * number, a division by no number above 1, or an f(n) that is not positive for large n.
+     */
+    NOT_DIVIDE_AND_CONQUER,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -242,6 +251,53 @@ enum class Mode {
 
     /** The natural cubic spline through points. */
     SPLINE,
+    /** The master theorem for T(n) = a·T(n/b) + f(n): its case and Θ(…) ([DivideConquer]). */
+    MASTER_THEOREM,
+
+    /** The Akra–Bazzi method for T(n) = Σ aᵢ·T(bᵢ·n) + g(n) ([DivideConquer]). */
+    AKRA_BAZZI,
+
+    /** Whether f is in o(g), O(g), Θ(g), Ω(g) or ω(g) as n → ∞, from lim f/g ([Asymptotics]). */
+    ASYMPTOTIC,
+
+    /** Functions sorted by their order of growth ([Asymptotics]). */
+    GROWTH_ORDER,
+
+    /** The edit (Levenshtein) distance of two words, with its table and an optimal sequence of operations ([Dynamic]). */
+    EDIT_DISTANCE,
+
+    /** A longest common subsequence of two words, with its table ([Dynamic]). */
+    LCS,
+
+    /** The 0/1 knapsack: the best value within a capacity and the items that give it ([Dynamic]). */
+    KNAPSACK,
+
+    /** The fewest coins that make an amount, and which ([Dynamic]). */
+    COIN_CHANGE,
+
+    /** The number of ways to make an amount from coins ([Dynamic]). */
+    COIN_WAYS,
+
+    /** A Huffman code for symbol frequencies ([Huffman]). */
+    HUFFMAN,
+
+    /** Insertion sort, traced step by step ([Sorting]). */
+    INSERTION_SORT,
+
+    /** Selection sort, traced ([Sorting]). */
+    SELECTION_SORT,
+
+    /** Bubble sort, traced pass by pass ([Sorting]). */
+    BUBBLE_SORT,
+
+    /** Merge sort, traced merge by merge ([Sorting]). */
+    MERGE_SORT,
+
+    /** Quicksort with a stated pivot rule, traced partition by partition ([Sorting]). */
+    QUICKSORT,
+
+    /** Binary search for a value in a sorted list, probe by probe ([Sorting]). */
+    BINARY_SEARCH,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -465,6 +521,20 @@ sealed class Outcome {
 
     /** The natural cubic spline through points ([Interpolation.spline]): a cubic on each interval between two of them. */
     data class SplineThrough(val spline: Interpolation.Spline) : Outcome()
+    /** A divide-and-conquer recurrence analysed by the master theorem or by Akra–Bazzi ([DivideConquer.Analysis]). */
+    data class DivideAndConquer(val analysis: DivideConquer.Analysis) : Outcome()
+
+    /** Functions compared as n → ∞: two by the limit of their quotient, or several sorted by growth ([Asymptotics.Growth]). */
+    data class Growth(val growth: Asymptotics.Growth) : Outcome()
+
+    /** A dynamic program's table, its result and the reconstruction of that result ([Dynamic.Table]). */
+    data class DynamicTable(val table: Dynamic.Table) : Outcome()
+
+    /** A Huffman code: each symbol's code word, the merges that built the tree, the average length and the entropy ([Huffman.Code]). */
+    data class HuffmanCode(val code: Huffman.Code) : Outcome()
+
+    /** A sorting algorithm or binary search traced step by step, with its comparisons and swaps ([Sorting.Trace]). */
+    data class Trace(val trace: Sorting.Trace) : Outcome()
 }
 
 /**
@@ -542,6 +612,8 @@ object MathCalc {
         assumptions: Assumptions = Assumptions()): Calculation {
         // A picture asked for by name, and physical constants, are worked out on their own.
         Additions.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
+        // The algorithms' functions (sorting, dynamic programming, recurrences, growth) are worked out from their own arguments.
+        Algorithms.calculate(latex, choice, millis, assumptions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags(assumptions)
         var choices = emptyList<Choice>()

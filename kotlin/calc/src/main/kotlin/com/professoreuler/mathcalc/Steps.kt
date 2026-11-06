@@ -67,6 +67,9 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Divide-and-conquer recurrences, growth as n → ∞, Huffman codes.
+    MASTER_PARTS, MASTER_CRITICAL, MASTER_CASE_1, MASTER_CASE_2, MASTER_CASE_3, MASTER_GAP, MASTER_SEVERAL, AKRA_P, AKRA_INTEGRAL,
+    GROWTH_LIMIT, GROWTH_ZERO, GROWTH_FINITE, GROWTH_INFINITE, HUFFMAN_MERGE, HUFFMAN_CODES, HUFFMAN_AVERAGE,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -95,6 +98,7 @@ object Steps {
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
+        AlgorithmSteps.of(c)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()
