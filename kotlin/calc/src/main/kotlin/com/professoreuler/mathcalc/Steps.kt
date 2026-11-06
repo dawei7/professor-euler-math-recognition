@@ -77,6 +77,19 @@ enum class StepKey {
     INTEGRAL_NUMERIC, AREA_CROSSINGS, AREA_PIECE, AREA_PIECES, VOLUME_DISCS, VOLUME_SHELLS, MEAN_FORMULA,
     // Linear programs.
     LP_CORNERS, LP_VALUES, LP_SIMPLEX, LP_DUAL, LP_UNBOUNDED, LP_INFEASIBLE,
+    // Graphs: shortest paths, spanning trees, a topological order, a maximum flow, walks.
+    GRAPH_SOURCE, GRAPH_VISIT, GRAPH_LOWER, GRAPH_ROUND, GRAPH_ROUND_STABLE, GRAPH_NEGATIVE_CYCLE, GRAPH_DISTANCES_CHECK,
+    GRAPH_PATH, GRAPH_SORT_EDGES, GRAPH_TAKE_EDGE, GRAPH_SKIP_EDGE, GRAPH_PRIM_START, GRAPH_PRIM_EDGE, GRAPH_TREE_CHECK,
+    GRAPH_TOPO_TAKE, GRAPH_TOPO_CYCLE, GRAPH_TOPO_CHECK, GRAPH_AUGMENT, GRAPH_MIN_CUT, GRAPH_ADJACENCY, GRAPH_MATRIX_POWER,
+    // Machine learning: softmax, the information measures, Markov decision processes, gradient descent ([LearningSteps]).
+    SOFTMAX_EXP, SOFTMAX_DIVIDE, SOFTMAX_CHECK, ENTROPY_SUM, CROSS_ENTROPY_SUM, KL_SUM, MI_MARGINALS, MI_SUM, INFO_CHECK,
+    MDP_BELLMAN, MDP_SWEEPS, MDP_EVALUATE, MDP_OPTIMAL, MDP_POLICY_PARTS, MDP_LINEAR, GD_GRADIENT, GD_STEP, GD_MINIMUM,
+    // Financial mathematics: the formulas of interest, annuities and loans, the values put in, the internal rate of return,
+    // and the tables of loans and depreciation.
+    FIN_SIMPLE_INTEREST, FIN_COMPOUND, FIN_COMPOUND_SUBPERIODS, FIN_CONTINUOUS, FIN_DISCOUNT, FIN_RATE, FIN_PERIODS, FIN_EFFECTIVE,
+    FIN_NOMINAL, FIN_ANNUITY_FV, FIN_ANNUITY_PV, FIN_ANNUITY_DUE, FIN_LOAN_PAYMENT, FIN_LOAN_TERM, FIN_NPV, FIN_SUBSTITUTE,
+    FIN_IRR_POLYNOMIAL, FIN_IRR_RATES, FIN_SCHEDULE_ROW, FIN_SCHEDULE_LAST, FIN_EQUAL_PRINCIPAL, FIN_STRAIGHT_LINE,
+    FIN_DEPRECIATION_LAST, FIN_DECLINING,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -107,6 +120,9 @@ object Steps {
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
         PdeSteps.of(c)?.let { return it }
         AppliedSteps.of(c, latex, assumptions)?.let { return it }
+        NetworkSteps.of(c, latex)?.let { return it }
+        LearningSteps.of(c, latex, assumptions)?.let { return it }
+        FinanceSteps.of(c, latex)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

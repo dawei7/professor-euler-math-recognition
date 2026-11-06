@@ -543,6 +543,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             tok == "\\int" -> integral()
             tok == "\\sum" || tok == "\\prod" -> sumOrProduct(tok == "\\sum")
             tok == "\\lim" -> { i++; limit() }
+            tok.length > 1 && tok[0] == '\\' && tok.substring(1) in Learning.FUNCTIONS -> { i++; learning(tok.substring(1)) }
             isLetter(tok) -> letters()
             else -> throw unreadable()
         }
@@ -732,6 +733,12 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     private fun letters(): Expr {
         numberFunction()?.let { return it }
         physicalConstant()?.let { return it }
+        // sigmoid(x), softmax([1, 2, 3]) written in letters.
+        val word = buildString { while (length < 20 && isLetter(t.getOrNull(i + length))) append(t[i + length]) }
+        if (word in Learning.FUNCTIONS && peek(word.length) == "(") {
+            i += word.length
+            return learning(word)
+        }
         val run = lettersFrom(i)
         if (run.startsWith("lim") && peek(3) == "_") {
             i += 3
@@ -750,7 +757,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
      * null where the letters are no such name or its arguments are no numbers (mu(x + 1) is then m·u·(x + 1)).
      */
     private fun numberFunction(name0: String? = null): Expr? {
-        val word = name0 ?: buildString { while (length < 12 && isLetter(t.getOrNull(i + length))) append(t[i + length]) }
+        val word = name0 ?: buildString { while (length < 20 && isLetter(t.getOrNull(i + length))) append(t[i + length]) }
         var name = word.lowercase()
         var length = if (name0 != null) 0 else word.length
         if (name == "stirling" && peek(length) == "1") { name = "stirling1"; length++ }
@@ -786,6 +793,32 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         if (name.isEmpty() || t.getOrNull(k) != ")" || unit?.isEmpty() == true || unit?.contains(",") == true) throw CalcException(Failure.ARGUMENTS)
         i = k + 1
         return PhysicalConstants.inFormula(name.toString(), unit)
+    }
+
+    /**
+     * A function of [Learning] at its bracket: its arguments separated by commas (a vector's commas inside its own brackets), each
+     * worked out, then the function; one that does not take them fails with [Failure.ARGUMENTS].
+     */
+    private fun learning(name: String): Expr {
+        if (peek() != "(") throw CalcException(Failure.ARGUMENTS)
+        i++
+        val args = ArrayList<Expr>()
+        listDepth++
+        try {
+            while (true) {
+                if (peek() == ")") throw CalcException(Failure.ARGUMENTS)
+                args += Calculus.evaluate(expression())
+                when (peek()) {
+                    "," -> i++
+                    ")" -> { i++; break }
+                    ";" -> throw CalcException(Failure.ARGUMENTS)
+                    else -> throw unreadable()
+                }
+            }
+        } finally {
+            listDepth--
+        }
+        return Learning.call(name, args)
     }
 
     /** (a, b, c) of a function: separated by commas, and by nothing else (a semicolon there fails: [Failure.ARGUMENTS]). */
@@ -1078,6 +1111,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                             val name = inside.joinToString("")
                             when {
                                 name in FUNCTIONS || name in COMMAND_NAMES -> out += "\\$name"
+                                // sigmoid, softmax, entropy …: a function of machine learning ([Learning]).
+                                name in Learning.FUNCTIONS -> out += "\\$name"
                                 // A command's call that could not be read is no product of its letters, and neither is a
                                 // command inside a formula or a name the calculator does not know.
                                 s == "\\operatorname" && name in CommandFunctions.NAMES ->

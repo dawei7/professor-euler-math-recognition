@@ -127,6 +127,12 @@ internal object Format {
         if (r.num.abs().toString().length + r.den.toString().length > MAX_FRACTION_DIGITS) {
             return approx + decimal(BigDecimal(r.num).divide(BigDecimal(r.den), MathContext(DIGITS)), c, latex)
         }
+        // A fraction nobody reads, its numerator or denominator longer than 15 digits as a whole number is (an interest compounded
+        // monthly for ten years): its decimal, as for such a whole number; the exact value stays in the outcome and its digits.
+        if (r.num.abs().toString().length > 15 || r.den.toString().length > 15) {
+            // Rounded once, from the exact fraction: every digit shown is certain.
+            return approx + decimal(BigDecimal(r.num).divide(BigDecimal(r.den), MathContext(DIGITS, java.math.RoundingMode.HALF_UP)), c, latex)
+        }
         val exact = if (r.terminates) BigDecimal(r.num).divide(BigDecimal(r.den)) else null
         val shortExact = exact?.takeIf { it.stripTrailingZeros().scale() <= DIGITS && it.abs() >= BigDecimal("1e-6") }
         val dec = shortExact?.let { decimal(it, c, latex, exact = true) }
