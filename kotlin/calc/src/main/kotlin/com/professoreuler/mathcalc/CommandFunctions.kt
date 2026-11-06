@@ -12,7 +12,7 @@ package com.professoreuler.mathcalc
  */
 object CommandFunctions {
     /** How a function's arguments after the formula are read. */
-    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT }
+    enum class Shape { FORMULA, LETTER, ORDER, BOUNDS, LIMIT, SUM, SERIES, START, INTERVAL, PERIOD, LIST, POINTS, CONVERT, REGION }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
     class Function(val name: String, val mode: Mode?, val shape: Shape, val params: List<String> = emptyList())
@@ -67,6 +67,8 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("complexplot", Mode.COMPLEX_PLOT, Shape.REGION, listOf("z", "c", "r")),
+        Function("venn", Mode.VENN, Shape.FORMULA),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -175,8 +177,29 @@ object CommandFunctions {
                     point = if (params.size == 2) l.latex(params[0]) + "," + l.latex(params[1]) else null))
             Shape.PERIOD -> if (params.size > 1) refused(f, inner)
                 else Typed(l.latex(formula), Choice(Mode.FOURIER, point = params.getOrNull(0)?.let { l.latex(it) }))
+            Shape.REGION -> {
+                // complexplot(f), complexplot(f, z), complexplot(f, c, r), complexplot(f, z, c, r): told apart by their number;
+                // the square centred at c with half side r.
+                val v = when (params.size) {
+                    1, 3 -> letter(0) ?: return refused(f, inner)
+                    0, 2 -> null
+                    else -> return refused(f, inner)
+                }
+                val body = l.latex(formula)
+                val z = v ?: complexLetter(body)
+                val square = if (params.size >= 2) params.takeLast(2) else emptyList()
+                // complexplot(f, z, z, 2): the letter is no centre or size of its own square.
+                if (square.any { l.letterOf(it) == z }) return refused(f, inner)
+                Typed(body, Choice(Mode.COMPLEX_PLOT, z, point = if (square.size == 2) square.joinToString(",") { l.latex(it) } else null))
+            }
             else -> refused(f, inner)
         }
+    }
+
+    /** The letter of a complex function: z where it has one, else its only letter, else z. */
+    private fun complexLetter(body: String): String {
+        val main = TextInput.mainLetterOf(body)
+        return if (Regex("""(?<![A-Za-z\\])z(?![A-Za-z])""").containsMatchIn(body) || main == "x" && !Regex("""(?<![A-Za-z\\])x(?![A-Za-z])""").containsMatchIn(body)) "z" else main
     }
 
     /** The highest order of a series a call may ask for. */
@@ -306,6 +329,7 @@ object CommandFunctions {
             Shape.START -> lines + listOfNotNull(c.point)
             Shape.INTERVAL -> lines + (c.point?.split(',') ?: emptyList())
             Shape.PERIOD -> lines + listOfNotNull(c.point)
+            Shape.REGION -> lines + listOfNotNull(c.letter ?: complexLetter(l)) + (c.point?.split(',') ?: emptyList())
             Shape.LIST -> elements(l) ?: return null
             Shape.POINTS -> points(l) ?: return null
             Shape.CONVERT -> listOf(l + "\\ \\text{" + (c.letter ?: return null) + "}", "\\text{" + (c.point ?: return null) + "}")

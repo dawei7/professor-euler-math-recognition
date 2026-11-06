@@ -709,6 +709,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     /** A function written in letters, lim, or else one letter: e, i, or a letter (with its subscript, as `x_{1}`). */
     private fun letters(): Expr {
         numberFunction()?.let { return it }
+        physicalConstant()?.let { return it }
         val run = lettersFrom(i)
         if (run.startsWith("lim") && peek(3) == "_") {
             i += 3
@@ -737,6 +738,32 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         val args = arguments()
         if (args == null) { i = save; return null }
         return Discrete.call(name, args) ?: run { i = save; null }
+    }
+
+    /**
+     * constant(speedoflight), constant(speedoflight, km/h): a physical constant's value ([PhysicalConstants.inFormula]); null
+     * where the letters are no such call. Its name is letters; a unit after a comma is read as [Units] reads it.
+     */
+    private fun physicalConstant(): Expr? {
+        val word = PhysicalConstants.CALL
+        if (word.indices.any { t.getOrNull(i + it) != word[it].toString() } || peek(word.length) != "(") return null
+        var k = i + word.length + 1
+        val name = StringBuilder()
+        while (isLetter(t.getOrNull(k))) name.append(t[k++])
+        var unit: String? = null
+        if (t.getOrNull(k) == ",") {
+            val start = ++k
+            var depth = 0
+            while (k < t.size && !(depth == 0 && t[k] == ")")) {
+                if (t[k] == "(") depth++
+                if (t[k] == ")") depth--
+                k++
+            }
+            unit = PhysicalConstants.unitText(t.subList(start, minOf(k, t.size)))
+        }
+        if (name.isEmpty() || t.getOrNull(k) != ")" || unit?.isEmpty() == true || unit?.contains(",") == true) throw CalcException(Failure.ARGUMENTS)
+        i = k + 1
+        return PhysicalConstants.inFormula(name.toString(), unit)
     }
 
     /** (a, b, c) of a function: separated by commas, and by nothing else (a semicolon there fails: [Failure.ARGUMENTS]). */
@@ -1030,7 +1057,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                                 // command inside a formula or a name the calculator does not know.
                                 s == "\\operatorname" && name in CommandFunctions.NAMES ->
                                     throw CalcException(if (out.isEmpty()) Failure.ARGUMENTS else Failure.COMMAND_INSIDE)
-                                s == "\\operatorname" && name.length >= 2 && name.lowercase() !in Discrete.NAMES ->
+                                s == "\\operatorname" && name.length >= 2 && name.lowercase() !in Discrete.NAMES && name != PhysicalConstants.CALL ->
                                     throw CalcException(Failure.UNKNOWN_FUNCTION)
                                 else -> out.addAll(inside)
                             }

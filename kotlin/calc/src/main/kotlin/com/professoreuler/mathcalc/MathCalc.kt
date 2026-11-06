@@ -48,6 +48,15 @@ enum class Failure {
     UNKNOWN_FUNCTION,
     /** A command's function (solve, det …) inside a formula, as 2·det(A): it takes a line of its own. */
     COMMAND_INSIDE,
+    /** constant(…) of a name that is no constant of the calculator ([PhysicalConstants.NAMES]). */
+    UNKNOWN_CONSTANT,
+    /**
+     * A measured constant (G, mₑ …) beside letters or in an equation: it is known only to its published digits, so it is worked
+     * out only in a number, whose uncertainty follows from them; or a number whose uncertainty cannot be bounded that way.
+     */
+    MEASURED_CONSTANT,
+    /** A function the domain colouring cannot evaluate at complex points (⌊z⌋, Γ, calculus not worked out). */
+    NO_COMPLEX_VALUES,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -191,6 +200,15 @@ enum class Mode {
 
     /** The plane through three points. */
     PLANE,
+
+    /** A physical constant on its own, constant(speedoflight): its value, unit and uncertainty ([PhysicalConstants]). */
+    CONSTANT,
+
+    /** A complex function's domain colouring with its zeros and poles ([ComplexPlot]). */
+    COMPLEX_PLOT,
+
+    /** A Venn diagram of a formula of sets in one to three sets ([VennDiagram]). */
+    VENN,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -374,6 +392,21 @@ sealed class Outcome {
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
 
     data class Failed(val failure: Failure) : Outcome()
+
+    /** A physical constant ([PhysicalConstants.Entry]) in [unit] (its own, or the one asked for) and its [quantity] there. */
+    data class PhysicalConstant(val constant: PhysicalConstants.Entry, val unit: String, val quantity: PhysicalConstants.Quantity) : Outcome()
+
+    /**
+     * A number worked out from physical constants ([constants], their names): its [quantity], exact where only exact constants
+     * are in it, else the value with a bound of its standard uncertainty, both rounded as CODATA rounds (6.6743(15) × 10⁻¹¹).
+     */
+    data class PhysicalValue(val quantity: PhysicalConstants.Quantity, val constants: List<String>) : Outcome()
+
+    /** A complex function's domain colouring: the function compiled, its square, its zeros and poles ([ComplexPlot.plot]). */
+    data class DomainColoring(val plot: ComplexPlot.Plot) : Outcome()
+
+    /** A Venn diagram: its sets and which of its regions belong to the formula ([VennDiagram.of]). */
+    data class Venn(val diagram: VennDiagram.Diagram) : Outcome()
 }
 
 /**
@@ -449,6 +482,8 @@ object MathCalc {
      */
     fun calculate(latex: String, choice: Choice? = null, millis: Long = LIMIT_MS, fractions: Boolean = false,
         assumptions: Assumptions = Assumptions()): Calculation {
+        // A picture asked for by name, and physical constants, are worked out on their own.
+        Additions.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags(assumptions)
         var choices = emptyList<Choice>()
@@ -628,6 +663,7 @@ object MathCalc {
             if (letters == listOf("t")) choices += Choice(Mode.LAPLACE)
             if (letters == listOf("s")) choices += Choice(Mode.INVERSE_LAPLACE)
             if (letters == listOf("z") && hasPoles(last)) choices += Choice(Mode.RESIDUES)
+            if (letters == listOf("z")) choices += Choice(Mode.COMPLEX_PLOT, "z")
             // A function of the coordinates x, y (and z): its critical points, and of x and y its surface.
             val coordinates = letters.size in 2..3 && letters.all { it in COORDINATES }
             if (coordinates) {
@@ -1311,7 +1347,9 @@ object MathCalc {
     /** Logic and sets: a truth table and the simplest forms, or sets written out worked out. */
     private fun logicPlan(r: Logic.Reading): Plan = when (r) {
         is Logic.Reading.Literal -> Plan(listOf(Choice(Mode.CALCULATE)), Choice(Mode.CALCULATE)) { Outcome.SetValue(r.elements) }
-        is Logic.Reading.Formula -> Plan(listOf(Choice(Mode.LOGIC)), Choice(Mode.LOGIC)) { Outcome.LogicTable(Logic.analyse(r)) }
+        is Logic.Reading.Formula -> Plan(listOfNotNull(Choice(Mode.LOGIC),
+            Choice(Mode.VENN).takeIf { r.sets && r.right == null && Logic.variables(r.left).size in 1..VennDiagram.MOST_SETS }),
+            Choice(Mode.LOGIC)) { Outcome.LogicTable(Logic.analyse(r)) }
     }
 
     /** Lines that are congruences (each with its modulus): solved together, or checked where they hold no letter. */

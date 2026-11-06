@@ -57,6 +57,8 @@ internal object MoreSteps {
                 is Outcome.Regression -> regression(o)
                 is Outcome.Converted -> units(o)
                 is Outcome.ConicSection -> conic(o.conic)
+                is Outcome.PhysicalValue -> return PhysicalConstants.steps(latex, assumptions)
+                is Outcome.PhysicalConstant -> return PhysicalConstants.steps(o)
                 else -> return null
             }
             return out

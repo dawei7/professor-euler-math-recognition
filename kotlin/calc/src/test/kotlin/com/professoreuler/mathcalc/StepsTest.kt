@@ -25,6 +25,8 @@ class StepsTest {
         "(2,4,4,4,5,5,7,9)" to null, "\\begin{pmatrix}1&2\\\\2&4\\\\3&5\\\\4&4\\\\5&5\\end{pmatrix}" to null,
         "5" to Choice(Mode.UNITS, "km", "mi"), "20" to Choice(Mode.UNITS, "°C", "°F"),
         "x^{2}+y^{2}-4x+6y=12" to null, "y^{2}=8x" to Choice(Mode.CONIC),
+        "\\operatorname{constant}(electronmass)\\cdot \\operatorname{constant}(speedoflight)^{2}" to null,
+        "\\operatorname{constant}(speedoflight, km/h)" to null,
     )
 
 
@@ -308,6 +310,7 @@ class StepsTest {
             "START TRI_SINES TRI_AMBIGUOUS TRI_ANGLE_SUM TRI_SINES TRI_AREA TRI_SINES TRI_AMBIGUOUS TRI_ANGLE_SUM TRI_SINES TRI_AREA",
             "START STAT_MEAN STAT_SORTED STAT_MEDIAN STAT_VARIANCE STAT_SD", "REG_SUMS REG_SLOPE REG_INTERCEPT RESULT",
             "UNIT_FACTOR RESULT", "UNIT_OFFSET RESULT", "START CONIC_COMPLETE CONIC_STANDARD", "START CONIC_STANDARD",
+            "START CONSTANT_VALUES UNCERTAINTY_BOUND RESULT", "UNIT_FACTOR RESULT",
         )
         val got = LATER.map { (latex, choice) -> Steps.of(latex, choice)?.joinToString(" ") { it.why.key.name } ?: "none" }
         assertEquals(expected.joinToString("\n"), got.joinToString("\n"))
