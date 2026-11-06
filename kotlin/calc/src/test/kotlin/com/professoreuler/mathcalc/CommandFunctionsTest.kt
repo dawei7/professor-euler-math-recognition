@@ -79,6 +79,8 @@ class CommandFunctionsTest {
         "diophantine(3x + 5y = 1)",
         "convert(5 km, mi)",
         "convert(300 K, °C)",
+        "pdetype(u_xx + 4u_xy + u_yy = 0)",
+        "pdsolve(u_t = u_xx, u(0, t) = 0, u(pi, t) = 0, u(x, 0) = x(pi - x))",
     )
 
     @Test

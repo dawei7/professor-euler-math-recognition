@@ -67,6 +67,8 @@ object CommandFunctions {
         Function("plane", Mode.PLANE, Shape.POINTS),
         Function("diophantine", Mode.DIOPHANTINE, Shape.FORMULA),
         Function("convert", Mode.UNITS, Shape.CONVERT, listOf("unit")),
+        Function("pdetype", Mode.PDE_TYPE, Shape.FORMULA),
+        Function("pdsolve", Mode.PDE, Shape.FORMULA),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */

@@ -291,6 +291,7 @@ class StepsTest {
             "2x^{2}+3x-2" to Choice(Mode.FACTOR), "x^{2}+1" to Choice(Mode.FACTOR), "360=" to Choice(Mode.FACTOR),
             "x+1=x+1" to Choice(Mode.COMPARE), "x+1=x+2" to Choice(Mode.COMPARE))
         for ((latex, choice) in chosen + LATER) Steps.of(latex, choice)?.forEach { reached += it.why.key }
+        for ((latex, choice) in PdeTest.STEP_TASKS) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
 

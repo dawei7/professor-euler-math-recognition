@@ -560,6 +560,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         val bottom = groupTokens()
         // dy/dx, d²y/dx²: the derivatives of a differential equation's unknown.
         odeDerivative(top, bottom)?.let { return it }
+        // ∂u/∂t, ∂²u/∂x²: the partial derivatives of a partial differential equation's unknown, its markers u_t, u_xx.
+        Pde.partial(top, bottom)?.let { return it }
         derivativeOperator(top, bottom)?.let { (variable, order) ->
             // A bracket with its power is the body: d/dx (2x + 1)^5; otherwise the product that follows.
             val body = if (peek() == "(") factor() else term()

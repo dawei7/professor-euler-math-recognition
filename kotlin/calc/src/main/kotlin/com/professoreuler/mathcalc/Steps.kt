@@ -57,6 +57,9 @@ enum class StepKey {
     // Triangles, statistics, the regression line, units, conics.
     TRI_COSINES, TRI_SINES, TRI_ANGLE_SUM, TRI_AMBIGUOUS, TRI_AREA, STAT_MEAN, STAT_SORTED, STAT_MEDIAN, STAT_VARIANCE, STAT_SD,
     REG_SUMS, REG_SLOPE, REG_INTERCEPT, UNIT_FACTOR, UNIT_OFFSET, CONIC_COMPLETE, CONIC_STANDARD,
+    // Partial differential equations: the type and the canonical form; separation of variables.
+    PDE_COEFFICIENTS, PDE_DISCRIMINANT, PDE_HYPERBOLIC, PDE_PARABOLIC, PDE_ELLIPTIC, PDE_CHARACTERISTIC, PDE_NEW_VARIABLES, PDE_CANONICAL,
+    PDE_SEPARATE, PDE_EIGENVALUES, PDE_OTHER_FACTOR, PDE_SUPERPOSE, PDE_FOURIER_COEFFICIENTS, PDE_PARTIAL_SUMS, PDE_FINITE, PDE_STEADY_STATE,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -84,6 +87,7 @@ object Steps {
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
+        PdeSteps.of(c)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

@@ -94,6 +94,19 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
+    is Outcome.PdeType -> o.classification.let { k ->
+        (k.type?.name?.lowercase() ?: k.regions.joinToString("; ") { r ->
+            r.type.name.lowercase() + " where " + (r.set?.let { c.text(it) } ?: if (r.points.isNotEmpty()) r.letter + " = " + r.points.joinToString(", ") { c.text(it) }
+                else "Δ " + r.relation.name.lowercase() + " 0")
+        }) + " Δ = " + c.text(k.discriminant) + (k.canonical?.let { f -> " | ξ = " + c.text(f.xi) + ", η = " + c.text(f.eta) + " | " + f.terms.joinToString(" + ") { c.text(it) }.replace("+ -", "- ") + " = " + c.text(f.rhs) } ?: "")
+    }
+    is Outcome.PdeSeries -> o.solution.let { s ->
+        "u = " + (s.sum?.let { c.text(it) } ?: (s.terms.joinToString(" + ") { c.text(it) } + " + …")) +
+            s.coefficients.joinToString("") { k ->
+                " | ${k.name}_n = " + c.text(k.formula) + k.exceptions.joinToString("") { (m, v) -> ", ${k.name}_$m = " + c.text(v) } +
+                    (k.zero?.let { ", ${k.name}_0 = " + c.text(it) } ?: "")
+            } + s.checks.joinToString("") { k -> if (k.exact) " | exact" else " | ${k.terms} terms < ${k.digit}e${k.exponent}" }
+    }
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))
