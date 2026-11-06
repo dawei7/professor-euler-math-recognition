@@ -57,6 +57,14 @@ internal object Differential {
             extra["series"] = o.series!!.map { (k, j) -> listOf(Sympy.of(k), j) }
             extra["seriesIn"] = o.seriesIn?.let { Sympy.of(it) }
         }
+        // How the line was read: each side of its formula (a limit's or a sum's calculus is left as it is: null).
+        extra["reading"] = try {
+            val typed = TextInput.read(text)
+            Domain.complex { Parser(MathCalc.TOKEN.findAll(typed.latex).map { it.value }.toList(), Flags(Assumptions())).statements() }
+                .singleOrNull()?.sides?.filterNotNull()?.map { Sympy.of(it) }
+        } catch (e: Exception) {
+            null
+        }
         return json(mapOf("id" to id, "kind" to o::class.simpleName, "answer" to answerOf(c), "exprs" to exprs, "ms" to ms) + extra)
     }
 
