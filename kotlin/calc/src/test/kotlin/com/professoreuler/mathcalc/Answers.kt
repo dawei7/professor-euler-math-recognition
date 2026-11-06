@@ -183,6 +183,12 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
             (s.last?.let { " last " + m(it) } ?: "") + " first " + first.drop(1).joinToString("/") { m(it) } +
             " end " + m(end.last()) + " totals " + s.columns.indices.mapNotNull { j -> s.totals[j]?.let { s.columns[j].name.lowercase() + " " + m(it) } }.joinToString(", ")
     }
+    is Outcome.Statistical -> o.result.let { r ->
+        r.mode.name.lowercase() + " " + r.rows.joinToString(" ") { row ->
+            (row.symbol ?: row.quantity.name.lowercase()) + (if (row.group > 0) "${row.group}" else "") + "=" + c.textValue(row.value)
+        } + (r.alternative?.let { " " + it.name.lowercase() } ?: "") + (r.reject?.let { if (it) " reject" else " keep" } ?: "") +
+            (r.model?.let { " y = " + c.text(it) } ?: "") + (if (r.warnings.isNotEmpty()) " warn " + r.warnings.joinToString(",") { it.name.lowercase() } else "")
+    }
     is Outcome.InBase -> "${o.value} = ${o.digits}_${o.base}"
 }
 

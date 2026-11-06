@@ -162,7 +162,12 @@ internal class Write(private val style: Style, private val latex: Boolean) {
             return sign + joinFactors(number, top)
         }
         // Otherwise one fraction bar: the number's numerator above, its denominator below.
-        val above = barPart(if (coefficient.num == java.math.BigInteger.ONE) "" else coefficient.num.toString(), top).ifEmpty { "1" }
+        // A decimal factor stands above the bar with the numerator (2.5/e^x), never dropped.
+        val above = barPart(when {
+            realPart != null -> real(realPart * coefficient.num.toDouble())
+            coefficient.num == java.math.BigInteger.ONE -> ""
+            else -> coefficient.num.toString()
+        }, top).ifEmpty { "1" }
         val belowFactors = bottom
         val below = barPart(if (coefficient.den == java.math.BigInteger.ONE) "" else coefficient.den.toString(), belowFactors)
         return sign + if (latex) "\\frac{$above}{$below}" else "${grouped(above, 1, denominator = false)}/${grouped(below, belowFactors.size + (if (coefficient.den == java.math.BigInteger.ONE) 0 else 1))}"
