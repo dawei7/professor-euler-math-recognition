@@ -117,6 +117,12 @@ internal object Sympy {
                 Func.GAMMA -> "gamma(${a[0]})"; Func.DIGAMMA -> "polygamma(0, ${a[0]})"
                 Func.ERF -> "erf(${a[0]})"; Func.ERFC -> "erfc(${a[0]})"; Func.ZETA -> "zeta(${a[0]})"
                 Func.BESSELJ -> "besselj(${a[0]}, ${a[1]})"; Func.LAMBERTW -> "LambertW(${a[0]})"
+                Func.COTH -> "coth(${a[0]})"; Func.SECH -> "sech(${a[0]})"; Func.CSCH -> "csch(${a[0]})"
+                Func.ASINH -> "asinh(${a[0]})"; Func.ACOSH -> "acosh(${a[0]})"; Func.ATANH -> "atanh(${a[0]})"; Func.ACOTH -> "acoth(${a[0]})"
+                Func.ASEC -> "asec(${a[0]})"; Func.ACSC -> "acsc(${a[0]})"
+                Func.EI -> "Ei(${a[0]})"; Func.SI -> "Si(${a[0]})"; Func.CI -> "Ci(${a[0]})"
+                // Functions whose conventions differ between the two (K, E by modulus or parameter) are not compared.
+                else -> error("no SymPy function for ${e.f}")
             }
         }
         is Expr.Mat -> e.rows.joinToString(", ", "Matrix([", "])") { row -> row.joinToString(", ", "[", "]") { write(it) } }

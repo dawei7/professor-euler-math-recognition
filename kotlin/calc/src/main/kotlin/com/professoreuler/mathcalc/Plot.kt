@@ -302,6 +302,7 @@ object Plot {
                         Func.TAN, Func.SEC -> out += fn(Func.COS, u)
                         Func.COT, Func.CSC -> out += fn(Func.SIN, u)
                         Func.LN, Func.LOG -> out += u
+                        Func.COTH, Func.CSCH -> out += u
                         else -> Unit
                     }
                     e.args.forEach(::walk)

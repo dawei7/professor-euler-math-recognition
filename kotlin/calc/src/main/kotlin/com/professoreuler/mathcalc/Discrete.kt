@@ -28,12 +28,12 @@ object Discrete {
     val NAMES: Map<String, IntRange> = mapOf(
         "gcd" to MANY, "lcm" to MANY,
         "mod" to 2..2, "modinv" to 2..2, "powmod" to 3..3,
-        "binom" to 2..2, "ncr" to 2..2, "choose" to 2..2, "npr" to 2..2, "perm" to 2..2,
+        "binom" to 2..2, "npr" to 2..2,
         "catalan" to 1..1, "bell" to 1..1, "stirling" to 2..2, "stirling1" to 2..2, "partitions" to 1..1,
-        "fibonacci" to 1..1, "fib" to 1..1, "lucas" to 1..1,
-        "totient" to 1..1, "phi" to 1..1, "sigma" to 1..1, "tau" to 1..1, "mu" to 1..1, "moebius" to 1..1,
+        "fibonacci" to 1..1, "lucas" to 1..1,
+        "totient" to 1..1, "sigma" to 1..1, "tau" to 1..1, "mu" to 1..1,
         "jacobi" to 2..2, "legendre" to 2..2, "prime" to 1..1, "nextprime" to 1..1, "prevprime" to 1..1,
-        "mean" to LIST, "median" to LIST, "var" to MANY, "variance" to MANY, "sd" to MANY, "stdev" to MANY,
+        "mean" to LIST, "median" to LIST, "var" to MANY, "sd" to MANY,
         "binompdf" to 3..3, "binomcdf" to 3..3, "poissonpdf" to 2..2, "poissoncdf" to 2..2, "geometpdf" to 2..2,
         "normalpdf" to 1..3, "normalcdf" to 2..4, "invnorm" to 1..3,
         "multorder" to 2..2, "primroot" to 1..1, "discretelog" to 3..3,
@@ -69,6 +69,10 @@ object Discrete {
         if (key in Finance.NAMES) return Finance.call(key, args)
         val arity = NAMES[key] ?: return null
         if (key in Distributions.NAMES) return Distributions.call(key, args)
+        // gcd and lcm of polynomials in one letter: gcd(x² − 1, x² + 2x + 1) = x + 1.
+        if ((key == "gcd" || key == "lcm") && args.any { it.symbols().isNotEmpty() } && args.none { it is Expr.Mat }) {
+            return PolynomialGcd.call(key, args)
+        }
         if (args.any { it.symbols().isNotEmpty() || it is Expr.Mat }) return null
         if (args.size !in arity) throw CalcException(Failure.ARGUMENTS)
         Budget.check()
@@ -89,8 +93,8 @@ object Discrete {
                 if (m.signum() == 0) throw CalcException(Failure.DIVISION_BY_ZERO)
                 try { big(whole(args[0]).modPow(whole(args[1]), m)) } catch (e: ArithmeticException) { throw CalcException(Failure.UNDEFINED) }
             }
-            "binom", "ncr", "choose" -> binomial(args[0], args[1])
-            "npr", "perm" -> {
+            "binom" -> binomial(args[0], args[1])
+            "npr" -> {
                 val n = whole(args[0])
                 val k = small(args[1], 100_000)
                 if (n.signum() < 0 || BigInteger.valueOf(k.toLong()) > n) Expr.ZERO
@@ -104,12 +108,12 @@ object Discrete {
             "stirling" -> big(stirling2(small(args[0], 1_000), small(args[1], 1_000)))
             "stirling1" -> big(stirling1(small(args[0], 1_000), small(args[1], 1_000)))
             "partitions" -> big(partitions(small(args[0], 20_000)))
-            "fibonacci", "fib" -> big(fibonacci(whole(args[0])))
+            "fibonacci" -> big(fibonacci(whole(args[0])))
             "lucas" -> big(lucas(whole(args[0])))
-            "totient", "phi" -> whole(args[0]).let { n -> big(if (n == ONE) ONE else NumberTheory.phi(factors(n))) }
+            "totient" -> whole(args[0]).let { n -> big(if (n == ONE) ONE else NumberTheory.phi(factors(n))) }
             "sigma" -> whole(args[0]).let { n -> big(if (n == ONE) ONE else NumberTheory.sigma(factors(n))) }
             "tau" -> whole(args[0]).let { n -> big(if (n == ONE) ONE else NumberTheory.divisorCount(factors(n))) }
-            "mu", "moebius" -> whole(args[0]).let { n -> num(if (n == ONE) 1L else NumberTheory.mu(factors(n)).toLong()) }
+            "mu" -> whole(args[0]).let { n -> num(if (n == ONE) 1L else NumberTheory.mu(factors(n)).toLong()) }
             "jacobi" -> num(jacobi(whole(args[0]), whole(args[1])).toLong())
             "legendre" -> {
                 val p = whole(args[1])
@@ -130,8 +134,8 @@ object Discrete {
             }
             "mean" -> tidy(add(args) / num(args.size.toLong()))
             "median" -> if (args.size == 1) args[0] else (Stats.summary(args) ?: throw CalcException(Failure.UNDEFINED)).median
-            "var", "variance" -> (Stats.summary(args) ?: throw CalcException(Failure.UNDEFINED)).sampleVariance ?: throw CalcException(Failure.UNDEFINED)
-            "sd", "stdev" -> (Stats.summary(args) ?: throw CalcException(Failure.UNDEFINED)).sampleSd ?: throw CalcException(Failure.UNDEFINED)
+            "var" -> (Stats.summary(args) ?: throw CalcException(Failure.UNDEFINED)).sampleVariance ?: throw CalcException(Failure.UNDEFINED)
+            "sd" -> (Stats.summary(args) ?: throw CalcException(Failure.UNDEFINED)).sampleSd ?: throw CalcException(Failure.UNDEFINED)
             "multorder" -> big(Residues.order(whole(args[0]), whole(args[1])))
             "primroot" -> big(Residues.primitiveRoot(whole(args[0])))
             "discretelog" -> big(Residues.discreteLog(whole(args[0]), whole(args[1]), whole(args[2])))

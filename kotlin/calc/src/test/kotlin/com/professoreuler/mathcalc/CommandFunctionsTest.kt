@@ -175,6 +175,22 @@ class CommandFunctionsTest {
         "projection((1, 2, 3), (1, 1, 0), (1, 0, 1))",
         "euler(y' = y, y(0) = 1, 2, 0.5)",
         "rungekutta(y' = -2y, y(0) = 1, 1)",
+        "integral(x y, x, 0, 1, y, 0, 2)",
+        "integral(1, z, 0, 1 - x - y, y, 0, 1 - x, x, 0, 1)",
+        "polarintegral(x^2 + y^2, r, 0, 2, theta, 0, 2pi)",
+        "cylindricalintegral(z, r, 0, 1, theta, 0, 2pi, z, 0, 2)",
+        "sphericalintegral(1, r, 0, 1, theta, 0, pi, phi, 0, 2pi)",
+        "lineintegral((-y, x), (cos(t), sin(t)), t, 0, 2pi)",
+        "surfaceintegral(1, (sin(u) cos(v), sin(u) sin(v), cos(u)), u, 0, pi, v, 0, 2pi)",
+        "flux((x, y, z), (sin(u) cos(v), sin(u) sin(v), cos(u)), u, 0, pi, v, 0, 2pi)",
+        "directionalderivative(x^2 y, (1, 2), (3, 4))",
+        "tangentplane(x^2 + y^2 + z^2 = 14, (1, 2, 3))",
+        "fouriertransform(e^(-abs(t)))",
+        "invfouriertransform(2/(1 + omega^2))",
+        "tobase(255, 2)",
+        "tobase(2^10 + 1, 16)",
+        "frombase(FF, 16)",
+        "frombase(11111111, 2)",
     )
 
     @Test

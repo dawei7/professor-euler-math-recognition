@@ -125,8 +125,11 @@ class IntegrationMethodsTest {
 
     /** No answer from the further methods that does not differentiate back: integrands with no elementary antiderivative stay declined. */
     @Test fun nonElementaryDeclined() {
-        for (latex in listOf("\\frac{e^{x}}{x}", "e^{x^{2}}", "\\frac{\\sin(x)}{x}", "\\frac{\\ln(x)}{x+1}", "\\frac{x\\arctan(x)}{1+x^{2}}")) {
+        for (latex in listOf("e^{x^{2}}", "\\frac{\\ln(x)}{x+1}", "\\frac{x\\arctan(x)}{1+x^{2}}")) {
             assertEquals(latex, "NO_ANTIDERIVATIVE", answer(latex, Choice(Mode.INTEGRAL, "x")))
         }
+        // eˣ/x and sin x/x have no elementary antiderivative, but the exponential and sine integrals are the calculator's own.
+        assertEquals("Ei(x) + C", answer("\\frac{e^{x}}{x}", Choice(Mode.INTEGRAL, "x")))
+        assertEquals("Si(x) + C", answer("\\frac{\\sin(x)}{x}", Choice(Mode.INTEGRAL, "x")))
     }
 }

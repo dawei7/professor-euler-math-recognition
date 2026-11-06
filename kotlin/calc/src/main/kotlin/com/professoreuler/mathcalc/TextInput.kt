@@ -63,7 +63,14 @@ object TextInput {
      * What a typed line asks for, typeset as a learner would write it: the formula, a derivative as d/dx (…), an
      * antiderivative as ∫ … dx. The Calculator shows it as the line is typed ("Read as"), so a misreading shows at once.
      */
-    fun display(typed: Typed): String {
+    fun display(typed: Typed): String = shown(displayed(typed))
+
+    /** The reader's commands KaTeX has no name for (\arsinh, \erf), as \operatorname{…}: \digamma would be a letter there. */
+    private fun shown(latex: String): String = NOT_KATEX.replace(latex) { "\\operatorname{${it.groupValues[1]}}" }
+
+    private val NOT_KATEX = Regex("""\\(arsinh|arcosh|artanh|arcoth|arcsec|arccsc|arccot|sech|csch|erfc|erf|lambertw|besselj|bessely|digamma|elliptick|elliptice|sgn)(?![A-Za-z])""")
+
+    private fun displayed(typed: Typed): String {
         CommandFunctions.latex(typed)?.let { return it }
         val choice = typed.choice ?: return typed.latex
         if (choice.mode == Mode.UNITS) return "${typed.latex}\\,\\text{${choice.letter}} \\to \\text{${choice.point}}"
@@ -291,6 +298,13 @@ object TextInput {
                     var j = i + 1
                     while (j < s.length && (s[j] in 'a'..'z' || s[j] in 'A'..'Z')) j++
                     if (j == i + 1) j = minOf(i + 2, s.length)
+                    // \operatorname{arsinh} as the Calculator writes a function: its name kept as it is, never read as words.
+                    val name = OPERATOR_NAME.matchAt(s, i)
+                    if (name != null) {
+                        emit(name.value)
+                        i = name.range.last + 1
+                        continue
+                    }
                     emit(s.substring(i, j))
                     i = j
                 }
@@ -388,7 +402,13 @@ object TextInput {
             }
             // gamma(5) is Γ(5); Gamma alone the capital letter, gamma alone the small one
             lower == "gamma" && bracketFollows -> emit("\\Gamma")
+            // Ei(1), Si(x), Ci(x) as written, capital: ei and si are letters.
+            word in CAPITAL_FUNCTIONS && bracketFollows -> emit("\\operatorname{$word}")
+            // beta(2, 3) is Euler's B, beta alone the Greek letter.
+            lower == "beta" && bracketFollows -> emit("beta")
             word == "Gamma" -> emit("\\Gamma ")
+            // A second name before its argument: refused (lg 100 too, which the reader would take as log).
+            lower in SECOND_NAMES && (bracketFollows || lower == "lg") -> emit("\\operatorname{$lower}")
             lower in FUNCTION_WORDS -> emit("\\${FUNCTION_WORDS.getValue(lower)}")
             // A command inside a formula (2 det(A)), and a name the calculator does not know (round(2.5)): each fails
             // with its reason, never read as the product of its letters.
@@ -531,39 +551,56 @@ object TextInput {
      * names other calculators have (re, im), unless it ends in a function after a letter or two (x sin(x) written xsin(x)).
      */
     private fun unknownName(lower: String): Boolean {
+        // asin(1) is no a·sin(1), tg(x) no t·g·x: a second name is refused, however short.
+        if (lower in SECOND_NAMES) return true
         if (lower.length < 3 && lower !in setOf("re", "im")) return false
-        // asinh(1) is no a·sinh(1): the inverse hyperbolic functions under each of their names; beta(2, 3) is Euler's B,
-        // which the calculator does not have, not β times a vector.
-        if (lower in INVERSE_HYPERBOLIC || lower == "beta") return true
         if (lower in Discrete.NAMES || lower in KNOWN_WORDS) return false
         return KNOWN_WORDS.none { lower.endsWith(it) && lower.length - it.length in 1..2 }
     }
 
-    private val INVERSE_HYPERBOLIC = setOf("asinh", "acosh", "atanh", "acoth", "arsinh", "arcosh", "artanh", "arcoth", "arcsinh",
-        "arccosh", "arctanh", "arccoth")
+    /**
+     * Every function has one name (owner, 6 November 2026), the one the guide and the keys use; the second names other
+     * calculators and schools have are refused (UNKNOWN_FUNCTION), never read as their function or as letters: asin for arcsin,
+     * asinh and arcsinh for arsinh, lg for log, tg and ctg (Russian school notation) for tan and cot, productlog for lambertw,
+     * sign for sgn, ncr and choose for binom, perm for npr, fib for fibonacci, moebius for mu, variance for var, stdev for sd.
+     * The reader's LaTeX keeps its commands: \lg is log to the base 10, \sin^{-1} is arcsin.
+     */
+    internal val SECOND_NAMES = setOf(
+        "asin", "acos", "atan", "acot", "asec", "acsc",
+        "asinh", "acosh", "atanh", "acoth", "asech", "acsch", "arcsinh", "arccosh", "arctanh", "arccoth",
+        "lg", "tg", "ctg", "arctg", "arcctg", "productlog", "sign",
+        "ncr", "choose", "perm", "fib", "moebius", "variance", "stdev",
+    )
+
+    /** The functions written with a capital: the exponential, sine and cosine integrals. */
+    private val CAPITAL_FUNCTIONS = setOf("Ei", "Si", "Ci")
+
+    private val OPERATOR_NAME = Regex("""\\operatorname\{[A-Za-z]+\}""")
 
     /** Every word a typed formula knows before a bracket. */
     private val KNOWN_WORDS: Set<String> by lazy {
         FUNCTION_WORDS.keys + WRAPPERS + Discrete.NAMES.keys + CommandFunctions.NAMES + setOf("gamma", "log", "lim") + GREEK_WORDS +
-            Learning.FUNCTIONS.keys
+            Learning.FUNCTIONS.keys + ValueFunctions.NAMES.keys
     }
 
     /** Words wrapped around their argument. */
     private val WRAPPERS = setOf("sqrt", "cbrt", "abs", "floor", "ceil")
 
-    /** Function words as the parser's commands: asin is arcsin, productlog is Lambert's W. */
+    /** Function words as the parser's commands, one name each ([SECOND_NAMES] are refused). */
     private val FUNCTION_WORDS = mapOf(
         "sin" to "sin", "cos" to "cos", "tan" to "tan", "cot" to "cot", "sec" to "sec", "csc" to "csc",
         "sinh" to "sinh", "cosh" to "cosh", "tanh" to "tanh",
+        "coth" to "coth", "sech" to "sech", "csch" to "csch",
+        // The inverse hyperbolic functions by their ISO 80000-2 names, one each.
+        "arsinh" to "arsinh", "arcosh" to "arcosh", "artanh" to "artanh", "arcoth" to "arcoth",
+        "arcsec" to "arcsec", "arccsc" to "arccsc",
+        "bessely" to "bessely", "elliptick" to "elliptick", "elliptice" to "elliptice",
         "arcsin" to "arcsin", "arccos" to "arccos", "arctan" to "arctan", "arccot" to "arccot",
-        "asin" to "arcsin", "acos" to "arccos", "atan" to "arctan", "acot" to "arccot",
-        "ln" to "ln", "log" to "log", "lg" to "lg", "exp" to "exp",
+        "ln" to "ln", "log" to "log", "exp" to "exp",
         "erf" to "erf", "erfc" to "erfc", "zeta" to "zeta", "digamma" to "digamma",
-        "lambertw" to "lambertw", "productlog" to "lambertw", "besselj" to "besselj",
+        "lambertw" to "lambertw", "besselj" to "besselj",
         // One name for one operation: sgn, never also sign (refused as a name the calculator does not know).
         "sgn" to "sgn",
-        // Russian and Ukrainian school notation.
-        "tg" to "tan", "ctg" to "cot", "arctg" to "arctan", "arcctg" to "arccot",
     )
 
     private val GREEK_WORDS = setOf(

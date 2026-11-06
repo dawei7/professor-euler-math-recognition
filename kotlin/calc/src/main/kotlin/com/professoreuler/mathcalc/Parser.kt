@@ -761,11 +761,12 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         var name = word.lowercase()
         var length = if (name0 != null) 0 else word.length
         if (name == "stirling" && peek(length) == "1") { name = "stirling1"; length++ }
-        if (name !in Discrete.NAMES || peek(length) != "(") return null
+        if ((name !in Discrete.NAMES && name !in ValueFunctions.NAMES) || peek(length) != "(") return null
         val save = i
         i += length
         val args = arguments()
         if (args == null) { i = save; return null }
+        if (name in ValueFunctions.NAMES) return ValueFunctions.call(name, args, flags)
         return Discrete.call(name, args) ?: run { i = save; null }
     }
 
@@ -873,7 +874,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     }
 
     private fun call(name: String): Expr {
-        if (name == "besselj" || name == "J") return bessel(name)
+        if (name == "besselj" || name == "J" || name == "bessely" || name == "Y") return bessel(name)
         val base = if (name == "log" && peek() == "_") { i++; group() } else null
         // sin^2 x is (sin x)²; sin^{-1} x is arcsin x.
         var power: Expr? = null
@@ -898,14 +899,14 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             "cos" -> if (inverse) Func.ACOS else Func.COS
             "tan" -> if (inverse) Func.ATAN else Func.TAN
             "cot" -> if (inverse) Func.ACOT else Func.COT
-            "sec" -> Func.SEC
-            "csc" -> Func.CSC
+            "sec" -> if (inverse) Func.ASEC else Func.SEC
+            "csc" -> if (inverse) Func.ACSC else Func.CSC
             "arcsin" -> Func.ASIN
             "arccos" -> Func.ACOS
             "arctan" -> Func.ATAN
-            "sinh" -> Func.SINH
-            "cosh" -> Func.COSH
-            "tanh" -> Func.TANH
+            "sinh" -> if (inverse) Func.ASINH else Func.SINH
+            "cosh" -> if (inverse) Func.ACOSH else Func.COSH
+            "tanh" -> if (inverse) Func.ATANH else Func.TANH
             "ln" -> Func.LN
             "lg", "log" -> Func.LOG
             "exp" -> null
@@ -917,6 +918,20 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             "digamma", "psi" -> Func.DIGAMMA
             "zeta" -> Func.ZETA
             "lambertw", "W" -> Func.LAMBERTW
+            "coth" -> if (inverse) Func.ACOTH else Func.COTH
+            "sech" -> Func.SECH
+            "csch" -> Func.CSCH
+            "arsinh" -> Func.ASINH
+            "arcosh" -> Func.ACOSH
+            "artanh" -> Func.ATANH
+            "arcoth" -> Func.ACOTH
+            "arcsec" -> Func.ASEC
+            "arccsc" -> Func.ACSC
+            "Ei" -> Func.EI
+            "Si" -> Func.SI
+            "Ci" -> Func.CI
+            "elliptick", "K" -> Func.ELLIPTICK
+            "elliptice", "E" -> Func.ELLIPTICE
             else -> throw unreadable()
         }
         // An angle without ° or π: radians, or degrees as assumed (always shown where degrees were taken).
@@ -958,7 +973,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     private fun bessel(name: String): Expr {
         val order: Expr
         val arg: Expr
-        if (name == "J") {
+        if (name == "J" || name == "Y") {
             expect("_")
             order = group()
             arg = argument()
@@ -980,7 +995,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             arg = parseAll(inside.subList(cut + 1, inside.size))
             i = end + 1
         }
-        return fn(Func.BESSELJ, order, arg)
+        return fn(if (name == "Y" || name == "bessely") Func.BESSELY else Func.BESSELJ, order, arg)
     }
 
     /** A function's argument: a bracket, or else the numbers, letters and powers right after its name. */
@@ -1008,7 +1023,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
 
     private fun lettersFrom(k: Int): String {
         val run = StringBuilder()
-        while (run.length < 8 && isLetter(t.getOrNull(k + run.length))) run.append(t[k + run.length])
+        while (run.length < 12 && isLetter(t.getOrNull(k + run.length))) run.append(t[k + run.length])
         return run.toString()
     }
 
@@ -1068,18 +1083,22 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         private val MATRICES = setOf("pmatrix", "bmatrix", "matrix", "Bmatrix", "vmatrix")
         private val DIVIDE = setOf(":", "\\div", "/")
         /** Longest first, so `arcsin` is not read as `a r c sin` and `sinh` not as `sin h`. */
-        private val FUNCTIONS = listOf("lambertw", "besselj", "digamma", "arcsin", "arccos", "arctan", "arccot", "gamma",
+        private val FUNCTIONS = listOf("elliptick", "elliptice", "bessely", "arsinh", "arcosh", "artanh", "arcoth", "arcsec", "arccsc",
+            "coth", "sech", "csch") + listOf("lambertw", "besselj", "digamma", "arcsin", "arccos", "arctan", "arccot", "gamma",
             "sinh", "cosh", "tanh", "erfc", "zeta", "sin", "cos", "tan", "cot", "sec", "csc", "exp", "log", "erf", "sgn", "ln", "lg")
-        private val INVERSES = setOf("sin", "cos", "tan", "cot")
+        private val INVERSES = setOf("sin", "cos", "tan", "cot") + setOf("sec", "csc", "sinh", "cosh", "tanh", "coth")
 
         /** φ(n), σ(n), τ(n), μ(n) of a whole number: Euler's φ, the divisors' sum and count, Möbius μ. */
         private val NUMBER_GREEK = mapOf("\\varphi" to "totient", "\\phi" to "totient", "\\sigma" to "sigma", "\\tau" to "tau", "\\mu" to "mu")
 
         /** The functions of an angle, and those whose value is one: where radians and degrees differ. */
         private val ANGLE_FUNCTIONS = setOf(Func.SIN, Func.COS, Func.TAN, Func.COT, Func.SEC, Func.CSC)
-        private val INVERSE_ANGLE_FUNCTIONS = setOf(Func.ASIN, Func.ACOS, Func.ATAN, Func.ACOT)
+        private val INVERSE_ANGLE_FUNCTIONS = setOf(Func.ASIN, Func.ACOS, Func.ATAN, Func.ACOT, Func.ASEC, Func.ACSC)
         /** Names written only as commands: `\operatorname{J}_{n}` (Bessel) and `\operatorname{W}` (Lambert). */
-        private val COMMAND_NAMES = setOf("J", "W")
+        private val COMMAND_NAMES = setOf("J", "W") + setOf("Y", "Ei", "Si", "Ci", "K", "E")
+
+        /** Of them, those read only as `\operatorname{…}`: `\mathrm{K}` stays kelvin, `\text{E}` a letter. */
+        private val OPERATOR_NAMES = setOf("Y", "Ei", "Si", "Ci", "K", "E")
         private val FUNCTION_COMMANDS = FUNCTIONS.map { "\\$it" }.toSet() + COMMAND_NAMES.map { "\\$it" }
         /** Greek letters that are functions when a bracket follows: Γ(x), ζ(s), ψ(x). */
         private val GREEK_FUNCTIONS = setOf("\\Gamma", "\\zeta", "\\psi")
@@ -1110,14 +1129,18 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                         } else {
                             val name = inside.joinToString("")
                             when {
-                                name in FUNCTIONS || name in COMMAND_NAMES -> out += "\\$name"
+                                // A function's second name, as the typed line writes it (\operatorname{lg}): refused.
+                                s == "\\operatorname" && name.lowercase() in TextInput.SECOND_NAMES -> throw CalcException(Failure.UNKNOWN_FUNCTION)
+                                name in FUNCTIONS || (name in COMMAND_NAMES && (name !in OPERATOR_NAMES || s == "\\operatorname")) ->
+                                    out += "\\$name"
                                 // sigmoid, softmax, entropy …: a function of machine learning ([Learning]).
                                 name in Learning.FUNCTIONS -> out += "\\$name"
                                 // A command's call that could not be read is no product of its letters, and neither is a
                                 // command inside a formula or a name the calculator does not know.
                                 s == "\\operatorname" && name in CommandFunctions.NAMES ->
                                     throw CalcException(if (out.isEmpty()) Failure.ARGUMENTS else Failure.COMMAND_INSIDE)
-                                s == "\\operatorname" && name.length >= 2 && name.lowercase() !in Discrete.NAMES && name != PhysicalConstants.CALL ->
+                                s == "\\operatorname" && name.length >= 2 && name.lowercase() !in Discrete.NAMES && name != PhysicalConstants.CALL &&
+                                    name.lowercase() !in ValueFunctions.NAMES ->
                                     throw CalcException(Failure.UNKNOWN_FUNCTION)
                                 else -> out.addAll(inside)
                             }

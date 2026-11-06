@@ -99,6 +99,8 @@ object Calculus {
                 Func.LAMBERTW -> mul(exp(neg(fn(Func.LAMBERTW, u))), pow(Expr.ONE + fn(Func.LAMBERTW, u), Expr.MINUS_ONE))
                 // ψ′ and ζ′ have no form with the functions here.
                 Func.DIGAMMA, Func.ZETA -> throw CalcException(Failure.UNDEFINED)
+                Func.COTH, Func.SECH, Func.CSCH, Func.ASINH, Func.ACOSH, Func.ATANH, Func.ACOTH, Func.ASEC, Func.ACSC, Func.EI, Func.SI,
+                Func.CI, Func.BESSELY, Func.ELLIPTICK, Func.ELLIPTICE -> MoreFunctions.derivative(e.f, e.args, x)
             }
             mul(outer, du)
         }
@@ -155,6 +157,8 @@ object Calculus {
 
     /** The methods for a whole integrand: fractions, substitution, parts, trigonometric powers, multiplying out. */
     private fun integrateWhole(e: Expr, x: Expr.Sym, depth: Int): Expr? {
+        // e^(ax)/x, sin(ax)/x, cos(ax)/x: Ei, Si, Ci.
+        MoreFunctions.overX(e, x)?.let { return it }
         rationalFunction(e, x)?.let { return it }
         // Every other fraction of polynomials: Hermite, Rothstein–Trager and Rioboo (1/(x⁴ + 1), 1/(x² + 1)³).
         RationalIntegral.of(e, x)?.let { return it }
@@ -191,6 +195,8 @@ object Calculus {
                 linear(b, x)?.let { (a, _) ->
                     return if (p == Expr.MINUS_ONE) ln(fn(Func.ABS, b)) / a else pow(b, p + Expr.ONE) / (a * (p + Expr.ONE))
                 }
+                // sech²u, csch²u, 1/cosh²u, 1/sinh²u.
+                MoreFunctions.squareIntegral(b, p)?.let { (g, u) -> linear(u, x)?.let { (a, _) -> return g / a } }
                 // 1/cos²u, 1/sin²u.
                 if (p == num(-2) && b is Expr.Fn && b.f == Func.COS) linear(b.args[0], x)?.let { (a, _) -> return fn(Func.TAN, b.args[0]) / a }
                 if (p == num(-2) && b is Expr.Fn && b.f == Func.SIN) linear(b.args[0], x)?.let { (a, _) -> return neg(fn(Func.COT, b.args[0])) / a }
@@ -225,7 +231,7 @@ object Calculus {
                 Func.ASIN -> (u * fn(Func.ASIN, u) + sqrt(Expr.ONE - u * u)) / a
                 Func.ACOS -> (u * fn(Func.ACOS, u) - sqrt(Expr.ONE - u * u)) / a
                 Func.ABS -> u * fn(Func.ABS, u) / (Expr.TWO * a)
-                else -> null
+                else -> MoreFunctions.tableIntegral(e.f, u)?.let { it / a }
             }
         }
         return null
@@ -1389,6 +1395,8 @@ object Calculus {
     fun evaluate(e: Expr): Expr {
         if (!e.hasOp()) return e
         if (e !is Expr.Op) return e.mapChildren { evaluate(it) }
+        // A double or triple integral is worked out as a whole (Multiple).
+        if (Multiple.isNested(e)) return Multiple.evaluate(e)
         val body = evaluate(e.body)
         return when (e.kind) {
             OpKind.DERIVATIVE -> derivative(body, e.variable, integer(e.a ?: Expr.ONE)?.toInt() ?: 1)

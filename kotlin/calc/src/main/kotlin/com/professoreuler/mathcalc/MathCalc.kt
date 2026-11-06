@@ -96,6 +96,8 @@ enum class Failure {
      * (written in another order, it may be).
      */
     ZERO_DIAGONAL,
+    /** tangentplane(F = G, P) at a point P that is not on the surface: F(P) ≠ G(P). */
+    NOT_ON_SURFACE,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -424,6 +426,41 @@ enum class Mode {
 
     /** The orthogonal projection of a vector onto another, or onto the span of several. */
     PROJECTION,
+    /** A double integral in polar coordinates (r, θ), dA = r dr dθ ([Multiple]). */
+    POLAR_INTEGRAL,
+
+    /** A triple integral in cylindrical coordinates (r, θ, z), dV = r dr dθ dz. */
+    CYLINDRICAL_INTEGRAL,
+
+    /** A triple integral in spherical coordinates (r, θ, φ), θ from the z-axis, φ about it: dV = r² sin θ dr dθ dφ. */
+    SPHERICAL_INTEGRAL,
+
+    /** The line integral of a function (∫ f ds) or of a vector field (∫ F · dr) along a curve r(t) ([VectorCalculus]). */
+    LINE_INTEGRAL,
+
+    /** The surface integral ∬ f dS of a function over a surface r(u, v). */
+    SURFACE_INTEGRAL,
+
+    /** The flux of a vector field through a surface r(u, v), or of a plane field across a curve r(t). */
+    FLUX,
+
+    /** The directional derivative of f at a point in a direction, ∇f · u/|u|. */
+    DIRECTIONAL_DERIVATIVE,
+
+    /** The tangent plane of z = f(x, y) or of F(x, y, z) = 0 at a point. */
+    TANGENT_PLANE,
+
+    /** The Fourier transform F(ω) = ∫ f(t)·e^(−iωt) dt ([FourierTransform]). */
+    FOURIER_TRANSFORM,
+
+    /** The inverse Fourier transform f(t) = (1/(2π))·∫ F(ω)·e^(iωt) dω. */
+    INVERSE_FOURIER_TRANSFORM,
+
+    /** A whole number written in another base, 2 to 36 ([Choice.point]): tobase(255, 16) is FF₁₆. */
+    TO_BASE,
+
+    /** A numeral of a base, 2 to 36 ([Choice.letter] its digits, [Choice.point] the base), as a whole number: frombase(FF, 16) is 255. */
+    FROM_BASE,
 }
 
 /** A point where a function's gradient is 0: where it is, what kind of point it is, the function's value there. */
@@ -728,6 +765,8 @@ sealed class Outcome {
 
     /** Vectors made orthonormal by Gram–Schmidt ([Orthogonal.Basis]): the orthogonal uₖ, the orthonormal eₖ, those left out. */
     data class Orthonormalized(val basis: Orthogonal.Basis) : Outcome()
+    /** A whole number [value] written in [base] (2 to 36): its [digits], 0–9 then A–Z, a minus first where it is negative. */
+    data class InBase(val value: BigInteger, val base: Int, val digits: String) : Outcome()
 }
 
 /**
@@ -809,6 +848,8 @@ object MathCalc {
         Networks.calculation(latex, millis, fractions)?.let { return it }
         // The statistics commands read their arguments themselves.
         StatCommands.calculate(latex, choice, millis, fractions)?.let { return it }
+        // Integrals over curves, surfaces and regions in coordinates, derivatives at a point, the Fourier transform.
+        MultiCalls.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags(assumptions)
         var choices = emptyList<Choice>()
@@ -966,7 +1007,7 @@ object MathCalc {
             val whole = integer(v)?.takeIf { it.abs() >= TWO && it.abs() < NumberTheory.MOST_FACTORED }
             val complexNumber = v.hasI() && Complex.parts(v)?.second != null
             // A definite integral with numbers for bounds: the trapezoidal and Simpson's rules beside its value.
-            val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
+            val integral = (written.last() as? Expr.Op)?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null && !Multiple.isNested(it) }
                 ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
             val facts = integer(v)?.takeIf { it >= TWO && it < NumberTheory.MOST_FACTORED && integral == null }
             val choices = listOfNotNull(Choice(Mode.CALCULATE), whole?.takeIf { integral == null }?.let { Choice(Mode.FACTOR) },
@@ -977,11 +1018,12 @@ object MathCalc {
             // A number is a constant function where a function's calculus is asked for: derivative(5, x) is 0, integral(5, x) 5x,
             // laplace(1) 1/s; no function of t has a number for its transform (invlaplace(2) would be 2δ(t), no function).
             val asFunction = setOf(Mode.DERIVATIVE, Mode.INTEGRAL, Mode.LAPLACE, Mode.INVERSE_LAPLACE)
-            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS) + asFunction +
+            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS, Mode.TO_BASE, Mode.FROM_BASE) + asFunction +
                 (if (unfactored) setOf(Mode.FACTOR, Mode.NUMBER_FACTS) else emptySet())) { c ->
                 if (unfactored && (c.mode == Mode.FACTOR || c.mode == Mode.NUMBER_FACTS)) throw CalcException(Failure.TOO_LARGE)
                 if (c.mode in asFunction && (v is Expr.Mat || v.hasI() || v.hasInfinity())) throw CalcException(Failure.ARGUMENTS)
-                if (c.mode == Mode.DERIVATIVE) Outcome.Expression(Expr.ZERO)
+                if (c.mode == Mode.TO_BASE || c.mode == Mode.FROM_BASE) Bases.outcome(c, v)
+                else if (c.mode == Mode.DERIVATIVE) Outcome.Expression(Expr.ZERO)
                 else if (c.mode == Mode.INTEGRAL) Outcome.Expression(Calculus.tidy(mul(v, Expr.Sym(c.letter ?: "x"))), plusC = true)
                 else if (c.mode == Mode.LAPLACE) Outcome.Expression(Transforms.laplace(v, Expr.Sym("t"), Expr.Sym("s")) ?: throw CalcException(Failure.UNSOLVED))
                 else if (c.mode == Mode.INVERSE_LAPLACE) throw CalcException(Failure.UNSOLVED)
@@ -1012,7 +1054,7 @@ object MathCalc {
             val steps = sides.zipWithNext { a, b -> Verify.same(a, b) }
             if (wroteCalculus) {
                 val op = written.last() as? Expr.Op
-                val definite = op?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null }
+                val definite = op?.takeIf { it.kind == OpKind.INTEGRAL && it.a != null && it.b != null && !Multiple.isNested(it) }
                     ?.takeIf { Numeric.value(Calculus.evaluate(it.a!!))?.isFinite() == true && Numeric.value(Calculus.evaluate(it.b!!))?.isFinite() == true }
                 val choices = listOfNotNull(Choice(Mode.CALCULATE), definite?.let { Choice(Mode.TRAPEZOID) }, definite?.let { Choice(Mode.SIMPSON) })
                 return Plan(choices, Choice(Mode.CALCULATE)) { c ->
@@ -1068,9 +1110,8 @@ object MathCalc {
                 else -> Choice(Mode.SIMPLIFY)
             }
             // Asked for by name, in any letter it has (or none: derivative(c, x) is 0), with the others as constants: a transform
-            // in t (s), a function's residues in z, its gradient and Laplacian in its coordinates ([variablesOf]).
-            // A series asked for by name as well: its chip is looked for in 400 ms, which a busy device may not have (taylor(tan x)
-            // was then refused as a call with arguments it does not take).
+            // in t (s), a function's residues in z, its gradient and Laplacian in its coordinates ([variablesOf]); a series at a
+            // point of its own (taylor(arcsec(x), x, 2, 3)) although none is offered at 0 or 1.
             val onRequest = (if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION, Mode.SERIES) else emptySet()) +
                 setOf(Mode.DERIVATIVE, Mode.INTEGRAL, Mode.GRADIENT, Mode.LAPLACIAN) +
                 (if ("t" in letters) setOf(Mode.LAPLACE) else emptySet()) + (if ("s" in letters) setOf(Mode.INVERSE_LAPLACE) else emptySet()) +
