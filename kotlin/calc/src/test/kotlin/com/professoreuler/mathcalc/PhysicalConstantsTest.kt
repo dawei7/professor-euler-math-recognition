@@ -161,7 +161,7 @@ class PhysicalConstantsTest {
 
     /** Ours and CODATA's agree within our uncertainty, and ours is not smaller than CODATA's (no digit more than is certain). */
     private fun agrees(text: String, value: String, u: String, wrong: MutableList<String>) {
-        val o = outcome(text) as? Outcome.Measured ?: run { wrong += "$text: ${answer(text)}"; return }
+        val o = outcome(text) as? Outcome.PhysicalValue ?: run { wrong += "$text: ${answer(text)}"; return }
         val ours = valueOf(o.quantity)
         val ourU = uncertaintyOf(o.quantity)!!
         if ((ours - nist(value)).abs() > ourU) wrong += "$text: ${PhysicalConstants.text(o.quantity)} vs $value"
@@ -185,7 +185,7 @@ class PhysicalConstantsTest {
         agrees("constant(bohrmagneton)/constant(elementarycharge)", "5.788 381 7982 e-5", "0.000 000 0018 e-5", wrong)
         assertEquals("", wrong.joinToString("\n"))
         // The electron's rest energy exactly as CODATA gives it, and the bound in its steps.
-        assertEquals("8.1871057880(26)e-14 from electronmass", answer("constant(electronmass) * constant(speedoflight)^2"))
+        assertEquals("8.1871057880(26)e-14 from electronmass, speedoflight", answer("constant(electronmass) * constant(speedoflight)^2"))
         assertEquals("START CONSTANT_VALUES UNCERTAINTY_BOUND RESULT",
             Steps.of(TextInput.read("constant(electronmass)*constant(speedoflight)^2").latex)?.joinToString(" ") { it.why.key.name })
     }
@@ -193,7 +193,7 @@ class PhysicalConstantsTest {
     @Test
     fun anEscapeVelocityHasTheDigitsGLeaves() {
         // v = √(2GM/r) for the Earth: G's relative uncertainty 2.2 × 10⁻⁵, halved by the root: about 0.13 m/s.
-        val o = outcome("sqrt(2*constant(gravitationalconstant)*5.9722*10^24/(6.371*10^6))") as Outcome.Measured
+        val o = outcome("sqrt(2*constant(gravitationalconstant)*5.9722*10^24/(6.371*10^6))") as Outcome.PhysicalValue
         val v = valueOf(o.quantity)
         val expected = Math.sqrt(2 * 6.6743e-11 * 5.9722e24 / 6.371e6)
         assertTrue(Math.abs(v.toDouble() - expected) < 0.01)
@@ -221,7 +221,11 @@ class PhysicalConstantsTest {
 
     @Test
     fun inAFormula() {
-        assertEquals("599584916", answer("2*constant(speedoflight)"))
+        assertEquals("599584916 from speedoflight exact", answer("2*constant(speedoflight)"))
+        // R = N_A k, exactly CODATA's 8.314 462 618…; the molar volume R·T/p at 273.15 K and 101.325 kPa, 22.413 969 54… × 10⁻³.
+        assertEquals("8.31446261815324 from avogadroconstant, boltzmannconstant exact", answer("constant(avogadroconstant)*constant(boltzmannconstant)"))
+        assertEquals("0.0224139695450 from gasconstant exact", answer("constant(gasconstant)*273.15/101325"))
+        assertEquals("START CONSTANT_VALUES RESULT", Steps.of(TextInput.read("2*constant(speedoflight)").latex)?.joinToString(" ") { it.why.key.name })
         assertEquals("299792458x", answer("constant(speedoflight)*x"))
         assertEquals("t = 1", answer("solve(constant(speedoflight)*t = 299792458, t)"))
         // h/(2e), the magnetic flux quantum: exact, CODATA's 2.067 833 848… e-15

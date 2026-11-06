@@ -96,7 +96,8 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
     is Outcome.PhysicalConstant -> o.constant.name + " = " + PhysicalConstants.text(o.quantity) + (if (o.unit.isEmpty()) "" else " " + o.unit) +
         (if (o.quantity.exact) " exact" else "")
-    is Outcome.Measured -> PhysicalConstants.text(o.quantity) + " from " + o.constants.joinToString(", ")
+    is Outcome.PhysicalValue -> PhysicalConstants.text(o.quantity) + " from " + o.constants.joinToString(", ") +
+        (if (o.quantity.exact) " exact" else "")
     is Outcome.DomainColoring -> o.plot.let { p ->
         fun pts(l: List<ComplexPlot.Point>) = l.joinToString("; ") { (if (it.exact) c.text(it.at) else "≈" + ComplexPlot.text(it)) + (if (it.order > 1) " (${it.order}×)" else "") }
         "square " + c.text(p.region.center) + " ± " + c.text(p.region.halfWidth) + " zeros " + pts(p.zeros).ifEmpty { "none" } +

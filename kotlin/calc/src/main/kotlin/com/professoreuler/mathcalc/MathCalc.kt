@@ -397,10 +397,10 @@ sealed class Outcome {
     data class PhysicalConstant(val constant: PhysicalConstants.Entry, val unit: String, val quantity: PhysicalConstants.Quantity) : Outcome()
 
     /**
-     * A number worked out from measured constants ([constants], their names): its [quantity], the value with a bound of its
-     * standard uncertainty, both rounded as CODATA rounds (6.6743(15) × 10⁻¹¹).
+     * A number worked out from physical constants ([constants], their names): its [quantity], exact where only exact constants
+     * are in it, else the value with a bound of its standard uncertainty, both rounded as CODATA rounds (6.6743(15) × 10⁻¹¹).
      */
-    data class Measured(val quantity: PhysicalConstants.Quantity, val constants: List<String>) : Outcome()
+    data class PhysicalValue(val quantity: PhysicalConstants.Quantity, val constants: List<String>) : Outcome()
 
     /** A complex function's domain colouring: the function compiled, its square, its zeros and poles ([ComplexPlot.plot]). */
     data class DomainColoring(val plot: ComplexPlot.Plot) : Outcome()

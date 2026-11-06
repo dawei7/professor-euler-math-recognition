@@ -18,7 +18,7 @@ import java.math.RoundingMode
  *
  * The SI's defining constants (c, h, e, k, N_A, Δν_Cs) and the constants that follow from them alone (ħ, R, F, σ) are exact; g_n
  * is exact by definition. The others are measured: their published value is used as it is, and a number worked out from them is
- * given with a bound of its standard uncertainty ([Outcome.Measured]), never with more digits than that leaves.
+ * given with a bound of its standard uncertainty ([Outcome.PhysicalValue]), never with more digits than that leaves.
  */
 object PhysicalConstants {
     /** The value function's name. */
@@ -282,11 +282,16 @@ object PhysicalConstants {
     // ---------------------------------------------------------------------------------------------------------------------
     // Inside a formula.
 
-    /** A measured constant in a formula read for its uncertainty: its value and standard uncertainty in the unit asked for. */
-    internal class Measure(val entry: Entry, val unit: String?, val value: Expr, val uncertainty: Expr)
+    /** A constant met in a formula: its value and standard uncertainty (null where exact) in the unit asked for. */
+    internal class Measure(val entry: Entry, val unit: String?, val value: Expr, val uncertainty: Expr?)
 
-    /** While a formula is read for its uncertainty: each measured constant as a letter of its own ([Measure]). */
-    private val symbolic = ThreadLocal<MutableMap<String, Measure>?>()
+    /** The constants a formula holds, while it is read for its value: each measured one a letter of its own. */
+    private class Reading {
+        val measured = LinkedHashMap<String, Measure>()
+        val all = ArrayList<Measure>()
+    }
+
+    private val symbolic = ThreadLocal<Reading?>()
 
     /**
      * `constant(name)` (or with a unit) where the parser meets it: an exact constant is its exact value; a measured one its
@@ -297,11 +302,14 @@ object PhysicalConstants {
         val e = entry(name) ?: throw CalcException(Failure.UNKNOWN_CONSTANT)
         val f = factor(e.unit, unit)
         val value = Calculus.tidy(e.value * f)
-        val u = e.uncertainty?.let { Calculus.tidy(it * f) } ?: return value
-        val registry = symbolic.get()
-        if (registry != null) {
+        val u = e.uncertainty?.let { Calculus.tidy(it * f) }
+        val reading = symbolic.get()
+        val m = Measure(e, unit, value, u)
+        if (reading != null && reading.all.none { it.entry === e && it.unit == unit }) reading.all += m
+        if (u == null) return value
+        if (reading != null) {
             val key = "constant:${e.name}:${unit.orEmpty()}"
-            registry[key] = Measure(e, unit, value, u)
+            reading.measured[key] = m
             return Expr.Sym(key)
         }
         return Expr.Real(Numeric.value(value) ?: throw CalcException(Failure.UNDEFINED))
@@ -312,8 +320,9 @@ object PhysicalConstants {
 
     /**
      * The calculation of [latex] where it holds a constant: the constant on its own ([Outcome.PhysicalConstant]), or a number
-     * worked out from measured constants ([Outcome.Measured]); one with letters or an equation beside a measured constant fails
-     * ([Failure.MEASURED_CONSTANT]). Null where the usual way works it out (no constant, or exact ones only).
+     * worked out from constants ([Outcome.PhysicalValue]: exact, or with a bound of its uncertainty where a measured constant is
+     * in it); letters or an equation beside a measured constant fail ([Failure.MEASURED_CONSTANT]). Null where the usual way works
+     * it out (no constant; exact ones beside letters or in an equation).
      */
     internal fun calculate(latex: String, millis: Long, assumptions: Assumptions): Calculation? {
         if (!latex.contains(CALL)) return null
@@ -339,25 +348,28 @@ object PhysicalConstants {
         }
         val worked = work(latex, assumptions) ?: return null
         met += worked.met
-        return Outcome.Measured(worked.quantity, worked.measures.map { it.entry.name }.distinct())
+        return Outcome.PhysicalValue(worked.quantity, worked.measures.map { it.entry.name }.distinct())
     }
 
-    /** A number worked out from measured constants: the formula, the constants, the bound of its uncertainty and the result. */
-    internal class Worked(val formula: Expr, val measures: List<Measure>, val keys: List<String>, val value: Expr,
-        val terms: List<BigDecimal>, val bound: BigDecimal, val quantity: Quantity, val met: Set<Ambiguity>)
+    /**
+     * A number worked out from constants: the formula, the constants in it, its value, and where measured constants are in it the
+     * bound of its uncertainty (null where it is exact); the result as shown.
+     */
+    internal class Worked(val formula: Expr, val measures: List<Measure>, val value: Expr, val bound: BigDecimal?, val quantity: Quantity,
+        val met: Set<Ambiguity>)
 
     /**
      * [latex] read with its measured constants as letters, worked out: its value with the published values put in exactly, and
      * the bound u ≤ Σ |∂f/∂cᵢ|·u(cᵢ) of its standard uncertainty (first order, whatever the constants' correlations, which CODATA's
      * are). Checked: the formula is worked out again at the values moved by their uncertainties the way that moves it most, and it
-     * must move by the bound (to 1 %); else the uncertainty is not that small and nothing is shown. Null where it holds no
-     * measured constant.
+     * must move by the bound (to 1 %); else the uncertainty is not that small and nothing is shown. With exact constants only, the
+     * exact number. Null where it holds no constant, or exact ones beside letters (the usual way works those out).
      */
     internal fun work(latex: String, assumptions: Assumptions): Worked? {
-        val registry = LinkedHashMap<String, Measure>()
+        val reading = Reading()
         val flags = Flags(assumptions)
         val statements = try {
-            symbolic.set(registry)
+            symbolic.set(reading)
             Parser(MathCalc.TOKEN.findAll(latex).map { it.value }.toList(), flags).statements()
         } catch (e: CalcException) {
             // Read the usual way, it fails the same (an unknown name, a unit of another kind).
@@ -365,18 +377,24 @@ object PhysicalConstants {
         } finally {
             symbolic.set(null)
         }
-        if (registry.isEmpty()) return null
-        val s = statements.singleOrNull() ?: throw CalcException(Failure.MEASURED_CONSTANT)
+        if (reading.all.isEmpty()) return null
+        val registry = reading.measured
+        // Not a number: the usual way, unless a measured constant is in it.
+        fun notANumber(): Worked? = if (registry.isEmpty()) null else throw CalcException(Failure.MEASURED_CONSTANT)
+        val s = statements.singleOrNull() ?: return notANumber()
         val written = s.sides.filterNotNull()
         // A number: one side, or a chain asked for with "=" at its end.
         val open = s.sides.last() == null
-        if (s.definition != null || written.size != 1 || (s.sides.size > 1 && !open)) throw CalcException(Failure.MEASURED_CONSTANT)
+        if (s.definition != null || written.size != 1 || (s.sides.size > 1 && !open)) return notANumber()
         val f = Calculus.tidy(Calculus.evaluate(written.single()))
-        if (f is Expr.Mat || f.hasOp() || f.hasI()) throw CalcException(Failure.MEASURED_CONSTANT)
+        if (f is Expr.Mat || f.hasOp() || f.hasI() || f.hasInfinity()) return notANumber()
         val letters = f.symbols()
-        if (letters.any { it !in registry }) throw CalcException(Failure.MEASURED_CONSTANT)
-        // The constants cancel (G/G): an exact number, worked out the usual way.
-        if (letters.isEmpty()) return null
+        if (letters.any { it !in registry }) return notANumber()
+        if (letters.isEmpty()) {
+            // Exact constants only, or measured ones that cancel (G/G): an exact number.
+            if (Numeric.value(f) == null || LinAlg.isNull(f)) return null
+            return Worked(f, reading.all, f, null, exactQuantity(f), flags.met.toSet())
+        }
         val keys = letters.toSortedSet().toList()
         fun at(shift: (Int) -> Expr): Expr = Calculus.tidy(keys.foldIndexed(f) { k, acc, key ->
             acc.substitute(Expr.Sym(key), Calculus.tidy(registry.getValue(key).value + shift(k)))
@@ -389,7 +407,9 @@ object PhysicalConstants {
             val dv = keys.fold(d) { acc, k2 -> acc.substitute(Expr.Sym(k2), registry.getValue(k2).value) }.let { Calculus.tidy(it) }
             decimal(dv, 8) ?: throw CalcException(Failure.MEASURED_CONSTANT)
         }
-        val terms = keys.mapIndexed { k, key -> slopes[k].abs() * (decimal(registry.getValue(key).uncertainty, 8) ?: throw CalcException(Failure.UNDEFINED)) }
+        val terms = keys.mapIndexed { k, key ->
+            slopes[k].abs() * (decimal(registry.getValue(key).uncertainty!!, 8) ?: throw CalcException(Failure.UNDEFINED))
+        }
         val bound = terms.fold(BigDecimal.ZERO) { a, b -> a + b }
         if (bound.signum() == 0) throw CalcException(Failure.MEASURED_CONSTANT)
         // Checked at the corners that move it most: up by the bound, and down by it.
@@ -400,15 +420,14 @@ object PhysicalConstants {
         val centre = decimal(value, digits) ?: throw CalcException(Failure.MEASURED_CONSTANT)
         for (sign in listOf(1, -1)) {
             val moved = at { k ->
-                val u = registry.getValue(keys[k]).uncertainty
+                val u = registry.getValue(keys[k]).uncertainty!!
                 if (slopes[k].signum() * sign >= 0) u else neg(u)
             }
             val change = (decimal(moved, digits) ?: throw CalcException(Failure.MEASURED_CONSTANT)) - centre
             val expected = if (sign > 0) bound else bound.negate()
             if ((change - expected).abs() > bound.multiply(BigDecimal("0.01"))) throw CalcException(Failure.MEASURED_CONSTANT)
         }
-        val quantity = rounded(value, bound)
-        return Worked(f, keys.map { registry.getValue(it) }, keys, value, terms, bound, quantity, flags.met.toSet())
+        return Worked(f, reading.all, value, bound, rounded(value, bound), flags.met.toSet())
     }
 
     // ---------------------------------------------------------------------------------------------------------------------
@@ -446,19 +465,25 @@ object PhysicalConstants {
     // ---------------------------------------------------------------------------------------------------------------------
     // Steps.
 
-    /** The steps of a number worked out from measured constants: the formula, the values put in, the bound, the result. */
+    /**
+     * The steps of a number worked out from constants: the formula, the values put in, the bound of its uncertainty (where a
+     * measured constant is in it), the result.
+     */
     internal fun steps(latex: String, assumptions: Assumptions): List<Step>? {
         val w = try { work(latex, assumptions) } catch (e: CalcException) { null } ?: return null
         val out = ArrayList<Step>()
         fun step(shown: String, key: StepKey) { out += Step(Steps.tidy(shown), StepText(key)) }
         step(latex.trim().removeSuffix("=").trim(), StepKey.START)
         step(w.measures.joinToString(",\\ ") { m ->
-            m.entry.symbol + " = " + latex(rounded(m.value, decimal(m.uncertainty, 6)!!)) + unitSpace(m.unit ?: m.entry.unit)
+            m.entry.symbol + " = " + latex(quantity(m.entry, m.unit)) + unitSpace(m.unit ?: m.entry.unit)
         }, StepKey.CONSTANT_VALUES)
-        val parts = w.measures.joinToString(" + ") { m ->
-            "\\left|\\frac{\\partial f}{\\partial ${m.entry.symbol}}\\right| u\\left(${m.entry.symbol}\\right)"
+        val measured = w.measures.filter { it.uncertainty != null }
+        if (w.bound != null) {
+            val parts = measured.joinToString(" + ") { m ->
+                "\\left|\\frac{\\partial f}{\\partial ${m.entry.symbol}}\\right| u\\left(${m.entry.symbol}\\right)"
+            }
+            step("u \\le $parts \\approx " + scientific(w.bound.round(MathContext(3, RoundingMode.UP))), StepKey.UNCERTAINTY_BOUND)
         }
-        step("u \\le $parts \\approx " + scientific(w.bound.round(MathContext(3, RoundingMode.UP))), StepKey.UNCERTAINTY_BOUND)
         step(latex(w.quantity), StepKey.RESULT)
         return out
     }
