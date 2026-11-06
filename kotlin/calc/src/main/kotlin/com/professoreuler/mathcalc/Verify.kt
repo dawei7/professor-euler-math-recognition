@@ -51,7 +51,8 @@ object Verify {
         val letters = (original.symbols() + candidate.symbols()).toList()
         val complex = original.hasI() || candidate.hasI()
         val random = java.util.Random(31L * letters.hashCode() + 29)
-        for (attempt in 0 until TRIES * 6) {
+        // Without letters every point is the same one: once is enough (erf at 5.9 in balls is slow, and 84 times was seconds).
+        for (attempt in 0 until if (letters.isEmpty()) 1 else TRIES * 6) {
             val env = letters.associateWith { point(random, attempt) }
             if (at(original, env, complex).finite && !at(candidate, env, complex).finite) return false
         }
@@ -64,7 +65,7 @@ object Verify {
         val letters = (a.symbols() + b.symbols()).toList()
         val complex = a.hasI() || b.hasI()
         val random = java.util.Random(31L * letters.hashCode() + 17)
-        for (attempt in 0 until TRIES * 6) {
+        for (attempt in 0 until if (letters.isEmpty()) 1 else TRIES * 6) {
             val env = letters.associateWith { point(random, attempt) }
             val va = at(a, env, complex)
             val vb = at(b, env, complex)
@@ -81,6 +82,7 @@ object Verify {
         val letters = (a.symbols() + b.symbols()).toList()
         val random = java.util.Random(31L * letters.hashCode() + 17)
         val complex = a.hasI() || b.hasI()
+        if (letters.isEmpty()) return at(a, emptyMap(), complex).finite && at(b, emptyMap(), complex).finite
         var compared = 0
         for (attempt in 0 until TRIES * 6) {
             val env = letters.associateWith { point(random, attempt) }

@@ -75,5 +75,5 @@ internal object WrittenCorpus {
         WrittenAlgebra.inequalities() + WrittenAlgebra.systems() + WrittenCalculus.calculus() + WrittenCalculus.series() + WrittenCalculus.limits() +
         WrittenCalculus.sums() + WrittenLinear.linear() + WrittenDynamics.odes() + WrittenDynamics.transforms() + WrittenDynamics.numerics() +
         WrittenDiscrete.numberTheory() + WrittenDiscrete.combinatorics() + WrittenDiscrete.logic() + WrittenDiscrete.sets() +
-        WrittenData.statistics() + WrittenNumbers.units() + WrittenData.geometry()
+        WrittenData.statistics() + WrittenNumbers.units() + WrittenData.geometry() + WrittenEdges.all()
 }

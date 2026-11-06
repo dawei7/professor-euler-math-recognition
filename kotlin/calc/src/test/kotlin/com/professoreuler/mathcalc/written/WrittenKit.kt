@@ -96,11 +96,18 @@ internal fun q(n: Long, d: Long = 1) = Q.of(n, d)
 // ---------------------------------------------------------------------------------------------------------------------------
 // Reading the engine's answer.
 
+/**
+ * An exact constant of the engine's, read to 17 digits in ball arithmetic: its doubles cancel where it does
+ * (10⁴ − √(10⁸ − 1) is 5·10⁻⁵, though a double makes 0.0000500000001). Complex where it holds i.
+ */
+internal fun read(e: Expr): Cx =
+    if (e.hasI()) Verify.value(e, emptyMap()) else Precise.decimal(e, 17)?.toDouble()?.let { Cx(it) } ?: Verify.value(e, emptyMap())
+
 /** The engine's number, read: a value, an exact form, a definite integral, an expression without letters. Null otherwise. */
 internal fun numberOf(c: Calculation): Cx? = when (val o = c.outcome) {
-    is Outcome.Value -> o.exact?.let { Verify.value(it, emptyMap()) } ?: Cx(o.value.double)
-    is Outcome.DefiniteIntegral -> o.exact?.let { Verify.value(it, emptyMap()) } ?: o.value?.let { Cx(it) }
-    is Outcome.Expression -> o.result.takeIf { it.symbols().isEmpty() && it !is Expr.Mat }?.let { Verify.value(it, emptyMap()) }
+    is Outcome.Value -> o.exact?.let { read(it) } ?: Cx(o.value.double)
+    is Outcome.DefiniteIntegral -> o.exact?.let { read(it) } ?: o.value?.let { Cx(it) }
+    is Outcome.Expression -> o.result.takeIf { it.symbols().isEmpty() && it !is Expr.Mat }?.let { read(it) }
     else -> null
 }
 
@@ -239,7 +246,7 @@ internal fun isRoots(roots: List<Double>, rel: Double = 1e-8): (Calculation) -> 
     val s = (c.outcome as? Outcome.Solved)?.solutions
     if (s == null || s.periodic.isNotEmpty() || s.many || s.always) false
     else {
-        val got = s.values.map { at(it, emptyMap()) }
+        val got = s.values.map { read(it).re }
         val want = roots.distinctBy { Math.round(it * 1e7) }
         got.all { it.isFinite() } && got.size == want.size && want.all { w -> got.any { close(it, w, rel, 1e-9) } } &&
             s.values.zip(got).all { (e, v) -> digitsHold(c.textValue(e), v) }
