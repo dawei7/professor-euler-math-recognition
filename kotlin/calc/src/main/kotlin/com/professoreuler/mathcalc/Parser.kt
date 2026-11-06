@@ -739,7 +739,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         return Discrete.call(name, args) ?: run { i = save; null }
     }
 
-    /** (a, b, c) of a function: separated by commas, or by semicolons where a semicolon stands (decimal commas: 1,5; 2,5). */
+    /** (a, b, c) of a function: separated by commas, and by nothing else (a semicolon there fails: [Failure.ARGUMENTS]). */
     private fun arguments(): List<Expr>? {
         if (peek() != "(") return null
         var depth = 0
@@ -750,14 +750,15 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             if (depth == 1 && t[k] == ";") semicolons = true
             if (depth == 0) break
         }
+        if (semicolons) throw CalcException(Failure.ARGUMENTS)
         i++
-        if (!semicolons) listDepth++
+        listDepth++
         try {
             val out = ArrayList<Expr>()
             while (true) {
                 out += Calculus.evaluate(expression())
                 when {
-                    peek() == ";" || (!semicolons && peek() == ",") -> i++
+                    peek() == "," -> i++
                     peek() == ")" -> { i++; return out }
                     else -> return null
                 }
@@ -766,7 +767,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             if (e.failure == Failure.TOO_LONG) throw e
             return null
         } finally {
-            if (!semicolons) listDepth--
+            listDepth--
         }
     }
 

@@ -86,22 +86,28 @@ class TextInputTest {
     ))
 
     /**
-     * A function's arguments are split at its commas in every language, and a decimal number takes a point; with semicolons
-     * between the arguments a comma is a decimal one. A formula on its own reads 2,5 as a number.
+     * One rule in every language (owner, 6 November 2026: "always … , separators of arguments and decimals with ."): a typed
+     * comma separates, never a decimal mark, and a decimal takes a point; no other separator is read.
      */
     @Test
     fun decimals() = check(listOf(
         "calculate(2.5*4)" to "10",
-        "2,5*4" to "10",
         "integral(x^2,x,0,3)" to "9",
         "newton(x^2-2,1)" to "newton 7 rows → 1.4142135624",
         "taylor(sin(x),x,0,9)" to "(1/362880)x^9 - (1/5040)x^7 + (1/120)x^5 - (1/6)x^3 + x",
-        "integral(x^2; x; 0; 1,5)" to "1,125",
-        "stats(1,5; 2,5; 3)" to "n=3 mean 7/3 median 5/2 sd √21/6 q1 3/2 q3 3",
-        // Commas that could be read two ways, and an argument too many, are refused: never guessed.
+        "integral(x^2, x, 0, 1.5)" to "1.125",
+        "stats(1.5, 2.5, 3)" to "n=3 mean 7/3 median 5/2 sd √21/6 q1 3/2 q3 3",
+        "binompdf(10, 0.5, 3)" to "0.1171875",
+        // A comma between two numbers is two numbers: (1,5) is a vector.
+        "|(3,4)|" to "5",
+        // Semicolons between arguments, commas that look like decimal commas, an argument too many: refused, never guessed.
+        "stats(1,5; 2,5; 3)" to "FAILED ARGUMENTS",
+        "integral(x^2; x; 0; 1.5)" to "FAILED ARGUMENTS",
+        "binompdf(10; 0.5; 3)" to "FAILED ARGUMENTS",
         "calculate(2,5*4)" to "FAILED ARGUMENTS",
         "stats(1,5, 2,5, 3)" to "FAILED ARGUMENTS",
         "integral(x^2, x, 0, 2,5)" to "FAILED ARGUMENTS",
+        "convert(1,5 km, m)" to "FAILED ARGUMENTS",
     ))
 
     /**
@@ -130,7 +136,6 @@ class TextInputTest {
         "ab(a + b)" to "a^2b + ab^2",
         "gcd(12, 18)" to "6",
         "|(3, 4)|" to "5",
-        "(1,5)" to "1,5",
     ))
 
     /** A call with arguments its function does not take fails, and says so: no argument is left out or guessed. */

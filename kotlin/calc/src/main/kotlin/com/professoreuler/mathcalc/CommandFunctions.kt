@@ -189,11 +189,8 @@ object CommandFunctions {
     private fun special(f: Function, args: List<String>): Typed? {
         val l = TextInput
         return when (f.shape) {
-            // The elements of a list: with decimal commas between semicolons.
-            Shape.LIST -> {
-                val joined = if (args.any { ',' in it }) args.joinToString("; ") else args.joinToString(", ")
-                Typed(l.listLatex(joined), Choice(f.mode!!))
-            }
+            // The elements of a list.
+            Shape.LIST -> Typed(l.listLatex(args.joinToString(", ")), Choice(f.mode!!))
             Shape.POINTS -> Typed(l.pointsLatex(args.joinToString(", "), matrix = f.mode == Mode.REGRESSION), Choice(f.mode!!))
             Shape.CONVERT -> if (args.size == 2) l.conversion(args[0], args[1]) else null
             else -> null
@@ -220,12 +217,12 @@ object CommandFunctions {
     }
 
     /**
-     * The arguments, split at the semicolons where there are any (then a comma is a decimal one, stats(1,5; 2,5)), else at
-     * the commas, in every language: a decimal number takes a point, 2.5. Null where the commas could be read two ways, some
-     * between two digits and some before a space (stats(1,5, 2,5)).
+     * The arguments, split at the commas, in every language: a decimal number takes a point, 2.5. Null where the call holds a
+     * semicolon (no other separator is read) or where its commas look like decimal commas, some between two digits and some before
+     * a space (stats(1,5, 2,5)).
      */
     private fun arguments(inner: String): List<String>? {
-        val split = if (topLevel(inner, ';')) ';' else ','
+        if (topLevel(inner, ';')) return null
         val out = ArrayList<String>()
         var depth = 0
         var tight = false
@@ -236,11 +233,9 @@ object CommandFunctions {
                 '(', '[', '{' -> depth++
                 ')', ']', '}' -> depth--
             }
-            if (c == split && depth == 0) {
-                if (c == ',') {
-                    if (k > 0 && inner[k - 1].isDigit() && k + 1 < inner.length && inner[k + 1].isDigit()) tight = true
-                    if (k + 1 < inner.length && inner[k + 1].isWhitespace()) spaced = true
-                }
+            if (c == ',' && depth == 0) {
+                if (k > 0 && inner[k - 1].isDigit() && k + 1 < inner.length && inner[k + 1].isDigit()) tight = true
+                if (k + 1 < inner.length && inner[k + 1].isWhitespace()) spaced = true
                 out += current.toString()
                 current.setLength(0)
             } else {
@@ -319,11 +314,7 @@ object CommandFunctions {
         return call(f.name, args)
     }
 
-    private fun call(name: String, args: List<String>): String {
-        // Semicolons between the arguments where one of them holds a comma of its own (a decimal comma, a list's elements).
-        val separator = if (args.any { topLevel(it, ',') }) "; " else ", "
-        return "\\operatorname{$name}\\left(" + args.joinToString(separator) + "\\right)"
-    }
+    private fun call(name: String, args: List<String>): String = "\\operatorname{$name}\\left(" + args.joinToString(", ") + "\\right)"
 
     /** The lines of a system the reader made (\begin{cases}…\end{cases}), or the one line. */
     private fun cases(l: String): List<String> {

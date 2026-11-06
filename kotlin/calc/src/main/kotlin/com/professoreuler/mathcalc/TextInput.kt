@@ -88,12 +88,12 @@ object TextInput {
         return Typed(latex(body), Choice(Mode.DERIVATIVE, letter))
     }
 
-    /** A data list typed without brackets: "1, 2, 3", "1 2 3", or with semicolons where commas are decimal ("1,5; 2,5"). */
+    /** A data list typed without brackets: "1, 2, 3" or "1 2 3"; a decimal takes a point. */
     internal fun listLatex(main: String): String {
         val t = main.trim()
         if (t.startsWith("(") || t.startsWith("[")) return latex(t)
         if (t.startsWith("{")) return latex("[" + t.removePrefix("{").removeSuffix("}") + "]")
-        val items = (if (';' in t) t.split(';').map { it.trim().replace(',', '.') } else t.split(Regex(",\\s*|\\s+"))).filter { it.isNotBlank() }
+        val items = t.split(Regex(",\\s*|\\s+")).filter { it.isNotBlank() }
         if (items.size < 2) return latex(t)
         return latex("[" + items.joinToString(", ") + "]")
     }
@@ -101,11 +101,11 @@ object TextInput {
     /** Points typed as (1, 2) and (3, 4): each a vector, one to a line, or ([matrix]) the rows of one matrix. */
     internal fun pointsLatex(main: String, matrix: Boolean): String {
         val points = Regex("""[(\[]\s*([^()\[\]]+?)\s*[)\]]""").findAll(main).map { it.groupValues[1].trim() }
-            // (1|2) as German textbooks write a point: its coordinates with a bar between, commas then decimal.
-            .map { if ('|' in it) it.split('|').joinToString("; ") { c -> c.trim() } else it }
-            .filter { ',' in it || ';' in it }.toList()
+            // (1|2) as German textbooks write a point: its coordinates with a bar between (a decimal with a point there too).
+            .map { if ('|' in it) it.split('|').joinToString(", ") { c -> c.trim() } else it }
+            .filter { ',' in it }.toList()
         if (points.size < 2) return latex(main)
-        val rows = points.map { p -> (if (';' in p) p.split(';').map { it.trim().replace(',', '.') } else p.split(',').map { it.trim() }).joinToString(", ") }
+        val rows = points.map { p -> p.split(',').joinToString(", ") { it.trim() } }
         return if (matrix) latex("[" + rows.joinToString(", ") { "[$it]" } + "]") else latex(rows.joinToString("; ") { "[$it]" })
     }
 
@@ -272,6 +272,13 @@ object TextInput {
                 // A keyboard's * is a times sign: typeset as a dot, read as times.
                 c == '*' -> { emit("\\cdot "); i++ }
                 c == '%' -> { emit("\\%"); i++ }
+                // A typed comma always separates, in every language: written with its space, which the parser never reads as a
+                // decimal comma (a decimal takes a point, 2.5; handwriting keeps its decimal commas).
+                c == ',' -> {
+                    emit(", ")
+                    i++
+                    while (i < s.length && s[i] == ' ') i++
+                }
                 else -> {
                     emit(c.toString())
                     i++
