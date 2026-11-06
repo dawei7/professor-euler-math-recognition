@@ -25,8 +25,15 @@ class StepsTest {
         "(2,4,4,4,5,5,7,9)" to null, "\\begin{pmatrix}1&2\\\\2&4\\\\3&5\\\\4&4\\\\5&5\\end{pmatrix}" to null,
         "5" to Choice(Mode.UNITS, "km", "mi"), "20" to Choice(Mode.UNITS, "°C", "°F"),
         "x^{2}+y^{2}-4x+6y=12" to null, "y^{2}=8x" to Choice(Mode.CONIC),
+        "\\operatorname{constant}(electronmass)\\cdot \\operatorname{constant}(speedoflight)^{2}" to null,
+        "\\operatorname{constant}(speedoflight, km/h)" to null,
     )
 
+
+    private val NUMBERS = listOf("interpolate((1, 2), (2, 3), (3, 5))", "spline((0, 0), (1, 1), (2, 0))", "multorder(3, 7)",
+        "primroot(41)", "discretelog(5, 2, 13)",
+        // Other bases, and the gcd and lcm of polynomials.
+        "tobase(255, 2)", "frombase(FF, 16)", "lcm(x^2 - 1, x^2 + 2x + 1)")
 
     private fun keys(latex: String, choice: Choice? = null): String =
         Steps.of(latex, choice)?.joinToString(",") { it.why.key.name } ?: "none"
@@ -289,8 +296,15 @@ class StepsTest {
         // Those that need a mode chosen: every value solves it, a letter taken out, factors, the sides compared.
         val chosen = listOf("2(x+1)=2x+2" to Choice(Mode.SOLVE, "x"), "ax+b=cx+d" to Choice(Mode.SOLVE, "x"),
             "2x^{2}+3x-2" to Choice(Mode.FACTOR), "x^{2}+1" to Choice(Mode.FACTOR), "360=" to Choice(Mode.FACTOR),
-            "x+1=x+1" to Choice(Mode.COMPARE), "x+1=x+2" to Choice(Mode.COMPARE))
+            "x+1=x+1" to Choice(Mode.COMPARE), "x+1=x+2" to Choice(Mode.COMPARE),
+            // The singular value decomposition, the Jordan form, a linear system, boundary values, a power series.
+            "\\begin{pmatrix}3&0\\\\4&5\\end{pmatrix}" to Choice(Mode.SVD), "\\begin{pmatrix}2&2&3\\\\1&3&3\\\\-1&-2&-2\\end{pmatrix}" to Choice(Mode.JORDAN),
+            "\\begin{cases}x'=3x+y\\\\y'=x+3y\\\\x(0)=2\\\\y(0)=0\\end{cases}" to null, "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\pi)=0\\end{cases}" to null,
+            "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\pi)=1\\end{cases}" to null, "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\frac{\\pi}{2})=1\\end{cases}" to null,
+            "\\begin{cases}y''+y=0\\\\y(0)=1\\\\y'(0)=0\\end{cases}" to Choice(Mode.ODE_SERIES))
         for ((latex, choice) in chosen + LATER) Steps.of(latex, choice)?.forEach { reached += it.why.key }
+        // Interpolation and splines; orders, primitive roots and discrete logarithms, typed as their functions.
+        for (text in NUMBERS) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
 
@@ -308,6 +322,7 @@ class StepsTest {
             "START TRI_SINES TRI_AMBIGUOUS TRI_ANGLE_SUM TRI_SINES TRI_AREA TRI_SINES TRI_AMBIGUOUS TRI_ANGLE_SUM TRI_SINES TRI_AREA",
             "START STAT_MEAN STAT_SORTED STAT_MEDIAN STAT_VARIANCE STAT_SD", "REG_SUMS REG_SLOPE REG_INTERCEPT RESULT",
             "UNIT_FACTOR RESULT", "UNIT_OFFSET RESULT", "START CONIC_COMPLETE CONIC_STANDARD", "START CONIC_STANDARD",
+            "START CONSTANT_VALUES UNCERTAINTY_BOUND RESULT", "UNIT_FACTOR RESULT",
         )
         val got = LATER.map { (latex, choice) -> Steps.of(latex, choice)?.joinToString(" ") { it.why.key.name } ?: "none" }
         assertEquals(expected.joinToString("\n"), got.joinToString("\n"))

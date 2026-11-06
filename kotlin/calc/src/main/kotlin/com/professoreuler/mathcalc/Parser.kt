@@ -313,6 +313,8 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     private fun derivativeOf(e: Expr): Expr {
         // y′, y″ of the unknown function of a differential equation: markers, worked out by [Ode].
         if (e is Expr.Sym && e.name.trimEnd('\'') in ODE_UNKNOWNS) return Expr.Sym(e.name + "'")
+        // x′, z′, x₁′ of the unknowns of a system, functions of t.
+        if (e is Expr.Sym && e.name.trimEnd('\'') in SYSTEM_UNKNOWNS) return Expr.Sym(e.name + "'")
         val letters = e.symbols()
         val v = when {
             letters.size == 1 -> letters.first()
@@ -578,7 +580,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             top.size == 6 && top[1] == "^" && top[2] == "{" && isDigit(top[3]) && top[4] == "}" -> top[3].toInt() to top[5]
             else -> return null
         }
-        if (name !in ODE_UNKNOWNS || order !in 1..4) return null
+        if ((name !in ODE_UNKNOWNS && (name !in SYSTEM_UNKNOWNS || name == bottom[1])) || order !in 1..4) return null
         val rest = bottom.drop(2)
         if (!(rest.isEmpty() || rest == listOf("^", order.toString()) || rest == listOf("^", "{", order.toString(), "}"))) return null
         flags.odeVariable = bottom[1]
@@ -709,6 +711,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
     /** A function written in letters, lim, or else one letter: e, i, or a letter (with its subscript, as `x_{1}`). */
     private fun letters(): Expr {
         numberFunction()?.let { return it }
+        physicalConstant()?.let { return it }
         val run = lettersFrom(i)
         if (run.startsWith("lim") && peek(3) == "_") {
             i += 3
@@ -738,6 +741,32 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         if (args == null) { i = save; return null }
         if (name in ValueFunctions.NAMES) return ValueFunctions.call(name, args, flags)
         return Discrete.call(name, args) ?: run { i = save; null }
+    }
+
+    /**
+     * constant(speedoflight), constant(speedoflight, km/h): a physical constant's value ([PhysicalConstants.inFormula]); null
+     * where the letters are no such call. Its name is letters; a unit after a comma is read as [Units] reads it.
+     */
+    private fun physicalConstant(): Expr? {
+        val word = PhysicalConstants.CALL
+        if (word.indices.any { t.getOrNull(i + it) != word[it].toString() } || peek(word.length) != "(") return null
+        var k = i + word.length + 1
+        val name = StringBuilder()
+        while (isLetter(t.getOrNull(k))) name.append(t[k++])
+        var unit: String? = null
+        if (t.getOrNull(k) == ",") {
+            val start = ++k
+            var depth = 0
+            while (k < t.size && !(depth == 0 && t[k] == ")")) {
+                if (t[k] == "(") depth++
+                if (t[k] == ")") depth--
+                k++
+            }
+            unit = PhysicalConstants.unitText(t.subList(start, minOf(k, t.size)))
+        }
+        if (name.isEmpty() || t.getOrNull(k) != ")" || unit?.isEmpty() == true || unit?.contains(",") == true) throw CalcException(Failure.ARGUMENTS)
+        i = k + 1
+        return PhysicalConstants.inFormula(name.toString(), unit)
     }
 
     /** (a, b, c) of a function: separated by commas, and by nothing else (a semicolon there fails: [Failure.ARGUMENTS]). */
@@ -994,6 +1023,9 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         /** The letters a differential equation is solved for: y′ and dy/dx of these are its derivatives. */
         internal val ODE_UNKNOWNS = setOf("y", "u")
 
+        /** The unknowns of a system of differential equations beside y and u, functions of t: x′, z′, x₁′, y₂′ are derivatives. */
+        internal val SYSTEM_UNKNOWNS: Set<String> = setOf("x", "z") + (1..9).flatMap { listOf("x_$it", "y_$it") }
+
         /** The environments of a matrix. */
         private val MATRICES = setOf("pmatrix", "bmatrix", "matrix", "Bmatrix", "vmatrix")
         private val DIVIDE = setOf(":", "\\div", "/")
@@ -1050,7 +1082,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                                 // command inside a formula or a name the calculator does not know.
                                 s == "\\operatorname" && name in CommandFunctions.NAMES ->
                                     throw CalcException(if (out.isEmpty()) Failure.ARGUMENTS else Failure.COMMAND_INSIDE)
-                                s == "\\operatorname" && name.length >= 2 && name.lowercase() !in Discrete.NAMES &&
+                                s == "\\operatorname" && name.length >= 2 && name.lowercase() !in Discrete.NAMES && name != PhysicalConstants.CALL &&
                                     name.lowercase() !in ValueFunctions.NAMES ->
                                     throw CalcException(Failure.UNKNOWN_FUNCTION)
                                 else -> out.addAll(inside)

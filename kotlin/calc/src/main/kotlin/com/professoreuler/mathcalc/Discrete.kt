@@ -4,7 +4,8 @@ import java.math.BigInteger
 
 /**
  * Whole numbers and sequences: the number functions a course writes (gcd, lcm, mod, binomial coefficients, Catalan, Bell and
- * Stirling numbers, partitions, Fibonacci, φ, σ, τ, μ, the Jacobi symbol, the n-th prime, the mean and median of a list),
+ * Stirling numbers, partitions, Fibonacci, φ, σ, τ, μ, the Jacobi symbol, the n-th prime, the mean and median of a list, the
+ * multiplicative order, the smallest primitive root and the discrete logarithm, [Residues]),
  * congruences and their systems (the Chinese remainder theorem), whole-number solutions of linear and Pell equations, linear
  * recurrences with constant coefficients solved in closed form, and the rule of a list of numbers. Every answer is checked:
  * put back, multiplied back, or its terms recomputed.
@@ -35,6 +36,7 @@ object Discrete {
         "mean" to LIST, "median" to LIST, "var" to MANY, "variance" to MANY, "sd" to MANY, "stdev" to MANY,
         "binompdf" to 3..3, "binomcdf" to 3..3, "poissonpdf" to 2..2, "poissoncdf" to 2..2, "geometpdf" to 2..2,
         "normalpdf" to 1..3, "normalcdf" to 2..4, "invnorm" to 1..3,
+        "multorder" to 2..2, "primroot" to 1..1, "discretelog" to 3..3,
     )
 
     /** Longest first, so `stirling1` is not `stirling` and a 1. */
@@ -131,6 +133,9 @@ object Discrete {
             "median" -> if (args.size == 1) args[0] else (Stats.summary(args) ?: throw CalcException(Failure.UNDEFINED)).median
             "var", "variance" -> (Stats.summary(args) ?: throw CalcException(Failure.UNDEFINED)).sampleVariance ?: throw CalcException(Failure.UNDEFINED)
             "sd", "stdev" -> (Stats.summary(args) ?: throw CalcException(Failure.UNDEFINED)).sampleSd ?: throw CalcException(Failure.UNDEFINED)
+            "multorder" -> big(Residues.order(whole(args[0]), whole(args[1])))
+            "primroot" -> big(Residues.primitiveRoot(whole(args[0])))
+            "discretelog" -> big(Residues.discreteLog(whole(args[0]), whole(args[1]), whole(args[2])))
             else -> Stats.distribution(key, args) ?: throw CalcException(Failure.UNDEFINED)
         }
     }
@@ -285,7 +290,7 @@ object Discrete {
     }
 
     fun facts(n: BigInteger): Facts? {
-        if (n < TWO || n.bitLength() > 110) return null
+        if (n < TWO || n >= NumberTheory.MOST_FACTORED) return null
         val f = NumberTheory.factor(n) ?: return null
         val prime = f.size == 1 && f[0].second == 1
         var next = n + ONE
@@ -303,9 +308,11 @@ object Discrete {
 
     /**
      * x ≡ r (mod [modulus]) for each of [residues]; none where there is no solution. [parts] are the lines on their own: each
-     * one's coefficients (lowest first) and modulus, and its solutions as residues of [Part.step].
+     * one's coefficients (lowest first) and modulus, and its solutions as residues of [Part.step]. [power] is (g, a, n) of a
+     * congruence gˣ ≡ a (mod n) written so, solved by its discrete logarithm ([Residues.exponential]).
      */
-    class Congruences(val letter: String, val residues: List<BigInteger>, val modulus: BigInteger, val parts: List<Part> = emptyList()) {
+    class Congruences(val letter: String, val residues: List<BigInteger>, val modulus: BigInteger, val parts: List<Part> = emptyList(),
+        val power: List<BigInteger>? = null) {
         class Part(val coefficients: List<BigInteger>, val m: BigInteger, val residues: List<BigInteger>, val step: BigInteger)
     }
 
@@ -342,6 +349,8 @@ object Discrete {
     /** Every [lines] congruence f(x) ≡ 0 (mod m) at once, by the Chinese remainder theorem; each solution put back into each. */
     fun congruences(lines: List<Pair<Expr, BigInteger>>, letter: String): Congruences? {
         val x = Expr.Sym(letter)
+        // gˣ ≡ a (mod m): a discrete logarithm.
+        if (lines.size == 1) Residues.exponential(lines[0].first, lines[0].second, letter)?.let { return it }
         val coefficients = lines.map { (f, m) -> (integerCoefficients(f, x, m) ?: return null) to m }
         var residues = listOf(ZERO)
         var modulus = ONE
