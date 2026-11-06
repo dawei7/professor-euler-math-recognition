@@ -79,7 +79,7 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     is Outcome.Statistics -> o.summary.let { k ->
         "n=${k.n} mean " + c.text(k.mean) + " median " + c.text(k.median) + " sd " + (k.sampleSd?.let { c.text(it) } ?: "-") + " q1 " + c.text(k.q1) + " q3 " + c.text(k.q3)
     }
-    is Outcome.Regression -> "y = " + c.text(o.line.slope) + "x + " + c.text(o.line.intercept) + " r " + c.text(o.line.r)
+    is Outcome.Regression -> "y = " + c.text(o.line.slope) + "x + " + c.text(o.line.intercept) + " r " + (o.line.r?.let { c.text(it) } ?: "undefined")
     is Outcome.Converted -> c.text(o.result) + " ${o.to}"
     is Outcome.Triangles -> o.triangles.joinToString(" | ") { t ->
         "sides " + t.sides.joinToString(", ") { c.text(it) } + " angles " + t.angles.joinToString(", ") { c.text(it) } + " area " + c.text(t.area)

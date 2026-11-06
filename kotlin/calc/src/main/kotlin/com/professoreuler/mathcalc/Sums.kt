@@ -64,7 +64,17 @@ internal object Sums {
     /** Σ_{a}^{∞} [t] judged by the tests where it has no closed form. */
     fun verdict(t: Expr, k: Expr.Sym, a: Expr): Verdict {
         val start = integer(a)?.toLong() ?: return Verdict.Unknown
-        val terms = Calculus.limit(t, k, Expr.INF, null)
+        // Alternating, (−1)^k·u(k): first, as the limit of its terms has no value of its own to take ((−1)^k has none). The
+        // Leibniz test where u falls to 0 (the error at most the next term); the terms not going to 0 where u tends to c ≠ 0.
+        alternating(t, k)?.let { u ->
+            val limit = try { Calculus.limit(u, k, Expr.INF, null) } catch (e: CalcException) { null }
+            if (limit != null && isZero(limit) && decreasing(u, k, start)) return Verdict.Converges(alternatingSum(t, k, start) ?: return Verdict.Unknown)
+            if (limit != null && !limit.hasInfinity() && Numeric.value(limit)?.let { it != 0.0 } == true) return Verdict.Diverges
+            if (limit == Expr.INF) return Verdict.Diverges
+            return Verdict.Unknown
+        }
+        // A test that fails to take a limit shows nothing: no verdict from it.
+        val terms = try { Calculus.limit(t, k, Expr.INF, null) } catch (e: CalcException) { null }
         // The terms do not go to 0: no sum.
         if (terms != null && !isZero(terms) && Numeric.value(terms)?.let { it != 0.0 } != false) return Verdict.Diverges
         if (terms == null && Numeric.value(t.substitute(k, num(100000))).let { it != null && abs(it) > 1e-3 }) return Verdict.Unknown
@@ -72,11 +82,6 @@ internal object Sums {
         rationalDegrees(t, k)?.let { (difference, sign) ->
             if (sign != 0) return if (difference >= 2) Verdict.Converges(numeric(t, k, start, polynomialDecay = difference) ?: return Verdict.Unknown)
                 else Verdict.Diverges
-        }
-        // Alternating: (−1)^k·u(k), u decreasing to 0, the error at most the next term.
-        alternating(t, k)?.let { u ->
-            val limit = Calculus.limit(u, k, Expr.INF, null)
-            if (limit != null && isZero(limit) && decreasing(u, k, start)) return Verdict.Converges(alternatingSum(t, k, start) ?: return Verdict.Unknown)
         }
         // The ratio test.
         val ratio = try {

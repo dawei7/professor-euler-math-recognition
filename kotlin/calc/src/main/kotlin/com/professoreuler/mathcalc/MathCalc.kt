@@ -84,11 +84,14 @@ sealed class Num {
         override val double get() = d
     }
 
-    /** The exact value, or the fraction a double lies within rounding of (sin 30° is 1/2). */
+    /**
+     * The exact value; null for an approximation. A double is never taken for the fraction it lies near: sinh 10 is no
+     * 75242407/6832 and tanh 20 no 1, though each double is within rounding of them.
+     */
     val rational: Rational?
         get() = when (this) {
             is Exact -> r
-            is Approx -> Rational.near(d)
+            is Approx -> null
         }
 }
 
@@ -556,7 +559,7 @@ object MathCalc {
             Budget.within(millis) {
                 val plan = if (logic != null) logicPlan(logic)
                     else odePlan(statements, flags.odeVariable) ?: odeSystemPlan(statements, flags.odeVariable)
-                        ?: plan(statements, others, style, flags.degrees, flags.moduli)
+                        ?: plan(statements, others, style, flags.degrees, flags.moduli, flags.denominators)
                 choices = plan.choices
                 // A series asked for at a point or to a power of its own: the plan's series in that letter, so taken.
                 val chosen = choice?.takeIf { it in plan.choices }
@@ -564,9 +567,16 @@ object MathCalc {
                         plan.choices.firstOrNull { it.mode == Mode.SERIES && (want.letter == null || it.letter == want.letter) }
                             ?.let { it.copy(point = want.point ?: it.point, order = want.order ?: it.order) }
                     }
+                    // A mode asked for without its letter: the plan's choice of that mode (derivative(x² y) in x).
+                    ?: choice?.takeIf { it.letter == null && it.point == null && it.order == null }?.let { want ->
+                        plan.choices.firstOrNull { it.mode == want.mode }
+                    }
                     // A mode it does only when asked for (Newton's method, a Fourier series): the choice as asked.
                     ?: choice?.takeIf { it.mode in plan.accepts }
                     ?: plan.likeliest
+                // An operation asked for by name (a function's call, a choice kept with a calculation) is done or refused, never
+                // another in its place: det of a 2 × 3 matrix is no row echelon form, derivative(5, x) no 5.
+                if (choice != null && chosen.mode != choice.mode && choice.mode !in INTERCHANGEABLE) throw CalcException(Failure.ARGUMENTS)
                 shown = chosen
                 plan.outcome(chosen)
             }
@@ -596,6 +606,25 @@ object MathCalc {
     const val LIMIT_MS = 3000L
 
     /**
+     * The modes another may stand in for where the formula has nothing of their own to do: calculate(x + x) simplifies,
+     * simplify(2 + 3) calculates, factor(x + 1) and expand(x + 1) are x + 1, solve(5) and plot(5) show the number.
+     */
+    private val INTERCHANGEABLE = setOf(Mode.CALCULATE, Mode.SIMPLIFY, Mode.EXPAND, Mode.FACTOR, Mode.PARTIAL_FRACTIONS, Mode.COMPARE,
+        Mode.SOLVE, Mode.GRAPH)
+
+    /**
+     * The letters a function of several variables is taken in (its gradient, Laplacian, Jacobian): the coordinates x, y, z it
+     * has, the other letters standing as constants (a x + b y in x and y); without any of them every letter it has, in
+     * alphabetical order (r cos t in r and t).
+     */
+    internal fun variablesOf(letters: Collection<String>): List<String> {
+        val coordinates = COORDINATE_ORDER.filter { it in letters }
+        return coordinates.ifEmpty { letters.sorted() }
+    }
+
+    private val COORDINATE_ORDER = listOf("x", "y", "z")
+
+    /**
      * The tokens of LaTeX: a command, an escaped sign, or one sign; a comma with a space after it is a token of its own
      * (`", "`), a separator and never a decimal comma: log(8, 2) is no log of 8.2, (3, 4) no 3.4.
      */
@@ -607,7 +636,8 @@ object MathCalc {
     /** What a formula can be worked out as: its [choices] (chips), the [likeliest], and modes it does only when asked ([accepts]). */
     private class Plan(val choices: List<Choice>, val likeliest: Choice, val accepts: Set<Mode> = emptySet(), val outcome: (Choice) -> Outcome)
 
-    private fun plan(statements: List<Statement>, others: List<Statement>?, style: Style, degrees: Boolean, moduli: Map<Int, BigInteger>): Plan {
+    private fun plan(statements: List<Statement>, others: List<Statement>?, style: Style, degrees: Boolean, moduli: Map<Int, BigInteger>,
+        denominators: List<Expr> = emptyList()): Plan {
         if (moduli.isNotEmpty()) return congruencePlan(statements, moduli)
         recurrencePlan(statements)?.let { return it }
         pointsPlan(statements)?.let { return it }
@@ -662,9 +692,18 @@ object MathCalc {
                 if (complexNumber) Choice(Mode.POLAR) else null, integral?.let { Choice(Mode.TRAPEZOID) }, integral?.let { Choice(Mode.SIMPSON) })
             // A whole number of 41 digits or more is too large to take apart: factor(n) and facts(n) say so.
             val unfactored = integer(v)?.let { it.abs() >= NumberTheory.MOST_FACTORED } == true
-            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS) + (if (unfactored) setOf(Mode.FACTOR, Mode.NUMBER_FACTS) else emptySet())) { c ->
+            // A number is a constant function where a function's calculus is asked for: derivative(5, x) is 0, integral(5, x) 5x,
+            // laplace(1) 1/s; no function of t has a number for its transform (invlaplace(2) would be 2δ(t), no function).
+            val asFunction = setOf(Mode.DERIVATIVE, Mode.INTEGRAL, Mode.LAPLACE, Mode.INVERSE_LAPLACE)
+            return Plan(choices, Choice(Mode.CALCULATE), setOf(Mode.UNITS) + asFunction +
+                (if (unfactored) setOf(Mode.FACTOR, Mode.NUMBER_FACTS) else emptySet())) { c ->
                 if (unfactored && (c.mode == Mode.FACTOR || c.mode == Mode.NUMBER_FACTS)) throw CalcException(Failure.TOO_LARGE)
-                if (c.mode == Mode.UNITS) {
+                if (c.mode in asFunction && (v is Expr.Mat || v.hasI() || v.hasInfinity())) throw CalcException(Failure.ARGUMENTS)
+                if (c.mode == Mode.DERIVATIVE) Outcome.Expression(Expr.ZERO)
+                else if (c.mode == Mode.INTEGRAL) Outcome.Expression(Calculus.tidy(mul(v, Expr.Sym(c.letter ?: "x"))), plusC = true)
+                else if (c.mode == Mode.LAPLACE) Outcome.Expression(Transforms.laplace(v, Expr.Sym("t"), Expr.Sym("s")) ?: throw CalcException(Failure.UNSOLVED))
+                else if (c.mode == Mode.INVERSE_LAPLACE) throw CalcException(Failure.UNSOLVED)
+                else if (c.mode == Mode.UNITS) {
                     val from = c.letter ?: throw CalcException(Failure.UNREADABLE)
                     val to = c.point ?: throw CalcException(Failure.UNREADABLE)
                     Outcome.Converted(v, from, to, Units.convert(v, from, to) ?: throw CalcException(Failure.UNREADABLE))
@@ -746,14 +785,24 @@ object MathCalc {
                 factorable && polynomial && asWritten -> Choice(Mode.FACTOR)
                 else -> Choice(Mode.SIMPLIFY)
             }
-            val onRequest = if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION) else emptySet()
+            // Asked for by name, in any letter it has (or none: derivative(c, x) is 0), with the others as constants: a transform
+            // in t (s), a function's residues in z, its gradient and Laplacian in its coordinates ([variablesOf]).
+            val onRequest = (if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION) else emptySet()) +
+                setOf(Mode.DERIVATIVE, Mode.INTEGRAL, Mode.GRADIENT, Mode.LAPLACIAN) +
+                (if ("t" in letters) setOf(Mode.LAPLACE) else emptySet()) + (if ("s" in letters) setOf(Mode.INVERSE_LAPLACE) else emptySet()) +
+                (if (letters.size == 1 || "z" in letters) setOf(Mode.RESIDUES) else emptySet())
+            val inTransform = Expr.Sym(if (letters == listOf("t") || letters == listOf("s")) variable else "t")
+            val inLaplace = Expr.Sym(if (letters == listOf("s")) variable else "s")
+            val inResidues = Expr.Sym(if ("z" in letters) "z" else variable)
+            val fieldLetters = variablesOf(letters)
             return Plan(choices, likeliest, onRequest) { c ->
                 when (c.mode) {
-                    Mode.LAPLACE -> Outcome.Expression(Transforms.laplace(last, x, Expr.Sym("s")) ?: throw CalcException(Failure.UNSOLVED))
-                    Mode.INVERSE_LAPLACE -> Outcome.Expression(Transforms.inverseLaplace(last, x, Expr.Sym("t")) ?: throw CalcException(Failure.UNSOLVED))
-                    Mode.RESIDUES -> Outcome.Residues(variable, ComplexAnalysis.residues(last, x) ?: throw CalcException(Failure.UNSOLVED))
+                    Mode.LAPLACE -> Outcome.Expression(Transforms.laplace(last, inTransform, Expr.Sym("s")) ?: throw CalcException(Failure.UNSOLVED))
+                    Mode.INVERSE_LAPLACE -> Outcome.Expression(Transforms.inverseLaplace(last, inLaplace, Expr.Sym("t")) ?: throw CalcException(Failure.UNSOLVED))
+                    Mode.RESIDUES -> Outcome.Residues(inResidues.name, ComplexAnalysis.residues(last, inResidues) ?: throw CalcException(Failure.UNSOLVED))
                     Mode.FOURIER -> {
-                        val half = c.point?.let { pointOf(it) } ?: Expr.PI
+                        // On [−L, L] for a number L; a period that is no number (a letter) is refused, never taken for π.
+                        val half = c.point?.let { pointOf(it) ?: throw CalcException(Failure.ARGUMENTS) } ?: Expr.PI
                         Outcome.FourierSeries(variable, Transforms.fourier(last, x, half) ?: throw CalcException(Failure.UNSOLVED))
                     }
                     Mode.NEWTON, Mode.BISECTION -> numericRoot(last, x, c)
@@ -762,19 +811,23 @@ object MathCalc {
                         val usual = Algebra.simplify(last, excluded)
                         // A trigonometric form may come shorter through its formulas (sin 2x / sin x is 2 cos x).
                         val r = TrigForms.best(last, usual) { Algebra.simplify(it) }
-                        Outcome.Expression(r, steps, excluded = if (r == usual) excludedValues(excluded) else emptyList())
+                        // The values the formula as written excludes that its simplest form is defined at: a ≠ 0, b ≠ 0 for
+                        // (a²b)³/(ab²) = a⁵b, whether simplify cancelled them or the reading did.
+                        val cancelled = (if (r == usual) excludedValues(excluded) else emptyList()) +
+                            excludedValues(denominators.filter { isPolynomialIn(it) }).filter { (letter, value) -> definedAt(r, letter, value) }
+                        Outcome.Expression(r, steps, excluded = cancelled.distinct())
                     }
                     Mode.EXPAND -> Outcome.Expression(expanded, steps)
                     Mode.FACTOR -> factored(last)
-                    Mode.DERIVATIVE -> Outcome.Expression(Calculus.derivative(last, Expr.Sym(c.letter!!)))
-                    Mode.INTEGRAL -> Outcome.Expression(Calculus.antiderivative(last, Expr.Sym(c.letter!!))
+                    Mode.DERIVATIVE -> Outcome.Expression(Calculus.derivative(last, Expr.Sym(c.letter ?: variable)))
+                    Mode.INTEGRAL -> Outcome.Expression(Calculus.antiderivative(last, Expr.Sym(c.letter ?: variable))
                         ?: throw CalcException(Failure.NO_ANTIDERIVATIVE), plusC = true)
                     Mode.GRAPH -> Outcome.Graph(variable, listOf(last), parameters = letters - variable)
                     Mode.PARTIAL_FRACTIONS -> Outcome.Expression(partial ?: throw CalcException(Failure.UNREADABLE), steps)
                     Mode.SERIES -> series(last, Expr.Sym(c.letter ?: variable), c.point ?: seriesAt ?: "0", c.order)
                     Mode.EXTREMA -> critical(last, letters)
-                    Mode.GRADIENT -> Outcome.Expression(LinAlg.gradient(last, letters))
-                    Mode.LAPLACIAN -> Outcome.Expression(LinAlg.laplacian(last, letters))
+                    Mode.GRADIENT -> Outcome.Expression(LinAlg.gradient(last, fieldLetters))
+                    Mode.LAPLACIAN -> Outcome.Expression(LinAlg.laplacian(last, fieldLetters))
                     Mode.SURFACE -> Outcome.Surface(last, "x", "y")
                     else -> throw CalcException(Failure.UNREADABLE)
                 }
@@ -839,6 +892,8 @@ object MathCalc {
                 Mode.SOLVE -> {
                     val v = Expr.Sym(c.letter ?: variable)
                     val found = if (letters.size == 1) Solve.equation(lhs, rhs, v) else Solve.forLetter(lhs, rhs, v)
+                    // Solutions on whole intervals (|x| = x for x ≥ 0): the set as intervals, never the points found alone.
+                    if (found.incomplete) return@Plan Outcome.Intervals(Solve.intervalSolutions(lhs, rhs, v) ?: throw CalcException(Failure.UNSOLVED))
                     // An unknown in degrees (sin x° = 1/2) has its solutions in degrees: numbers without π, shown with °.
                     val inDegrees = degrees && found.periodic.isNotEmpty() && (found.periodic + found.values).none { it.hasPi() }
                     val solutions = if (inDegrees) found.markedDegrees() else found
@@ -879,14 +934,58 @@ object MathCalc {
     private val POLAR_ANGLES = setOf("\\theta", "\\varphi", "\\phi", "θ", "φ")
 
     /** Factors cancelled from a denominator as the values they exclude: x − 1 as x ≠ 1. */
-    private fun excludedValues(factors: List<Expr>): List<Pair<String, Expr>> = factors.distinct().flatMap { f ->
-        val letter = f.symbols().singleOrNull() ?: return@flatMap emptyList()
+    private fun excludedValues(factors: List<Expr>): List<Pair<String, Expr>> = factors.flatMap { pieces(it) }.distinct().flatMap { f ->
+        val letters = f.symbols().sorted()
+        if (letters.isEmpty()) return@flatMap emptyList()
         try {
-            Solve.equation(f, Expr.ZERO, Expr.Sym(letter)).values.map { letter to it }
+            // In one letter its values (x ≠ 1); in several, solved for the first (a ≠ −b for a + b): a ≠ 0 and b ≠ 0 for a·b².
+            // Values only where they are all of them: sin x is 0 at every kπ, which no list of x ≠ … holds.
+            if (letters.size == 1) Solve.equation(f, Expr.ZERO, Expr.Sym(letters[0])).takeIf { it.periodic.isEmpty() && !it.many && !it.incomplete }
+                ?.values.orEmpty().map { letters[0] to it }
+            else Solve.forLetter(f, Expr.ZERO, Expr.Sym(letters[0])).values.filter { it.isConstant() || !it.has(Expr.Sym(letters[0])) }.map { letters[0] to it }
         } catch (e: CalcException) {
             emptyList()
         }
     }.distinct()
+
+    /**
+     * A value of the letters (two exact ones tried) where [a] and [b] differ in ball arithmetic, though doubles found them
+     * equal; null where none is found.
+     */
+    private fun ballsApart(a: Expr, b: Expr): Map<String, Double>? {
+        val letters = (a.symbols() + b.symbols()).sorted()
+        for (start in listOf(Rational.of(BigInteger.valueOf(37), BigInteger.valueOf(100)), Rational.of(BigInteger.valueOf(129), BigInteger.valueOf(100)))) {
+            val values = letters.withIndex().associate { (k, v) -> v to start + Rational.of(BigInteger.valueOf(k.toLong()), BigInteger.valueOf(7)) }
+            try {
+                var d: Expr = add(a, neg(b))
+                for ((v, r) in values) d = d.substitute(Expr.Sym(v), num(r))
+                if (Precise.certainlyNonzero(d, maxBits = 512) == true) return values.mapValues { it.value.toDouble() }
+            } catch (x: CalcException) {
+                if (x.failure == Failure.TOO_LONG) throw x
+            } catch (x: ArithmeticException) {
+            }
+        }
+        return null
+    }
+
+    /** Whether [e] has a value where [letter] is [value] (its other letters at a few values): a denominator cancelled from it. */
+    private fun definedAt(e: Expr, letter: String, value: Expr): Boolean = try {
+        val put = e.substitute(Expr.Sym(letter), value)
+        val others = put.symbols()
+        listOf(0.37, 1.29).all { v -> Numeric.eval(put, others.associateWith { v + it.length * 0.01 }).isFinite() }
+    } catch (x: CalcException) {
+        false
+    } catch (x: ArithmeticException) {
+        false
+    }
+
+    /** A factor cancelled from a denominator in its pieces, each of which must not be 0: a·b² as a and b. */
+    private fun pieces(f: Expr): List<Expr> = when {
+        f is Expr.Mul -> f.factors.flatMap { pieces(it) }
+        f is Expr.Pow && (rational(f.exp)?.signum ?: 0) > 0 -> pieces(f.base)
+        f.symbols().isEmpty() -> emptyList()
+        else -> listOf(f)
+    }
 
     /** The letter a formula is likeliest rearranged for: x where it has one, else the last letter of its compound side (v = s/t: t). */
     private fun formulaLetter(lhs: Expr, rhs: Expr, letters: List<String>): String {
@@ -926,6 +1025,12 @@ object MathCalc {
         if (v.hasInfinity()) return Outcome.Expression(v, steps)
         if (v is Expr.Num) return Outcome.Value(Num.Exact(v.value), steps, others = others)
         val d = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
+        // A number in another form (sin² 1 + cos² 1) exactly where it simplifies to one and the balls agree (looked for only
+        // where its double lies near a fraction); a double near a fraction is never taken for it.
+        if (Rational.near(d) != null) {
+            val simple = try { Algebra.simplify(v) } catch (e: CalcException) { v }
+            if (simple is Expr.Num && Precise.certainlyNonzero(add(v, neg(simple))) == false) return Outcome.Value(Num.Exact(simple.value), steps, others = others)
+        }
         val shown = Algebra.rationalize(v)
         return Outcome.Value(Num.Approx(d), steps, exact = shown.takeIf { niceExact(it) }, others = others)
     }
@@ -982,8 +1087,13 @@ object MathCalc {
         val points = !vector && numeric && m.columns == 2 && m.size >= 3
         if (points) choices += Choice(Mode.REGRESSION)
         if (points) choices += Interpolation.offered(m)
+        // Asked for by name, a matrix's operations are done where its size allows (a larger one as long as the time allows) and
+        // refused otherwise ([Failure.SIZES]); a vector's calculus is taken in its letters ([variablesOf]).
+        val ownOperations = setOf(Mode.DETERMINANT, Mode.INVERSE, Mode.EIGEN, Mode.DECOMPOSE, Mode.MATRIX_EXP, Mode.ROW_REDUCE, Mode.TRANSPOSE,
+            Mode.DIVERGENCE, Mode.CURL, Mode.JACOBIAN)
         val accepts = (if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()) +
-            setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE)
+            setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE) + ownOperations
+        val fieldLetters = if (field) coordinates else variablesOf(m.symbols())
         val likeliest = when {
             data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
             literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)
@@ -1019,17 +1129,29 @@ object MathCalc {
                 Mode.TRANSPOSE -> Outcome.Expression(LinAlg.transpose(m))
                 Mode.ROW_REDUCE -> LinAlg.echelon(m).let { e -> Outcome.RowReduced(e.form, e.rank, e.ops, LinAlg.nullSpace(m), LinAlg.columnSpace(m)) }
                 Mode.DECOMPOSE -> {
+                    if (vector || m.size < m.columns) throw CalcException(Failure.SIZES)
                     val d = Outcome.Decompositions(LinAlg.lu(m), LinAlg.qr(m), LinAlg.cholesky(m))
                     if (d.lu == null && d.qr == null && d.cholesky == null) throw CalcException(Failure.UNSOLVED)
                     d
                 }
-                Mode.MATRIX_EXP -> Outcome.Expression(LinAlg.exp(m) ?: throw CalcException(Failure.UNSOLVED))
+                Mode.MATRIX_EXP -> {
+                    if (!square) throw CalcException(Failure.SIZES)
+                    Outcome.Expression(LinAlg.exp(m) ?: throw CalcException(Failure.UNSOLVED))
+                }
                 Mode.SVD -> Outcome.SingularValues(MatrixForms.svd(m))
                 Mode.JORDAN -> Outcome.JordanForm(MatrixForms.jordan(m) ?: throw CalcException(Failure.UNSOLVED))
-                Mode.DIVERGENCE -> Outcome.Expression(LinAlg.divergence(m, coordinates))
-                Mode.CURL -> Outcome.Expression(LinAlg.curl(m, coordinates))
-                Mode.JACOBIAN -> Outcome.Expression(LinAlg.jacobian(m, coordinates))
+                // div and curl of a field with as many entries as letters; the Jacobian of any vector in its letters.
+                Mode.DIVERGENCE, Mode.CURL, Mode.JACOBIAN -> {
+                    if (!vector || fieldLetters.isEmpty()) throw CalcException(Failure.ARGUMENTS)
+                    if (c.mode != Mode.JACOBIAN && (fieldLetters.size != m.size || m.size !in 2..3)) throw CalcException(Failure.SIZES)
+                    Outcome.Expression(when (c.mode) {
+                        Mode.DIVERGENCE -> LinAlg.divergence(m, fieldLetters)
+                        Mode.CURL -> LinAlg.curl(m, fieldLetters)
+                        else -> LinAlg.jacobian(m, fieldLetters)
+                    })
+                }
                 Mode.EIGEN -> {
+                    if (!square) throw CalcException(Failure.SIZES)
                     val eigen = LinAlg.eigen(m) ?: throw CalcException(Failure.UNSOLVED)
                     Outcome.Eigenvalues(LinAlg.characteristic(m), eigen, LinAlg.diagonalization(m, eigen))
                 }
@@ -1100,17 +1222,24 @@ object MathCalc {
 
     private fun isPolynomialIn(e: Expr): Boolean = Algebra.Kernels().let { k -> Algebra.polynomial(e, k) != null && k.isEmpty }
 
-    /** Where a series is offered: at 0, else at 1 (ln x, √x), as LaTeX; null where it has neither. */
+    /**
+     * Where a series is offered: at 0, else at 1 (ln x, √x), as LaTeX; null where it has neither. Only a chip: looked for in a
+     * part of the time, so that a function slow to work with (lambertw(x)) still has its own answer at once.
+     */
     private fun seriesPoint(e: Expr, x: Expr.Sym): String? = try {
-        when {
-            Series.taylor(e, x, Expr.ZERO, 4) != null -> "0"
-            Series.taylor(e, x, Expr.ONE, 4) != null -> "1"
-            else -> null
+        Budget.within(CHIP_MS) {
+            when {
+                Series.taylor(e, x, Expr.ZERO, 4) != null -> "0"
+                Series.taylor(e, x, Expr.ONE, 4) != null -> "1"
+                else -> null
+            }
         }
     } catch (z: CalcException) {
-        if (z.failure == Failure.TOO_LONG) throw z
         null
     }
+
+    /** How long looking for a chip may take. */
+    private const val CHIP_MS = 400L
 
     /**
      * The series of [e] at [point] up to the power [order] (6 where none is asked for), in rising powers with its remainder;
@@ -1178,12 +1307,23 @@ object MathCalc {
         val simplified = sides.map { safeSimplify(it) }
         var at: Map<String, Double>? = null
         var holds = true
+        var domains = false
         for ((a, b) in sides.zipWithNext()) {
-            if (Verify.same(a, b)) continue
+            if (Verify.same(a, b)) {
+                // Equal to doubles, apart to the balls (x + tanh 20 and x + 1 differ by 8.5·10⁻¹⁸): no identity.
+                val tiny = ballsApart(a, b)
+                // Equal where both are defined, but one is defined where the other is not (ln(ab) = ln a + ln b holds only
+                // for a, b > 0): no identity either, and said where they part.
+                val apart = tiny ?: Verify.domainDifferenceAt(a, b)?.also { domains = true } ?: continue
+                holds = false
+                at = at ?: apart
+                continue
+            }
             holds = false
             at = at ?: Verify.differenceAt(a, b)
         }
-        return Outcome.Compared(holds, simplified, at)
+        // The sides as written where their simplest forms would look the same (ln a + ln b simplifies to ln(ab)).
+        return Outcome.Compared(holds, if (domains) sides else simplified, at)
     }
 
     private fun inequalityPlan(sides: List<Expr>, relations: List<Rel>, letters: List<String>): Plan {
@@ -1297,7 +1437,9 @@ object MathCalc {
             }
         }
         return Plan(listOf(choice), choice) {
-            val solutions = Solve.system(equations, letters) ?: throw CalcException(Failure.UNSOLVED)
+            // A linear system with infinitely many solutions: its family in parameters t (checked in Solve.linearFamily).
+            val solutions = Solve.system(equations, letters) ?: Solve.linearFamily(equations, letters)?.let { listOf(it) }
+                ?: throw CalcException(Failure.UNSOLVED)
             Outcome.SystemSolved(letters, solutions)
         }
     }
@@ -1573,6 +1715,8 @@ object MathCalc {
         val x = Numeric.value(a) ?: return Verify.same(a, b)
         val y = Numeric.value(b) ?: return false
         if (a is Expr.Num && b is Expr.Num) return a.value == b.value
-        return abs(x - y) <= 1e-9 * max(1.0, max(abs(x), abs(y)))
+        if (abs(x - y) > 1e-9 * max(1.0, max(abs(x), abs(y)))) return false
+        // Close as doubles: equal only where the balls cannot tell them apart either (tanh 20 = 1 does not hold).
+        return Precise.certainlyNonzero(add(a, neg(b))) != true
     }
 }

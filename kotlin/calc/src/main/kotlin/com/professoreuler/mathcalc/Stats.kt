@@ -41,8 +41,11 @@ object Stats {
             sorted.first(), sorted.last(), q1, q3)
     }
 
-    /** y = a·x + b through the points by least squares, with Pearson's r; exact for exact points. */
-    class Line(val slope: Expr, val intercept: Expr, val r: Expr)
+    /**
+     * y = a·x + b through the points by least squares, with Pearson's r; exact for exact points. [r] is null where the y are
+     * all the same: the line is level (a = 0) and r, a quotient by their spread, is not defined.
+     */
+    class Line(val slope: Expr, val intercept: Expr, val r: Expr?)
 
     fun regression(xs: List<Expr>, ys: List<Expr>): Line? {
         val n = xs.size
@@ -54,11 +57,12 @@ object Stats {
         val syy = tidy(add(ys.map { pow(it, Expr.TWO) }))
         val sxy = tidy(add(xs.indices.map { mul(xs[it], ys[it]) }))
         val denominator = tidy(nn * sxx - sx * sx)
+        // All x the same: the points lie on a vertical line x = c, which is no y = a·x + b.
         if (LinAlg.isNull(denominator)) return null
         val a = tidy((nn * sxy - sx * sy) / denominator)
         val b = tidy((sy - a * sx) / nn)
         val rDen = tidy(sqrt(tidy(denominator * (nn * syy - sy * sy))))
-        val r = if (LinAlg.isNull(rDen)) Expr.ONE else tidy((nn * sxy - sx * sy) / rDen)
+        val r = if (LinAlg.isNull(rDen)) null else tidy((nn * sxy - sx * sy) / rDen)
         return Line(a, b, r)
     }
 
@@ -69,9 +73,18 @@ object Stats {
     val FUNCTIONS = mapOf("binompdf" to 3, "binomcdf" to 3, "poissonpdf" to 2, "poissoncdf" to 2, "geometpdf" to 2,
         "normalpdf" to 3, "normalcdf" to 4, "invnorm" to 3)
 
-    /** One of [FUNCTIONS] at its arguments (μ = 0, σ = 1 may be left out of the normal ones). */
+    /**
+     * One of [FUNCTIONS] at its arguments (μ = 0, σ = 1 may be left out of the normal ones); null (undefined) where a parameter
+     * lies outside its range: n and k whole, 0 ≤ p ≤ 1 (0 < p for the geometric distribution), λ ≥ 0, σ > 0, 0 < p < 1 for
+     * invnorm, and the lower bound of normalcdf not above the upper (P(a ≤ X ≤ b) is of an interval; with them swapped it would
+     * come out negative). In the probabilities 0⁰ is 1: binompdf(3, 0, 0) is (1 − 0)³ = 1.
+     */
     fun distribution(name: String, args: List<Expr>): Expr? {
         fun whole(e: Expr) = integer(e)?.takeIf { it.signum() >= 0 && it.bitLength() < 20 }?.toInt()
+        // A parameter that is a number must lie in its range; one with letters in it stays as it is written.
+        fun inRange(e: Expr, ok: (Double) -> Boolean): Boolean = Numeric.value(e)?.let(ok) ?: e.symbols().isNotEmpty()
+        // bᵏ with b⁰ = 1, also for b = 0.
+        fun power(b: Expr, k: Int): Expr = if (k == 0) Expr.ONE else pow(b, num(k.toLong()))
         return when (name) {
             "binompdf", "binomcdf" -> {
                 if (args.size != 3) return null
@@ -83,25 +96,28 @@ object Stats {
                 val range = if (name == "binompdf") k..k else 0..k
                 tidy(add(range.map { j ->
                     mul(num(Rational.of(NumberTheory.binomial(java.math.BigInteger.valueOf(n.toLong()), java.math.BigInteger.valueOf(j.toLong())))),
-                        pow(p, num(j.toLong())), pow(tidy(Expr.ONE - p), num((n - j).toLong())))
+                        power(p, j), power(tidy(Expr.ONE - p), n - j))
                 }))
             }
             "poissonpdf", "poissoncdf" -> {
                 if (args.size != 2) return null
                 val lambda = args[0]
+                if (!inRange(lambda) { it >= 0 }) return null
                 val k = whole(args[1]) ?: return null
                 val range = if (name == "poissonpdf") k..k else 0..k
-                tidy(add(range.map { j -> mul(pow(lambda, num(j.toLong())), exp(neg(lambda)), pow(fn(Func.FACTORIAL, num(j.toLong())), Expr.MINUS_ONE)) }))
+                tidy(add(range.map { j -> mul(power(lambda, j), exp(neg(lambda)), pow(fn(Func.FACTORIAL, num(j.toLong())), Expr.MINUS_ONE)) }))
             }
             "geometpdf" -> {
                 if (args.size != 2) return null
                 val k = whole(args[1])?.takeIf { it >= 1 } ?: return null
-                tidy(mul(pow(tidy(Expr.ONE - args[0]), num((k - 1).toLong())), args[0]))
+                if (!inRange(args[0]) { it > 0 && it <= 1 }) return null
+                tidy(mul(power(tidy(Expr.ONE - args[0]), k - 1), args[0]))
             }
             "normalpdf" -> {
                 if (args.isEmpty() || args.size > 3) return null
                 val mu = args.getOrElse(1) { Expr.ZERO }
                 val sigma = args.getOrElse(2) { Expr.ONE }
+                if (!inRange(sigma) { it > 0 }) return null
                 val z = tidy((args[0] - mu) / sigma)
                 tidy(mul(pow(mul(sigma, sqrt(mul(Expr.TWO, Expr.PI))), Expr.MINUS_ONE), exp(neg(pow(z, Expr.TWO) / Expr.TWO))))
             }
@@ -109,6 +125,11 @@ object Stats {
                 if (args.size < 2) return null
                 val mu = args.getOrElse(2) { Expr.ZERO }
                 val sigma = args.getOrElse(3) { Expr.ONE }
+                if (!inRange(sigma) { it > 0 }) return null
+                fun bound(x: Expr): Double? = when (x) { Expr.INF -> Double.POSITIVE_INFINITY; neg(Expr.INF) -> Double.NEGATIVE_INFINITY; else -> Numeric.value(x) }
+                val lower = bound(args[0])
+                val upper = bound(args[1])
+                if (lower != null && upper != null && lower > upper) return null
                 fun phi(x: Expr): Expr = if (x == Expr.INF) Expr.ONE else if (x == neg(Expr.INF)) Expr.ZERO else
                     tidy(mul(Expr.HALF, add(Expr.ONE, fn(Func.ERF, tidy((x - mu) / mul(sigma, sqrt(Expr.TWO)))))))
                 tidy(phi(args[1]) - phi(args[0]))
@@ -117,7 +138,9 @@ object Stats {
                 if (args.isEmpty()) return null
                 val p = Numeric.value(args[0])?.takeIf { it > 0 && it < 1 } ?: return null
                 val mu = Numeric.value(args.getOrElse(1) { Expr.ZERO }) ?: return null
-                val sigma = Numeric.value(args.getOrElse(2) { Expr.ONE }) ?: return null
+                val sigma = Numeric.value(args.getOrElse(2) { Expr.ONE })?.takeIf { it > 0 } ?: return null
+                // The median exactly: Φ⁻¹(1/2) = 0.
+                if (args[0] == Expr.HALF) return tidy(args.getOrElse(1) { Expr.ZERO })
                 // Φ⁻¹ by bisection on erf, to 15 digits.
                 var lo = -40.0
                 var hi = 40.0
