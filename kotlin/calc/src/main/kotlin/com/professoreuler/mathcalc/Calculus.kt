@@ -121,11 +121,26 @@ object Calculus {
 
     /** An antiderivative of [e] (without + C), checked by differentiating it back; null where none was found. */
     fun antiderivative(e: Expr, x: Expr.Sym): Expr? {
-        val f = integrate(e, x, 0) ?: return null
-        val back = diff(f, x)
-        if (!Verify.same(back, e)) return null
-        return tidy(f)
+        val f = integrate(e, x, 0)?.takeIf { Verify.same(diff(it, x), e) }
+            // The methods for what the rules above miss: substitutions (t = tan(x/2), Euler's, t = ⁿ√(ax + b)) and Risch–Norman.
+            ?: MoreIntegrals.of(e, x)?.takeIf { Verify.same(diff(it, x), e) }
+            ?: return null
+        return neat(f)
     }
+
+    /**
+     * An antiderivative as a learner writes it: simplified as a whole, or term by term where that is shorter (the rational
+     * part of ∫ 1/(x² + 1)² stays x/(2(x² + 1)) beside arctan(x)/2, not one fraction over both).
+     */
+    private fun neat(f: Expr): Expr {
+        val whole = tidy(f)
+        if (f !is Expr.Add) return whole
+        val parts = try { add(f.terms.map(::tidy)) } catch (c: CalcException) { if (c.failure == Failure.TOO_LONG) throw c; return whole }
+        return if (Algebra.complexity(parts) < Algebra.complexity(whole)) parts else whole
+    }
+
+    /** The rules of [antiderivative] on an integrand a substitution made ([MoreIntegrals]), not yet checked. */
+    internal fun integrateByRules(e: Expr, x: Expr.Sym): Expr? = integrate(e, x, 1)
 
     private fun integrate(e: Expr, x: Expr.Sym, depth: Int): Expr? {
         if (depth > 8) return null
@@ -145,6 +160,8 @@ object Calculus {
         // e^(ax)/x, sin(ax)/x, cos(ax)/x: Ei, Si, Ci.
         MoreFunctions.overX(e, x)?.let { return it }
         rationalFunction(e, x)?.let { return it }
+        // Every other fraction of polynomials: Hermite, Rothstein–Trager and Rioboo (1/(x⁴ + 1), 1/(x² + 1)³).
+        RationalIntegral.of(e, x)?.let { return it }
         evenPowerTimesRoot(e, x, depth)?.let { return it }
         rationalInExp(e, x, depth)?.let { return it }
         substitution(e, x, depth)?.let { return it }
@@ -390,7 +407,7 @@ object Calculus {
         }
         val inU = tidy(mul(replace(e), pow(mul(num(a), u), Expr.MINUS_ONE)))
         if (inU.has(x)) return null
-        val f = rationalFunction(inU, u) ?: return null
+        val f = rationalFunction(inU, u) ?: RationalIntegral.of(inU, u) ?: return null
         return f.substitute(u, exp(mul(num(a), x)))
     }
 
@@ -851,13 +868,28 @@ object Calculus {
      * lim as x → [a] of [e] ([side] −1 from below, 1 from above, null both): exact where substitution, cancelling,
      * L'Hôpital or the leading terms give it; ±∞; null where it does not exist or Calculate cannot find it.
      */
-    fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?): Expr? {
+    fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?): Expr? = limit(e, x, a, side, numericFallback = true)
+
+    /**
+     * As [limit]; without [numericFallback] only an exact limit (or ±∞) is given and nothing found by values alone: what a
+     * learner's lim(…) shows, where a decimal from values near the point (−4.9·10⁻¹¹ for sin x/x at ∞) is no answer.
+     */
+    fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?, numericFallback: Boolean): Expr? {
         val numeric = numericLimit(e, x, a, side)
-        // An exact value must agree with values near the point, where those settle.
+        // An exact value must agree with values near the point: in doubles where they settle, else in balls of many bits at
+        // points ever nearer (where doubles overflow, eˣ at x = 1000, or settle too slowly), else at values of the formula's
+        // other letters ((1 + a/x)^x → e^a at a = 7/10 and 19/10). What cannot be compared with values is not given.
         fun agrees(exact: Expr): Boolean {
+            if (exact.hasDecimal() && !e.hasDecimal()) return false
             val ev = if (exact == Expr.INF) Double.POSITIVE_INFINITY else if (exact == neg(Expr.INF)) Double.NEGATIVE_INFINITY else Numeric.value(exact)
-            return numeric == null || ev == null || (ev.isInfinite() && numeric.isInfinite() && ev.sign == numeric.sign) ||
-                (ev.isFinite() && numeric.isFinite() && abs(ev - numeric) <= 1e-4 * max(1.0, abs(ev)))
+            if (ev != null && numeric != null) {
+                if ((ev.isInfinite() && numeric.isInfinite() && ev.sign == numeric.sign) ||
+                    (ev.isFinite() && numeric.isFinite() && abs(ev - numeric) <= 1e-4 * max(1.0, abs(ev)))) return true
+                // Doubles can mislead (e^√x/x¹⁰ is 5·10⁻¹⁷ at x = 1000 and overflows before it grows): balls decide.
+                return (e.symbols() - x.name).isEmpty() && NearValues.approach(e, x, a, side, exact) == true
+            }
+            if ((e.symbols() + exact.symbols() - x.name).isEmpty()) return NearValues.approach(e, x, a, side, exact) == true
+            return withLetters(e, exact, x, a, side)
         }
         var disagreed = false
         exactLimit(e, x, a, side, 0)?.let { if (agrees(it)) return it else disagreed = true }
@@ -869,8 +901,59 @@ object Calculus {
             null
         }
         series?.let { if (agrees(it)) return it else disagreed = true }
-        if (disagreed) return null
+        // Gruntz's algorithm for exp-log functions: (e^(1/x − e^(−x)) − e^(1/x))/e^(−x) → −1, (eˣ + x)^(1/x) → e.
+        Gruntz.limit(e, x, a, side)?.let { if (agrees(it)) return it else disagreed = true }
+        if (disagreed || !numericFallback) return null
         return numeric?.let { if (it.isInfinite()) (if (it > 0) Expr.INF else neg(Expr.INF)) else Expr.Real(it) }
+    }
+
+    /**
+     * A limit with letters other than x checked at two values of them: the formula's limit there, from values near the point
+     * (in doubles, else in balls), against the exact limit with the same values put in.
+     */
+    private fun withLetters(e: Expr, exact: Expr, x: Expr.Sym, a: Expr, side: Int?): Boolean {
+        val letters = (e.symbols() + exact.symbols() + a.symbols() - x.name).toList()
+        for (setting in 0..1) {
+            try {
+                val values = letters.withIndex().associate { (j, name) -> name to num(Rational.of(7L + 12 * setting + 3L * j) / Rational.of(10)) }
+                fun put(t: Expr) = values.entries.fold(t) { acc, (name, v) -> acc.substitute(Expr.Sym(name), v) }
+                val es = put(e)
+                val xs = put(exact)
+                val at = put(a)
+                val ev = if (xs == Expr.INF) Double.POSITIVE_INFINITY else if (xs == neg(Expr.INF)) Double.NEGATIVE_INFINITY else Numeric.value(xs) ?: return false
+                val n = numericLimit(es, x, at, side)
+                val ok = if (n != null) (ev.isInfinite() && n.isInfinite() && ev.sign == n.sign) || (ev.isFinite() && n.isFinite() && abs(ev - n) <= 1e-4 * max(1.0, abs(ev)))
+                    else NearValues.approach(es, x, at, side, xs) == true
+                if (!ok) return false
+            } catch (c: CalcException) {
+                if (c.failure == Failure.TOO_LONG) throw c
+                return false
+            }
+        }
+        return true
+    }
+
+    /**
+     * A bounded part times a part that tends to 0 tends to 0: sin x/x as x → ∞, x² sin(1/x) as x → 0. 0 where [e] is such a
+     * product, else null.
+     */
+    private fun squeeze(e: Expr, x: Expr.Sym, a: Expr, side: Int?, depth: Int): Expr? {
+        if (e !is Expr.Mul) return null
+        val (boundedParts, rest) = e.factors.partition { it.has(x) && bounded(it, x) }
+        if (boundedParts.isEmpty() || rest.isEmpty()) return null
+        val l = exactLimit(mul(rest), x, a, side, depth + 1) ?: return null
+        return if (isZero(l)) Expr.ZERO else null
+    }
+
+    /** Bounded for every real value of x, as its form shows: sin, cos, arctan, tanh, erf, sgn of anything, and their sums and products. */
+    private fun bounded(e: Expr, x: Expr.Sym): Boolean = when {
+        !e.has(x) -> Numeric.value(e) != null
+        e is Expr.Fn -> e.f in setOf(Func.SIN, Func.COS, Func.ATAN, Func.ACOT, Func.TANH, Func.ERF, Func.ERFC, Func.SIGN) && e.args.size == 1 ||
+            e.f == Func.ABS && bounded(e.args[0], x)
+        e is Expr.Add -> e.terms.all { bounded(it, x) }
+        e is Expr.Mul -> e.factors.all { bounded(it, x) }
+        e is Expr.Pow -> integer(e.exp)?.let { it.signum() > 0 } == true && bounded(e.base, x)
+        else -> false
     }
 
     private fun exactLimit(e: Expr, x: Expr.Sym, a: Expr, side: Int?, depth: Int): Expr? {
@@ -949,6 +1032,7 @@ object Calculus {
                 }
                 if (limits.size == parts.size) return tidy(if (e is Expr.Add) add(limits) else mul(limits))
             }
+            squeeze(e, x, a, side, depth)?.let { return it }
         }
         if (e is Expr.Pow && !e.base.has(x) && e.exp.has(x)) {
             val base = Numeric.value(e.base)
@@ -987,6 +1071,8 @@ object Calculus {
         if (zeroBottom && !zeroTop) {
             val below = Numeric.eval(e, mapOf(x.name to (Numeric.value(a) ?: return null) - 1e-7))
             val above = Numeric.eval(e, mapOf(x.name to (Numeric.value(a) ?: return null) + 1e-7))
+            // The sign from values: only where they are numbers (NaN or an overflow says nothing about it).
+            if (side != 1 && !below.isFinite() || side != -1 && !above.isFinite()) return null
             val s = when (side) {
                 -1 -> below.sign
                 1 -> above.sign
@@ -1113,7 +1199,8 @@ object Calculus {
             -1 -> Numeric.eval(e, mapOf(x.name to av - h))
             else -> Numeric.eval(e, mapOf(x.name to av + h))
         }
-        return if (v.isNaN()) null else v
+        // An infinite double near a point is an overflow (e^(1/t) at t = 10⁻⁶), not the value's size: unknown.
+        return if (v.isFinite()) v else null
     }
 
     /** Values at points ever nearer a: where they settle, their limit; ±∞ where they grow without bound. */
@@ -1125,21 +1212,22 @@ object Calculus {
                     (if (a == Expr.INF) 1.0 else -1.0) * Math.pow(10.0, k.toDouble())
                 } else (Numeric.value(a) ?: return null) + sign * Math.pow(10.0, -k.toDouble())
                 val v = Numeric.eval(e, mapOf(x.name to t))
-                // 0/0 of rounding, nearer a than the digits reach: the values before it are the ones to go by.
-                if (v.isNaN()) break
+                // 0/0 of rounding, nearer a than the digits reach: the values before it are the ones to go by. An infinite
+                // double is an overflow (e^1000), never a sign of growth: ln(eˣ + x) − x at x = 1000 is ∞ − 1000 in doubles.
+                if (!v.isFinite()) break
                 values += v
             }
             if (values.size < 3) return null
             // Without bound: each of the last four steps at least three times as far from 0, with one sign.
             val tail = values.takeLast(5)
             if (tail.size == 5 && tail.zipWithNext().all { (p, q) -> abs(q) >= 3 * abs(p) && p.sign == q.sign } &&
-                (tail.last().isInfinite() || abs(tail.last()) > 1e6)) return tail.last().sign * Double.POSITIVE_INFINITY
+                abs(tail.last()) > 1e6) return tail.last().sign * Double.POSITIVE_INFINITY
             // Where the step between two values suddenly grows tenfold, rounding has taken over (1 − cos x at x = 10⁻⁸ is 0
             // in a double): only the values before it count.
             var trusted = values.size
             for (j in 1 until values.size - 1) {
                 val step = abs(values[j + 1] - values[j])
-                if (values[j + 1].isInfinite() || (step > 10 * abs(values[j] - values[j - 1]) && step > 1e-10 * max(1.0, abs(values[j])))) {
+                if (step > 10 * abs(values[j] - values[j - 1]) && step > 1e-10 * max(1.0, abs(values[j]))) {
                     trusted = j + 1
                     break
                 }
@@ -1300,7 +1388,8 @@ object Calculus {
                 else definite(body, e.variable, evaluate(e.a), evaluate(e.b)).let { d ->
                     d.exact ?: d.value?.let { Expr.Real(it) } ?: throw CalcException(if (d.diverges) Failure.DIVERGES else Failure.UNSOLVED)
                 }
-            OpKind.LIMIT -> limit(body, e.variable, evaluate(e.a ?: Expr.ZERO), e.b?.let { rational(it)?.signum })
+            // A limit written by the learner is exact or declined: never a decimal from values near the point.
+            OpKind.LIMIT -> limit(body, e.variable, evaluate(e.a ?: Expr.ZERO), e.b?.let { rational(it)?.signum }, numericFallback = false)
                 ?: throw CalcException(Failure.NO_LIMIT)
             OpKind.SUM -> {
                 val from = evaluate(e.a ?: Expr.ONE)

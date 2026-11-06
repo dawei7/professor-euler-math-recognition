@@ -76,6 +76,19 @@ enum class Failure {
     CONDITIONS,
     /** An optimization whose objective or constraints are not linear: maximize and minimize take linear ones only. */
     NOT_LINEAR,
+    /**
+     * A negative weight where it cannot be: Dijkstra's algorithm (which takes a visited vertex's distance as final; Bellman–Ford
+     * takes negative weights in a directed graph), an undirected edge in Bellman–Ford (back and forth along it is a walk of any
+     * negative weight), a negative capacity in a flow network.
+     */
+    NEGATIVE_WEIGHT,
+    /** A graph that is not connected where the task needs it so: it has no spanning tree. */
+    NOT_CONNECTED,
+    /**
+     * Not a probability distribution where one is needed: an entry < 0, or entries that do not add up to 1 (entropy([0.5, 0.6])),
+     * or a transition matrix's row that is neither probabilities nor zeros.
+     */
+    NOT_DISTRIBUTION,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -303,6 +316,38 @@ enum class Mode {
 
     /** A linear objective minimized under linear constraints. */
     MINIMIZE,
+
+    /** A graph's facts: degrees, components, tree, bipartite, Euler trail, chromatic number, planarity ([Networks]). */
+    GRAPH_FACTS,
+
+    /** Shortest paths from a vertex by Dijkstra's algorithm. */
+    DIJKSTRA,
+
+    /** Shortest paths from a vertex by the Bellman–Ford algorithm, negative weights and cycles included. */
+    BELLMAN_FORD,
+
+    /** A minimum spanning tree by Kruskal's algorithm. */
+    KRUSKAL,
+
+    /** A minimum spanning tree by Prim's algorithm. */
+    PRIM,
+
+    /** A topological order of a directed graph, or the cycle that prevents one. */
+    TOPOLOGICAL_ORDER,
+
+    /** A maximum flow by the Edmonds–Karp algorithm, with a minimum cut. */
+    MAX_FLOW,
+
+    /** The number of walks of length k, from the powers of the adjacency matrix. */
+    WALKS,
+    /** Gradient descent from a start with a step size, as a table ([Learning]). */
+    GRADIENT_DESCENT,
+
+    /** A finite Markov decision process: value iteration and its optimal values and policy ([Decisions]). */
+    VALUE_ITERATION,
+
+    /** A fixed policy's values in a finite Markov decision process, solved exactly ([Decisions]). */
+    POLICY_EVALUATION,
 
     /** A whole number written in another base, 2 to 36 ([Choice.point]): tobase(255, 16) is FF₁₆. */
     TO_BASE,
@@ -562,6 +607,45 @@ sealed class Outcome {
 
     /** A linear program maximized or minimized ([LinearProgram]): its optimum, or that it has none, with the certificate. */
     data class Optimized(val program: LinearProgram.Solution) : Outcome()
+
+    /**
+     * An antiderivative of a fraction of polynomials whose logarithms need the roots of a polynomial that square roots do not
+     * write (∫ 1/(x³ − 2) dx): [rest] (what can be written, often 0) plus, for each (q, S) of [sums], the sum over the roots
+     * [root] of q(root) = 0 of root·ln(S), S a polynomial in [root] and [variable]; + C. Shown as
+     * rest + Σ_{α: q(α) = 0} α·ln(S(α, x)) + C, one Σ per pair. Checked by its derivative at the roots of q found numerically.
+     */
+    data class RootSum(val rest: Expr, val root: String, val sums: List<Pair<Expr, Expr>>, val variable: String) : Outcome()
+
+    /** A graph's facts ([Networks.Facts]), with its picture. */
+    data class GraphFacts(val facts: Networks.Facts) : Outcome()
+
+    /** Shortest paths from a vertex, or a negative cycle ([Networks.Paths]), with the picture of the path. */
+    data class ShortestPaths(val paths: Networks.Paths) : Outcome()
+
+    /** A minimum spanning tree ([Networks.Tree]), with the picture of the tree. */
+    data class SpanningTree(val tree: Networks.Tree) : Outcome()
+
+    /** A topological order, or the cycle that prevents one ([Networks.Order]). */
+    data class TopologicalOrder(val order: Networks.Order) : Outcome()
+
+    /** A maximum flow and a minimum cut of the same capacity ([Networks.Flow]). */
+    data class MaxFlow(val flow: Networks.Flow) : Outcome()
+    /**
+     * Gradient descent on f of [letters] ([Learning]): its [table] (k, the point's coordinates, f there and |∇f| there, the
+     * method's own approximation), the [point] it ended at (null where it diverged), whether it [settled] (|∇f| < 10⁻¹⁰ before
+     * the last step), and the exact local [minimum] nearest to that point where Calculate finds one, to compare with.
+     */
+    data class Descent(val letters: List<String>, val table: Numerics.Table, val point: List<Double>?, val settled: Boolean,
+        val minimum: CriticalPoint?) : Outcome()
+
+    /**
+     * A finite Markov decision process solved ([Decisions]): the optimal [values] v*(s), exact and checked by the Bellman optimality
+     * equation; the optimal action values q*(s, a) ([actions], row s, column a, null where action a is not available in state s);
+     * the optimal actions of each state ([policy], numbered from 1, several where they tie); the discount [gamma]; and value
+     * iteration's [table] from v₀ = 0 (its first sweeps and its last, the method's own approximation), [sweeps] sweeps in all.
+     */
+    data class DecisionProcess(val values: List<Expr>, val actions: List<List<Expr?>>, val policy: List<List<Int>>,
+        val table: Numerics.Table, val gamma: Expr, val sweeps: Int) : Outcome()
     /** A whole number [value] written in [base] (2 to 36): its [digits], 0–9 then A–Z, a minus first where it is negative. */
     data class InBase(val value: BigInteger, val base: Int, val digits: String) : Outcome()
 }
@@ -641,6 +725,8 @@ object MathCalc {
         assumptions: Assumptions = Assumptions()): Calculation {
         // A picture asked for by name, and physical constants, are worked out on their own.
         Additions.calculate(latex, choice, millis, fractions, assumptions)?.let { return it }
+        // A call of a graph's functions (graph, dijkstra, kruskal …), read and worked out on its own ([Networks]).
+        Networks.calculation(latex, millis, fractions)?.let { return it }
         val tokens = TOKEN.findAll(latex).map { it.value }.toList()
         val flags = Flags(assumptions)
         var choices = emptyList<Choice>()
@@ -648,7 +734,9 @@ object MathCalc {
         val outcome = try {
             // Logic and sets are read on their own; everything else is mathematics for the parser.
             val logic = Logic.read(tokens.map { if (it.length > 1 && it[0] == ',') "," else it })
-            val statements = if (logic != null) emptyList() else Parser(tokens, flags).statements()
+            // gradientdescent(…), valueiteration(…), policyevaluation(…): a command whose arguments it reads itself.
+            val command = if (logic != null) null else Learning.command(tokens)
+            val statements = if (logic != null || command != null) emptyList() else Parser(tokens, flags).statements()
             if (fractions) flags.fractions = true
             val others = if (flags.plusMinus) Parser(tokens, Flags(assumptions).also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
             val style = Style.of(flags.decimalComma, flags.decimals, flags.fractions)
@@ -656,6 +744,7 @@ object MathCalc {
                 // The applied functions (rank, tangentline, maximize …), asked for by their call, are worked out on their own.
                 if (logic == null) Applied.outcome(statements, choice)?.let { o -> choices = listOf(choice!!); shown = choice; return@within o }
                 val plan = if (logic != null) logicPlan(logic)
+                    else if (command != null) Choice(command.mode).let { c -> Plan(listOf(c), c) { Learning.work(command, flags) } }
                     else pdePlan(statements) ?: odePlan(statements, flags.odeVariable) ?: odeSystemPlan(statements, flags.odeVariable)
                         ?: plan(statements, others, style, flags.degrees, flags.moduli, flags.denominators)
                 choices = plan.choices
@@ -748,8 +837,17 @@ object MathCalc {
         val open = s.sides.last() == null
         val relations = s.relations.take(written.size - 1)
         val equation = !open && written.size >= 2
-        // Calculus written in the formula is worked out first.
-        val sides = written.map { Calculus.evaluate(it) }
+        // Calculus written in the formula is worked out first; an indefinite integral alone whose logarithms need the roots of
+        // a polynomial is their sum.
+        val sides = try {
+            written.map { Calculus.evaluate(it) }
+        } catch (z: CalcException) {
+            val op = written.singleOrNull() as? Expr.Op
+            if (z.failure == Failure.NO_ANTIDERIVATIVE && op != null && op.kind == OpKind.INTEGRAL && op.a == null && !op.body.hasOp()) {
+                RationalIntegral.rootSum(op.body, op.variable)?.let { sum -> return Plan(listOf(Choice(Mode.CALCULATE)), Choice(Mode.CALCULATE)) { sum } }
+            }
+            throw z
+        }
         val wroteCalculus = written.any { it.hasOp() }
         val letters = sides.flatMap { it.symbols() }.toSortedSet().toList()
 
@@ -763,7 +861,7 @@ object MathCalc {
                 Regex("""\\end\{[a-zA-Z]+\}\s*$""").containsMatchIn(text)) ||
                 // [[1, 2], [3, 4]] as the keys write it: one bracket of brackets, nothing after it.
                 (bare.startsWith("[[") && closingAt(bare, 0) == bare.length - 1)
-            return matrixPlan(lastSide, literal)
+            return matrixPlan(lastSide, literal, calculated = Learning.isCall(text))
         }
 
         if (equation && relations.any { it.isInequality || it == Rel.NE }) return inequalityPlan(sides, relations, letters)
@@ -890,7 +988,9 @@ object MathCalc {
             val onRequest = (if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION, Mode.SERIES) else emptySet()) +
                 setOf(Mode.DERIVATIVE, Mode.INTEGRAL, Mode.GRADIENT, Mode.LAPLACIAN) +
                 (if ("t" in letters) setOf(Mode.LAPLACE) else emptySet()) + (if ("s" in letters) setOf(Mode.INVERSE_LAPLACE) else emptySet()) +
-                (if (letters.size == 1 || "z" in letters) setOf(Mode.RESIDUES) else emptySet())
+                (if (letters.size == 1 || "z" in letters) setOf(Mode.RESIDUES) else emptySet()) +
+                // A series when asked for (taylor(…)): of a polynomial too, at any point, and with other letters ((1 + x)^a).
+                (if (letters.isNotEmpty()) setOf(Mode.SERIES) else emptySet())
             val inTransform = Expr.Sym(if (letters == listOf("t") || letters == listOf("s")) variable else "t")
             val inLaplace = Expr.Sym(if (letters == listOf("s")) variable else "s")
             val inResidues = Expr.Sym(if ("z" in letters) "z" else variable)
@@ -920,8 +1020,7 @@ object MathCalc {
                     Mode.EXPAND -> Outcome.Expression(expanded, steps)
                     Mode.FACTOR -> factored(last)
                     Mode.DERIVATIVE -> Outcome.Expression(Calculus.derivative(last, Expr.Sym(c.letter ?: variable)))
-                    Mode.INTEGRAL -> Outcome.Expression(Calculus.antiderivative(last, Expr.Sym(c.letter ?: variable))
-                        ?: throw CalcException(Failure.NO_ANTIDERIVATIVE), plusC = true)
+                    Mode.INTEGRAL -> integralOutcome(last, Expr.Sym(c.letter ?: variable))
                     Mode.GRAPH -> Outcome.Graph(variable, listOf(last), parameters = letters - variable)
                     Mode.PARTIAL_FRACTIONS -> Outcome.Expression(partial ?: throw CalcException(Failure.UNREADABLE), steps)
                     Mode.SERIES -> series(last, Expr.Sym(c.letter ?: variable), c.point ?: seriesAt ?: "0", c.order)
@@ -1152,7 +1251,7 @@ object MathCalc {
      * A matrix: for a square one its determinant (the likeliest where it was written as it is), inverse and eigenvalues; for any
      * its row echelon form and its transpose; a matrix worked out from others (A·B, A²) or a vector is shown as it came out.
      */
-    private fun matrixPlan(m: Expr.Mat, literal: Boolean): Plan {
+    private fun matrixPlan(m: Expr.Mat, literal: Boolean, calculated: Boolean = false): Plan {
         val square = m.size == m.columns
         val vector = LinAlg.isVector(m)
         val choices = ArrayList<Choice>()
@@ -1195,6 +1294,8 @@ object MathCalc {
             setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE) + ownOperations
         val fieldLetters = if (field) coordinates else variablesOf(m.symbols())
         val likeliest = when {
+            // A function's value (softmax(…)) is its result, not data.
+            calculated -> Choice(Mode.CALCULATE)
             data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
             literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)
             !literal || vector -> Choice(Mode.CALCULATE)
@@ -1816,12 +1917,16 @@ object MathCalc {
             when (c.mode) {
                 Mode.GRAPH -> Outcome.Graph(def.variable, listOf(body))
                 Mode.DERIVATIVE -> Outcome.Expression(Calculus.derivative(body, x))
-                Mode.INTEGRAL -> Outcome.Expression(Calculus.antiderivative(body, x) ?: throw CalcException(Failure.NO_ANTIDERIVATIVE), plusC = true)
+                Mode.INTEGRAL -> integralOutcome(body, x)
                 Mode.SOLVE -> Outcome.Solved(Solve.equation(body, Expr.ZERO, x))
                 else -> Outcome.Expression(Algebra.simplify(body))
             }
         }
     }
+
+    /** An antiderivative with + C, or the root sum of one whose logarithms need the roots of a polynomial. */
+    private fun integralOutcome(f: Expr, x: Expr.Sym): Outcome = Calculus.antiderivative(f, x)?.let { Outcome.Expression(it, plusC = true) }
+        ?: RationalIntegral.rootSum(f, x) ?: throw CalcException(Failure.NO_ANTIDERIVATIVE)
 
     /** LaTeX without what does not change what it says: spaces, braces, `\cdot` between factors, `\left`, `\right`. */
     private fun plain(latex: String) = latex.replace("\\cdot", "").replace("\\left", "").replace("\\right", "")

@@ -159,8 +159,36 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
             LinearProgram.Status.INFEASIBLE -> "no feasible point"
         } + (if (p.free.isNotEmpty()) " (free " + p.free.joinToString(", ") + ")" else "")
     }
+    is Outcome.RootSum -> (if (isZero(o.rest)) "" else c.text(o.rest) + " + ") +
+        o.sums.joinToString(" + ") { (q, s) -> "Σ_{${o.root}: ${c.text(q)} = 0} ${o.root}·ln(${c.text(s)})" } + " + C"
+    is Outcome.GraphFacts -> graphFacts(o.facts)
+    is Outcome.ShortestPaths -> o.paths.let { p ->
+        if (p.negativeCycle != null) "negative cycle " + (p.negativeCycle + p.negativeCycle.first()).joinToString(" → ") + " weight " + c.text(p.cycleWeight!!)
+        else "d " + p.vertices.indices.joinToString(", ") { "${p.vertices[it]}: " + (p.distances[it]?.let { d -> c.text(d) } ?: "∞") } +
+            (if (p.target != null) " | " + (p.path?.joinToString(" → ")?.let { "$it length " + c.text(p.length!!) } ?: "no path") else "")
+    }
+    is Outcome.SpanningTree -> o.tree.let { t -> t.edges.joinToString(", ") { "{${it.from}, ${it.to}}" + (it.weight?.let { w -> ":" + c.text(w) } ?: "") } + " weight " + c.text(t.weight) }
+    is Outcome.TopologicalOrder -> o.order.let { r -> r.order?.let { "order " + it.joinToString(", ") } ?: ("cycle " + (r.cycle!! + r.cycle.first()).joinToString(" → ")) }
+    is Outcome.MaxFlow -> o.flow.let { f -> "flow " + c.text(f.value) + " cut {" + f.cut.joinToString(", ") + "}" }
+    is Outcome.Descent -> "descent " + o.table.rows.size + " rows → " +
+        (o.point?.joinToString(", ") { "%.10f".format(java.util.Locale.ROOT, it) } ?: "diverged") + (if (o.settled) " settled" else "") +
+        (o.minimum?.let { m -> " | minimum (" + o.letters.joinToString(", ") { c.text(m.at.getValue(it)) } + ") " + c.textValue(m.value) } ?: "")
+    is Outcome.DecisionProcess -> "v* = " + o.values.joinToString(", ") { c.text(it) } + " | policy " +
+        o.policy.joinToString(" ") { it.joinToString("/") } + " | sweeps ${o.sweeps}"
     is Outcome.InBase -> "${o.value} = ${o.digits}_${o.base}"
 }
+
+private fun graphFacts(f: Networks.Facts): String = listOfNotNull(
+    (if (f.directed) "directed" else "undirected") + " V=${f.vertices.size} E=${f.edges}",
+    if (f.directed) "in ${f.inDegrees} out ${f.outDegrees}" else "degrees ${f.sequence}",
+    "components ${f.components.size}" + (f.strong?.let { " strong ${it.size}" } ?: ""),
+    f.tree?.let { if (it) "tree" else if (f.forest == true) "forest" else null },
+    f.sides?.let { s -> if (s.bipartite) "bipartite ${s.left}|${s.right}" else "odd cycle ${s.oddCycle}" },
+    "euler " + f.euler.kind.name.lowercase() + (if (f.euler.trail.isNotEmpty()) " " + f.euler.trail.joinToString("") else ""),
+    f.colouring?.let { "χ=${it.number}" },
+    f.planarity?.let { p -> if (p.planar) "planar F=${p.faces}" else "nonplanar ${p.obstruction}" },
+    f.order?.let { r -> r.order?.let { "order " + it.joinToString(",") } ?: ("cycle " + r.cycle!!.joinToString(",")) },
+).joinToString(" | ")
 
 private fun equilibrium(c: Calculation, e: Fields.Equilibrium): String =
     "(" + e.at.joinToString(", ") { c.text(it) } + ") " + e.kind.name.lowercase() + when (e.stable) { true -> " stable"; false -> " unstable"; null -> "" }

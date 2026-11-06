@@ -46,6 +46,13 @@ class StepsTest {
         // Other bases, and the gcd and lcm of polynomials.
         "tobase(255, 2)", "frombase(FF, 16)", "lcm(x^2 - 1, x^2 + 2x + 1)")
 
+    /** Machine learning's steps ([LearningSteps]), typed as their functions. */
+    private val LEARNING = listOf("softmax([1, 2, 3])", "entropy([1/2, 1/4, 1/4], 2)", "crossentropy([1/2, 1/2], [1/4, 3/4], 2)",
+        "kldivergence([1/2, 1/2], [1/4, 3/4], 2)", "mutualinformation([[0.3, 0.2], [0.1, 0.4]])",
+        "valueiteration([[1, 0], [0, 1]], [[0, 1], [0, 1]], [[1, 0], [0, 2]], 0.9)",
+        "policyevaluation([[1, 0], [0, 1]], [[0, 1], [0, 1]], [[1, 0], [0, 2]], 0.9, [[0.5, 0.5], [0.5, 0.5]])",
+        "gradientdescent(x^2 + y^2, [1, 2], 0.25, 20)")
+
     private fun keys(latex: String, choice: Choice? = null): String =
         Steps.of(latex, choice)?.joinToString(",") { it.why.key.name } ?: "none"
 
@@ -314,9 +321,11 @@ class StepsTest {
             "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\pi)=1\\end{cases}" to null, "\\begin{cases}y''+y=0\\\\y(0)=0\\\\y(\\frac{\\pi}{2})=1\\end{cases}" to null,
             "\\begin{cases}y''+y=0\\\\y(0)=1\\\\y'(0)=0\\end{cases}" to Choice(Mode.ODE_SERIES))
         for ((latex, choice) in chosen + LATER) Steps.of(latex, choice)?.forEach { reached += it.why.key }
+        for ((latex, choice) in NETWORK_STEPS) Steps.of(latex, choice)?.forEach { reached += it.why.key }
         // Interpolation and splines; orders, primitive roots and discrete logarithms, typed as their functions.
         for (text in NUMBERS) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         for ((latex, choice) in PdeTest.STEP_TASKS) Steps.of(latex, choice)?.forEach { reached += it.why.key }
+        for (text in LEARNING) TextInput.read(text).let { t -> Steps.of(t.latex, t.choice)?.forEach { reached += it.why.key } }
         assertEquals("", StepKey.values().filter { it !in reached }.joinToString())
     }
 

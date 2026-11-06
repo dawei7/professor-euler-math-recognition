@@ -405,6 +405,7 @@ object TextInput {
             lower in FUNCTION_WORDS -> emit("\\${FUNCTION_WORDS.getValue(lower)}")
             // A command inside a formula (2 det(A)), and a name the calculator does not know (round(2.5)): each fails
             // with its reason, never read as the product of its letters.
+            bracketFollows && lower in Learning.FUNCTIONS -> emit("\\operatorname{$lower}")
             bracketFollows && lower in CommandFunctions.NAMES -> emit("\\operatorname{$lower}")
             bracketFollows && unknownName(lower) -> emit("\\operatorname{$word}")
             lower == "pi" -> emit("\\pi ")
@@ -572,7 +573,7 @@ object TextInput {
     /** Every word a typed formula knows before a bracket. */
     private val KNOWN_WORDS: Set<String> by lazy {
         FUNCTION_WORDS.keys + WRAPPERS + Discrete.NAMES.keys + CommandFunctions.NAMES + setOf("gamma", "log", "lim") + GREEK_WORDS +
-            ValueFunctions.NAMES.keys
+            Learning.FUNCTIONS.keys + ValueFunctions.NAMES.keys
     }
 
     /** Words wrapped around their argument. */
