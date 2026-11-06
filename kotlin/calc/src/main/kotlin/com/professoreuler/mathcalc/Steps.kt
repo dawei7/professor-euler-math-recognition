@@ -84,6 +84,12 @@ enum class StepKey {
     // Machine learning: softmax, the information measures, Markov decision processes, gradient descent ([LearningSteps]).
     SOFTMAX_EXP, SOFTMAX_DIVIDE, SOFTMAX_CHECK, ENTROPY_SUM, CROSS_ENTROPY_SUM, KL_SUM, MI_MARGINALS, MI_SUM, INFO_CHECK,
     MDP_BELLMAN, MDP_SWEEPS, MDP_EVALUATE, MDP_OPTIMAL, MDP_POLICY_PARTS, MDP_LINEAR, GD_GRADIENT, GD_STEP, GD_MINIMUM,
+    // Financial mathematics: the formulas of interest, annuities and loans, the values put in, the internal rate of return,
+    // and the tables of loans and depreciation.
+    FIN_SIMPLE_INTEREST, FIN_COMPOUND, FIN_COMPOUND_SUBPERIODS, FIN_CONTINUOUS, FIN_DISCOUNT, FIN_RATE, FIN_PERIODS, FIN_EFFECTIVE,
+    FIN_NOMINAL, FIN_ANNUITY_FV, FIN_ANNUITY_PV, FIN_ANNUITY_DUE, FIN_LOAN_PAYMENT, FIN_LOAN_TERM, FIN_NPV, FIN_SUBSTITUTE,
+    FIN_IRR_POLYNOMIAL, FIN_IRR_RATES, FIN_SCHEDULE_ROW, FIN_SCHEDULE_LAST, FIN_EQUAL_PRINCIPAL, FIN_STRAIGHT_LINE,
+    FIN_DEPRECIATION_LAST, FIN_DECLINING,
     // Other bases, and the gcd and lcm of polynomials ([FunctionSteps]).
     BASE_DIVIDE, BASE_REMAINDERS, BASE_PLACE_VALUES, GCD_DIVIDE, GCD_LAST, LCM_PRODUCT,
 }
@@ -119,6 +125,7 @@ object Steps {
         AppliedSteps.of(c, latex, assumptions)?.let { return it }
         NetworkSteps.of(c, latex)?.let { return it }
         LearningSteps.of(c, latex, assumptions)?.let { return it }
+        FinanceSteps.of(c, latex)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

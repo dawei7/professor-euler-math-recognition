@@ -175,6 +175,14 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
         (o.minimum?.let { m -> " | minimum (" + o.letters.joinToString(", ") { c.text(m.at.getValue(it)) } + ") " + c.textValue(m.value) } ?: "")
     is Outcome.DecisionProcess -> "v* = " + o.values.joinToString(", ") { c.text(it) } + " | policy " +
         o.policy.joinToString(" ") { it.joinToString("/") } + " | sweeps ${o.sweeps}"
+    is Outcome.FinanceSchedule -> o.schedule.let { s ->
+        val m = Finance::money
+        val first = s.rows.first()
+        val end = s.rows.last()
+        s.plan.name.lowercase() + " ${s.rows.size} rows" + (s.regular?.let { " regular " + m(it) } ?: "") +
+            (s.last?.let { " last " + m(it) } ?: "") + " first " + first.drop(1).joinToString("/") { m(it) } +
+            " end " + m(end.last()) + " totals " + s.columns.indices.mapNotNull { j -> s.totals[j]?.let { s.columns[j].name.lowercase() + " " + m(it) } }.joinToString(", ")
+    }
     is Outcome.InBase -> "${o.value} = ${o.digits}_${o.base}"
 }
 

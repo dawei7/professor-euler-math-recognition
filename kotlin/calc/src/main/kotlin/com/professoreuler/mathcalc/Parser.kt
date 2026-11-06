@@ -757,7 +757,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
      * null where the letters are no such name or its arguments are no numbers (mu(x + 1) is then m·u·(x + 1)).
      */
     private fun numberFunction(name0: String? = null): Expr? {
-        val word = name0 ?: buildString { while (length < 12 && isLetter(t.getOrNull(i + length))) append(t[i + length]) }
+        val word = name0 ?: buildString { while (length < 20 && isLetter(t.getOrNull(i + length))) append(t[i + length]) }
         var name = word.lowercase()
         var length = if (name0 != null) 0 else word.length
         if (name == "stirling" && peek(length) == "1") { name = "stirling1"; length++ }

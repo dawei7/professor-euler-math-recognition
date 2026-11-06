@@ -37,7 +37,7 @@ object Discrete {
         "binompdf" to 3..3, "binomcdf" to 3..3, "poissonpdf" to 2..2, "poissoncdf" to 2..2, "geometpdf" to 2..2,
         "normalpdf" to 1..3, "normalcdf" to 2..4, "invnorm" to 1..3,
         "multorder" to 2..2, "primroot" to 1..1, "discretelog" to 3..3,
-    )
+    ) + Finance.NAMES
 
     /** Longest first, so `stirling1` is not `stirling` and a 1. */
     val ORDERED: List<String> = NAMES.keys.sortedByDescending { it.length }
@@ -65,6 +65,8 @@ object Discrete {
      */
     fun call(name: String, args: List<Expr>): Expr? {
         val key = name.lowercase()
+        // Financial mathematics: with letters its functions are their formulas, so solve() and plot() take them.
+        if (key in Finance.NAMES) return Finance.call(key, args)
         val arity = NAMES[key] ?: return null
         // gcd and lcm of polynomials in one letter: gcd(x² − 1, x² + 2x + 1) = x + 1.
         if ((key == "gcd" || key == "lcm") && args.any { it.symbols().isNotEmpty() } && args.none { it is Expr.Mat }) {
