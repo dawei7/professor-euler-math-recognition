@@ -146,6 +146,19 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
                     (k.zero?.let { ", ${k.name}_0 = " + c.text(it) } ?: "")
             } + s.checks.joinToString("") { k -> if (k.exact) " | exact" else " | ${k.terms} terms < ${k.digit}e${k.exponent}" }
     }
+    is Outcome.Basis -> (if (o.nullSpace) "ker" else "col") + " dim ${o.dimension} of ${o.space}" +
+        (if (o.vectors.isEmpty()) " {0}" else " span " + o.vectors.joinToString(" ") { c.text(it) })
+    is Outcome.RankCases -> "rank ${o.generic}" + o.special.joinToString("") { (v, r) -> " | ${o.parameter} = ${c.text(v)}: rank $r" } +
+        (if (o.undefined.isNotEmpty()) " | undefined at " + o.undefined.joinToString(", ") { c.text(it) } else "")
+    is Outcome.TangentLine -> "${o.line.first} = " + c.text(o.line.second) + " at (" + c.text(o.at) + ", " + c.text(o.value) + ") slope " + c.text(o.slope)
+    is Outcome.Optimized -> o.program.let { p ->
+        when (p.status) {
+            LinearProgram.Status.OPTIMAL -> (if (p.maximize) "max " else "min ") + c.text(p.value!!) + " at " +
+                p.letters.indices.joinToString(", ") { "${p.letters[it]} = " + c.text(p.point!![it]) }
+            LinearProgram.Status.UNBOUNDED -> "unbounded"
+            LinearProgram.Status.INFEASIBLE -> "no feasible point"
+        } + (if (p.free.isNotEmpty()) " (free " + p.free.joinToString(", ") + ")" else "")
+    }
 }
 
 private fun equilibrium(c: Calculation, e: Fields.Equilibrium): String =
