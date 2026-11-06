@@ -13,6 +13,9 @@ object LinAlg {
     /** At most this many rows and columns: beyond, exact arithmetic takes too long to be worth waiting for. */
     const val MOST = 8
 
+    /** At most this many entries in a list written as one vector: data for statistics, the cash flows of an investment. */
+    const val MOST_ENTRIES = 1000
+
     /** A row operation of an elimination, for its steps: swap rows i and j, multiply row i by c, add c times row j to row i. */
     sealed class RowOp {
         data class Swap(val i: Int, val j: Int) : RowOp()
@@ -37,7 +40,12 @@ object LinAlg {
         return Expr.Mat(rows)
     }
 
-    fun column(entries: List<Expr>): Expr.Mat = matrix(entries.map { listOf(it) })
+    /** A column of [entries]: a vector, a list of data; longer than a matrix may be, as a list of twenty marks is. */
+    fun column(entries: List<Expr>): Expr.Mat {
+        if (entries.size <= MOST) return matrix(entries.map { listOf(it) })
+        if (entries.size > MOST_ENTRIES) throw CalcException(Failure.TOO_LARGE)
+        return Expr.Mat(entries.map { listOf(it) })
+    }
 
     fun identity(n: Int): Expr.Mat = Expr.Mat(List(n) { i -> List(n) { j -> if (i == j) Expr.ONE else Expr.ZERO } })
 
