@@ -845,7 +845,13 @@ object Calculus {
      * lim as x → [a] of [e] ([side] −1 from below, 1 from above, null both): exact where substitution, cancelling,
      * L'Hôpital or the leading terms give it; ±∞; null where it does not exist or Calculate cannot find it.
      */
-    fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?): Expr? {
+    fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?): Expr? = limit(e, x, a, side, numericFallback = true)
+
+    /**
+     * As [limit]; without [numericFallback] only an exact limit (or ±∞) is given and nothing found by values alone: what a
+     * learner's lim(…) shows, where a decimal from values near the point (−4.9·10⁻¹¹ for sin x/x at ∞) is no answer.
+     */
+    fun limit(e: Expr, x: Expr.Sym, a: Expr, side: Int?, numericFallback: Boolean): Expr? {
         val numeric = numericLimit(e, x, a, side)
         // An exact value must agree with values near the point, where those settle.
         fun agrees(exact: Expr): Boolean {
@@ -863,8 +869,31 @@ object Calculus {
             null
         }
         series?.let { if (agrees(it)) return it else disagreed = true }
-        if (disagreed) return null
+        if (disagreed || !numericFallback) return null
         return numeric?.let { if (it.isInfinite()) (if (it > 0) Expr.INF else neg(Expr.INF)) else Expr.Real(it) }
+    }
+
+    /**
+     * A bounded part times a part that tends to 0 tends to 0: sin x/x as x → ∞, x² sin(1/x) as x → 0. 0 where [e] is such a
+     * product, else null.
+     */
+    private fun squeeze(e: Expr, x: Expr.Sym, a: Expr, side: Int?, depth: Int): Expr? {
+        if (e !is Expr.Mul) return null
+        val (boundedParts, rest) = e.factors.partition { it.has(x) && bounded(it, x) }
+        if (boundedParts.isEmpty() || rest.isEmpty()) return null
+        val l = exactLimit(mul(rest), x, a, side, depth + 1) ?: return null
+        return if (isZero(l)) Expr.ZERO else null
+    }
+
+    /** Bounded for every real value of x, as its form shows: sin, cos, arctan, tanh, erf, sgn of anything, and their sums and products. */
+    private fun bounded(e: Expr, x: Expr.Sym): Boolean = when {
+        !e.has(x) -> Numeric.value(e) != null
+        e is Expr.Fn -> e.f in setOf(Func.SIN, Func.COS, Func.ATAN, Func.ACOT, Func.TANH, Func.ERF, Func.ERFC, Func.SIGN) && e.args.size == 1 ||
+            e.f == Func.ABS && bounded(e.args[0], x)
+        e is Expr.Add -> e.terms.all { bounded(it, x) }
+        e is Expr.Mul -> e.factors.all { bounded(it, x) }
+        e is Expr.Pow -> integer(e.exp)?.let { it.signum() > 0 } == true && bounded(e.base, x)
+        else -> false
     }
 
     private fun exactLimit(e: Expr, x: Expr.Sym, a: Expr, side: Int?, depth: Int): Expr? {
@@ -943,6 +972,7 @@ object Calculus {
                 }
                 if (limits.size == parts.size) return tidy(if (e is Expr.Add) add(limits) else mul(limits))
             }
+            squeeze(e, x, a, side, depth)?.let { return it }
         }
         if (e is Expr.Pow && !e.base.has(x) && e.exp.has(x)) {
             val base = Numeric.value(e.base)
@@ -1290,7 +1320,8 @@ object Calculus {
                 else definite(body, e.variable, evaluate(e.a), evaluate(e.b)).let { d ->
                     d.exact ?: d.value?.let { Expr.Real(it) } ?: throw CalcException(if (d.diverges) Failure.DIVERGES else Failure.UNSOLVED)
                 }
-            OpKind.LIMIT -> limit(body, e.variable, evaluate(e.a ?: Expr.ZERO), e.b?.let { rational(it)?.signum })
+            // A limit written by the learner is exact or declined: never a decimal from values near the point.
+            OpKind.LIMIT -> limit(body, e.variable, evaluate(e.a ?: Expr.ZERO), e.b?.let { rational(it)?.signum }, numericFallback = false)
                 ?: throw CalcException(Failure.NO_LIMIT)
             OpKind.SUM -> {
                 val from = evaluate(e.a ?: Expr.ONE)

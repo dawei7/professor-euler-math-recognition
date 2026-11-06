@@ -647,7 +647,9 @@ object MathCalc {
                 factorable && polynomial && asWritten -> Choice(Mode.FACTOR)
                 else -> Choice(Mode.SIMPLIFY)
             }
-            val onRequest = if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION) else emptySet()
+            // A series when asked for (taylor(…)): of a polynomial too, at any point, and with other letters ((1 + x)^a).
+            val onRequest = (if (letters.size == 1) setOf(Mode.FOURIER, Mode.NEWTON, Mode.BISECTION) else emptySet()) +
+                (if (letters.isNotEmpty()) setOf(Mode.SERIES) else emptySet())
             return Plan(choices, likeliest, onRequest) { c ->
                 when (c.mode) {
                     Mode.LAPLACE -> Outcome.Expression(Transforms.laplace(last, x, Expr.Sym("s")) ?: throw CalcException(Failure.UNSOLVED))
