@@ -159,6 +159,8 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
             LinearProgram.Status.INFEASIBLE -> "no feasible point"
         } + (if (p.free.isNotEmpty()) " (free " + p.free.joinToString(", ") + ")" else "")
     }
+    is Outcome.RootSum -> (if (isZero(o.rest)) "" else c.text(o.rest) + " + ") +
+        o.sums.joinToString(" + ") { (q, s) -> "Σ_{${o.root}: ${c.text(q)} = 0} ${o.root}·ln(${c.text(s)})" } + " + C"
 }
 
 private fun equilibrium(c: Calculation, e: Fields.Equilibrium): String =
