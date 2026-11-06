@@ -39,6 +39,8 @@ object CommandFunctions {
         MULTI,
         /** A whole number (or its numeral) and a base: tobase(255, 16), frombase(FF, 16) ([Bases]). */
         BASE,
+        /** Read and written by [Algorithms]: words, lists, a recurrence, functions to compare. */
+        ALGORITHM,
     }
 
     /** A function: its [name], the [mode] it chooses (null: a notation the Calculator works out itself, ∫ₐᵇ, lim, Σ). */
@@ -173,6 +175,22 @@ object CommandFunctions {
         Function("invfouriertransform", Mode.INVERSE_FOURIER_TRANSFORM, Shape.MULTI, listOf("ω")),
         Function("tobase", Mode.TO_BASE, Shape.BASE, listOf("b")),
         Function("frombase", Mode.FROM_BASE, Shape.BASE, listOf("b")),
+        Function("mastertheorem", Mode.MASTER_THEOREM, Shape.ALGORITHM),
+        Function("akrabazzi", Mode.AKRA_BAZZI, Shape.ALGORITHM),
+        Function("asymptotic", Mode.ASYMPTOTIC, Shape.ALGORITHM),
+        Function("growthorder", Mode.GROWTH_ORDER, Shape.ALGORITHM),
+        Function("editdistance", Mode.EDIT_DISTANCE, Shape.ALGORITHM),
+        Function("lcs", Mode.LCS, Shape.ALGORITHM),
+        Function("knapsack", Mode.KNAPSACK, Shape.ALGORITHM),
+        Function("coinchange", Mode.COIN_CHANGE, Shape.ALGORITHM),
+        Function("coinways", Mode.COIN_WAYS, Shape.ALGORITHM),
+        Function("huffman", Mode.HUFFMAN, Shape.ALGORITHM),
+        Function("insertionsort", Mode.INSERTION_SORT, Shape.ALGORITHM),
+        Function("selectionsort", Mode.SELECTION_SORT, Shape.ALGORITHM),
+        Function("bubblesort", Mode.BUBBLE_SORT, Shape.ALGORITHM),
+        Function("mergesort", Mode.MERGE_SORT, Shape.ALGORITHM),
+        Function("quicksort", Mode.QUICKSORT, Shape.ALGORITHM),
+        Function("binarysearch", Mode.BINARY_SEARCH, Shape.ALGORITHM),
     )
 
     /** The names of [ALL]: a call of one that cannot be read fails ([Failure.ARGUMENTS]), never a product of its letters. */
@@ -202,6 +220,7 @@ object CommandFunctions {
         if (args.isEmpty() || args.any { it.isEmpty() }) return refused(f, inner)
         if (f.shape == Shape.MULTI) return MultiCalls.read(f, args) ?: refused(f, inner)
         if (f.shape == Shape.BASE) return Bases.read(f.mode!!, args) ?: refused(f, inner)
+        if (f.shape == Shape.ALGORITHM) return Algorithms.read(f.mode!!, args) ?: refused(f, inner)
         if (f.shape == Shape.LIST || f.shape == Shape.POINTS || f.shape == Shape.CONVERT) return special(f, args) ?: refused(f, inner)
         if (f.shape == Shape.APPLIED) return Applied.read(f, args) ?: refused(f, inner)
         if (f.shape == Shape.NETWORK) return Networks.typed(f.name, args) ?: refused(f, inner)
@@ -574,6 +593,8 @@ object CommandFunctions {
             Shape.NETWORK -> return l.takeIf { Networks.callOf(it)?.first == f.name }
             Shape.ARGS -> runCatching { StatCommands.pieces(l) }.getOrNull() ?: return null
             Shape.BASE -> Bases.arguments(c, l) ?: return null
+            // The call itself, as [Algorithms.read] wrote it.
+            Shape.ALGORITHM -> return l
             else -> return null
         }
         return call(f.name, args)

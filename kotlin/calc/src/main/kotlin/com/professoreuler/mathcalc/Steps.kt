@@ -104,6 +104,9 @@ enum class StepKey {
     SURF_PARTIALS, SURF_NORMAL, SURF_AREA, SURF_DOT, DIR_GRADIENT, DIR_AT, DIR_UNIT, DIR_DOT, TP_GRAPH, TP_NORMAL, TP_EQUATION,
     // Other bases, and the gcd and lcm of polynomials ([FunctionSteps]).
     BASE_DIVIDE, BASE_REMAINDERS, BASE_PLACE_VALUES, GCD_DIVIDE, GCD_LAST, LCM_PRODUCT,
+    // Divide-and-conquer recurrences, growth as n → ∞, Huffman codes.
+    MASTER_PARTS, MASTER_CRITICAL, MASTER_CASE_1, MASTER_CASE_2, MASTER_CASE_3, MASTER_GAP, MASTER_SEVERAL, AKRA_P, AKRA_INTEGRAL,
+    GROWTH_LIMIT, GROWTH_ZERO, GROWTH_FINITE, GROWTH_INFINITE, HUFFMAN_MERGE, HUFFMAN_CODES, HUFFMAN_AVERAGE,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -141,6 +144,7 @@ object Steps {
         LearningSteps.of(c, latex, assumptions)?.let { return it }
         FinanceSteps.of(c, latex)?.let { return it }
         MultiSteps.of(c, latex, assumptions)?.let { return it }
+        AlgorithmSteps.of(c)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()
