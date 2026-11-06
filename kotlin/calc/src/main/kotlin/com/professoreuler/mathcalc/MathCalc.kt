@@ -999,7 +999,7 @@ object MathCalc {
         if (points) choices += Choice(Mode.REGRESSION)
         if (points) choices += Interpolation.offered(m)
         val accepts = (if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()) +
-            setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE) + (if (numeric) Finance.MODES else emptySet())
+            setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE) + Finance.MODES
         val likeliest = when {
             data && (literal || m.size >= 5) -> Choice(Mode.STATISTICS)
             literal && points && m.size >= 4 -> Choice(Mode.REGRESSION)

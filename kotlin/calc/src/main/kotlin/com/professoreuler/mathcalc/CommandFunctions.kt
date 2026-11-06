@@ -239,8 +239,9 @@ object CommandFunctions {
     private fun special(f: Function, args: List<String>): Typed? {
         val l = TextInput
         return when (f.shape) {
-            // The elements of a list.
-            Shape.LIST -> Typed(l.listLatex(args.joinToString(", ")), Choice(f.mode!!))
+            // The elements of a list: two or more, or one list in brackets ([1, 2, 3]); a single number is no list.
+            Shape.LIST -> if (args.size == 1 && args[0].trim().firstOrNull() !in LIST_OPENERS) null
+                else Typed(l.listLatex(args.joinToString(", ")), Choice(f.mode!!))
             Shape.POINTS -> Typed(l.pointsLatex(args.joinToString(", "), matrix = f.mode in MATRIX_POINTS), Choice(f.mode!!))
             Shape.CONVERT -> if (args.size == 2) l.conversion(args[0], args[1]) else null
             else -> null
@@ -249,6 +250,9 @@ object CommandFunctions {
 
     /** The functions of points whose points are the rows of one matrix (a line's and a plane's are vectors, one to a line). */
     private val MATRIX_POINTS = setOf(Mode.REGRESSION, Mode.INTERPOLATION, Mode.SPLINE)
+
+    /** What a list given as one argument opens with: stats([1, 2, 3]), stats({1, 2, 3}). */
+    private val LIST_OPENERS = setOf('(', '[', '{')
 
     /** The call as the editor or the display writes it, its LaTeX dressing taken off: \left( is (, \operatorname{solve} is solve. */
     private fun plain(s: String): String = s

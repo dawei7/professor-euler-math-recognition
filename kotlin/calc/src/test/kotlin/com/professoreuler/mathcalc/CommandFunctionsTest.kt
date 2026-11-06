@@ -96,6 +96,11 @@ class CommandFunctionsTest {
         "phaseportrait(x' = y, y' = -x)",
         "interpolate((1, 2), (2, 3), (3, 5))",
         "spline((0, 0), (1, 1), (2, 0), (3, 1))",
+        "amortization(10000, 5%, 4)",
+        "equalprincipal(10000, 5%, 4)",
+        "straightline(10000, 1000, 5)",
+        "decliningbalance(10000, 20%, 5)",
+        "irr(-1000, 500, 700)",
     )
 
     @Test

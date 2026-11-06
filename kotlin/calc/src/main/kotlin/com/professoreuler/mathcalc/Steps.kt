@@ -67,6 +67,12 @@ enum class StepKey {
     // Interpolation and splines; orders, primitive roots and discrete logarithms.
     INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
     ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
+    // Financial mathematics: the formulas of interest, annuities and loans, the values put in, the internal rate of return,
+    // and the tables of loans and depreciation.
+    FIN_SIMPLE_INTEREST, FIN_COMPOUND, FIN_COMPOUND_SUBPERIODS, FIN_CONTINUOUS, FIN_DISCOUNT, FIN_RATE, FIN_PERIODS, FIN_EFFECTIVE,
+    FIN_NOMINAL, FIN_ANNUITY_FV, FIN_ANNUITY_PV, FIN_ANNUITY_DUE, FIN_LOAN_PAYMENT, FIN_LOAN_TERM, FIN_NPV, FIN_SUBSTITUTE,
+    FIN_IRR_POLYNOMIAL, FIN_IRR_RATES, FIN_SCHEDULE_ROW, FIN_SCHEDULE_LAST, FIN_EQUAL_PRINCIPAL, FIN_STRAIGHT_LINE,
+    FIN_DEPRECIATION_LAST, FIN_DECLINING,
 }
 
 /** What a step says, checkable: an equation, one of several, an inequality, a value, a system. */
@@ -95,6 +101,7 @@ object Steps {
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
         LinOdeSteps.of(c, latex, assumptions)?.let { return it }
+        FinanceSteps.of(c, latex)?.let { return it }
         return try {
             Budget.within(3000) {
                 val statements = Parser(TOKEN.findAll(latex).map { it.value }.toList(), Flags(assumptions)).statements()

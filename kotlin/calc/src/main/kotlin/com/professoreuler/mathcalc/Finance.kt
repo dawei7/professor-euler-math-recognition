@@ -61,7 +61,7 @@ object Finance {
     const val MOST_PERIODS = 1200
 
     /** The most compounding periods worked out exactly one by one in a check. */
-    private const val MOST_STEPS = 5000
+    private const val MOST_STEPS = 100_000
 
     /**
      * [name] at [args]: its value where the arguments are numbers, its formula where some are letters; null where [name] is no
@@ -117,19 +117,28 @@ object Finance {
 
     private fun one(r: Expr) = add(Expr.ONE, r)
 
-    /** b^e, kept exact: a whole power of a fraction too long for the canonical form stays the power itself. */
+    /**
+     * b^e, kept exact: a whole power of a fraction longer than the canonical form keeps exactly (daily interest for thirty years)
+     * is worked out here, as the fraction it is; beyond [MOST_BITS] bits it is too large ([Failure.TOO_LARGE]).
+     */
     private fun power(b: Expr, e: Expr): Expr {
         val rb = rational(b)
         val n = integer(e)
-        if (rb != null && n != null && n.bitLength() < 31) {
+        if (rb != null && n != null && n.bitLength() < 31 && rb.signum != 0) {
             val bits = n.abs().toLong() * maxOf(rb.num.bitLength(), rb.den.bitLength())
             if (bits > Rational.MAX_BITS) {
-                if (bits > 4_000_000) throw CalcException(Failure.TOO_LARGE)
-                return Expr.Pow(b, e)
+                if (bits > MOST_BITS) throw CalcException(Failure.TOO_LARGE)
+                val k = n.abs().toInt()
+                val top = rb.num.pow(k)
+                val bottom = rb.den.pow(k)
+                return Expr.Num(if (n.signum() > 0) Rational.of(top, bottom) else Rational.of(bottom, top))
             }
         }
         return pow(b, e)
     }
+
+    /** The longest whole power of a fraction worked out exactly, in bits of its numerator or denominator. */
+    private const val MOST_BITS = 400_000L
 
     private fun isNumberZero(e: Expr) = isZero(e)
 
@@ -146,7 +155,7 @@ object Finance {
         return when (name) {
             "simpleinterest" -> mul(a[0], a[1], a[2])
             "futurevalue" -> mul(a[0], growth(a[1], a[2], m))
-            "presentvalue" -> mul(a[0], pow(growth(a[1], a[2], m), Expr.MINUS_ONE))
+            "presentvalue" -> mul(a[0], power(growth(a[1], a[2], m), Expr.MINUS_ONE))
             "interestrate" -> {
                 val (p, f, n) = a
                 if (isNumberZero(n)) throw CalcException(Failure.DIVISION_BY_ZERO)
@@ -189,7 +198,7 @@ object Finance {
             }
             "loanpayment" -> {
                 val (p, r, n) = a
-                if (isNumberZero(r)) p / n else mul(p, r) / (Expr.ONE - power(one(r), neg(n)))
+                if (isNumberZero(r)) p / n else mul(p, r, power(Expr.ONE - power(one(r), neg(n)), Expr.MINUS_ONE))
             }
             "loanterm" -> {
                 val (p, r, pay) = a
@@ -202,7 +211,8 @@ object Finance {
                         val v = Numeric.value(left) ?: throw CalcException(Failure.UNDEFINED)
                         if (!(v > 0)) throw CalcException(Failure.UNDEFINED)
                     }
-                    neg(ln(left)) / ln(one(r))
+                    // n = ln(A/(A − rP))/ln(1 + r): the debt P·qⁿ − A·(qⁿ − 1)/r is 0.
+                    ln(pay / (pay - mul(r, p))) / ln(one(r))
                 }
             }
             "npv" -> {
@@ -329,20 +339,33 @@ object Finance {
         return mul(p, exp(mul(steps, ln(one(rate)))))
     }
 
+    /**
+     * [x0] taken [n] times through x ← x·a/b + c, exactly. Kept as N/(L·bᵏ) in whole numbers and reduced once at the end: a
+     * fraction reduced at every step (a gcd of long numbers each time) would take seconds for a hundred years of months.
+     */
+    internal fun affine(x0: Rational, a: BigInteger, b: BigInteger, c: Rational, n: Int): Rational {
+        val l = x0.den * c.den
+        var top = x0.num * c.den
+        val step = c.num * x0.den
+        var bk = BigInteger.ONE
+        for (k in 1..n) {
+            Budget.check()
+            bk *= b
+            // x_k·L·bᵏ = x_(k−1)·L·bᵏ⁻¹·a + c·L·bᵏ.
+            top = top * a + step * bk
+        }
+        return Rational.of(top, l * bk)
+    }
+
     /** n payments of [pay] added one by one: at the end of each period (or at its start, [due]), to the end or to the start. */
     private fun payments(pay: Expr, r: Expr, n: Int, future: Boolean, due: Boolean): Expr {
         val q = one(r)
         val rq = rational(q)
         val rp = rational(pay)
         if (rq != null && rp != null) {
-            // In fractions: S ← S·q + R for the future value, S ← (S + R)/q for the present value.
-            var s = Rational.ZERO
-            for (j in 0 until n) {
-                if (j % 64 == 0) Budget.check()
-                s = if (future) s * rq + rp else (s + rp) / rq
-            }
-            if (due) s *= rq
-            return Expr.Num(s)
+            // In fractions: S ← S·q + R for the future value, S ← (S + R)/q = S/q + R/q for the present value.
+            val s = if (future) affine(Rational.ZERO, rq.num, rq.den, rp, n) else affine(Rational.ZERO, rq.den, rq.num, rp / rq, n)
+            return Expr.Num(if (due) s * rq else s)
         }
         val terms = (0 until n).map { j ->
             Budget.check()
@@ -359,11 +382,7 @@ object Finance {
         val ra = rational(pay)
         if (rp != null && rr != null && ra != null) {
             val q = Rational.ONE + rr
-            var d: Rational = rp
-            for (j in 0 until n) {
-                if (j % 64 == 0) Budget.check()
-                d = d * q - ra
-            }
+            val d = affine(rp, q.num, q.den, -ra, n)
             return Expr.Num(d)
         }
         val q = one(r)
@@ -425,7 +444,7 @@ object Finance {
     internal fun outcome(mode: Mode, m: Expr.Mat): Outcome {
         val values = if (LinAlg.isVector(m)) m.rows.map { it[0] } else if (m.size == 1) m.rows[0] else throw CalcException(Failure.ARGUMENTS)
         if (mode == Mode.IRR) return Outcome.Solved(irr(values))
-        if (values.size != 3) throw CalcException(Failure.ARGUMENTS)
+        if (values.size != 3 || values.any { rational(it) == null }) throw CalcException(Failure.ARGUMENTS)
         val (a, b, c) = values
         val n = integer(c)?.takeIf { it.signum() > 0 } ?: throw CalcException(Failure.UNDEFINED)
         if (n > BigInteger.valueOf(MOST_PERIODS.toLong())) throw CalcException(Failure.TOO_LARGE)
@@ -488,12 +507,8 @@ object Finance {
         if (p.signum <= 0) throw CalcException(Failure.UNDEFINED)
         val exact = if (r.signum == 0) p / Rational.of(n.toLong()) else p * r / (Rational.ONE - Rational.ONE / rpow(Rational.ONE + r, n))
         // The exact payment put back: n payments of it leave exactly no debt.
-        var d = p
         val q = Rational.ONE + r
-        for (k in 0 until n) {
-            if (k % 32 == 0) Budget.check()
-            d = d * q - exact
-        }
+        val d = affine(p, q.num, q.den, -exact, n)
         if (d.signum != 0) throw CalcException(Failure.UNSOLVED)
         val a = roundCents(exact)
         val rows = ArrayList<List<Rational>>()
@@ -683,10 +698,18 @@ object Finance {
         val coefficients = (0..n).map { k -> trimmed[n - k] }
         val q = Expr.Sym("q")
         val polynomial = add(coefficients.mapIndexed { k, c -> mul(num(c), pow(q, num(k.toLong()))) })
-        val solved = Solve.equation(polynomial, Expr.ZERO, q)
-        val positive = solved.values.filter { v -> Numeric.value(v)?.let { it > 0 } == true }
+        // Sturm's sequence: every positive root, certainly, none missed however close.
         val certain = Sturm.realRoots(coefficients).filter { it > 0 }
-        if (positive.size != certain.size) throw CalcException(Failure.UNSOLVED)
+        // Exact forms where the solver finds them (factors, the quadratic formula, Cardano), the same roots; else the decimals.
+        val exact = try {
+            Solve.equation(polynomial, Expr.ZERO, q).values.filter { v -> Numeric.value(v)?.let { it > 0 } == true }
+        } catch (e: CalcException) {
+            if (e.failure == Failure.TOO_LONG) throw e
+            null
+        }
+        val matches = exact != null && exact.size == certain.size && exact.map { Numeric.value(it)!! }.sorted().zip(certain.sorted())
+            .all { (a, b) -> kotlin.math.abs(a - b) <= 1e-9 * maxOf(1.0, kotlin.math.abs(b)) }
+        val positive: List<Expr> = if (matches) exact!! else certain.map { Expr.Real(it) }
         // Descartes: no more positive roots than changes of sign, and one exactly where there is one change.
         val signs = flows.filter { it.signum != 0 }.map { it.signum }
         val changes = signs.zipWithNext().count { (a, b) -> a != b }
