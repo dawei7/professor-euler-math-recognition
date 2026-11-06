@@ -41,6 +41,9 @@ object MatrixForms {
     /** Entries longer than this make an exact SVD unreadable: the decimals are shown instead. */
     private const val LONGEST = 40
 
+    /** How long the exact SVD may take before the decimals are worked out. */
+    private const val EXACT_MS = 1200L
+
     // ---------------------------------------------------------------------------------------------------------------------
     // The singular value decomposition.
 
@@ -52,18 +55,17 @@ object MatrixForms {
             val t = svd(LinAlg.transpose(a))
             return Svd(t.v, LinAlg.transpose(t.sigma), t.u, t.values, t.rank, t.exact)
         }
+        // The exact attempt has a part of the time; past it, or where it fails, the decimals.
         val exact = try {
-            exactSvd(a)
+            Budget.within(EXACT_MS) { exactSvd(a) }
         } catch (e: CalcException) {
-            if (e.failure == Failure.TOO_LONG) throw e
             null
         }
         if (exact != null) return exact
         val numeric = numericSvd(a) ?: throw CalcException(Failure.UNSOLVED)
         val values = try {
-            exactValues(a, numeric.values)
+            Budget.within(EXACT_MS / 2) { exactValues(a, numeric.values) }
         } catch (e: CalcException) {
-            if (e.failure == Failure.TOO_LONG) throw e
             null
         } ?: return numeric
         val m = a.size
@@ -102,15 +104,18 @@ object MatrixForms {
             Budget.check()
             var v: Expr.Mat = w
             for (q in basis + done) {
-                val qq = LinAlg.dot(q, q)
+                val qq = dot(q, q)
                 if (LinAlg.isNull(qq)) return null
-                v = LinAlg.plus(v, LinAlg.scale(q, tidy(neg(LinAlg.dot(q, w)) / qq))) as Expr.Mat
+                v = LinAlg.plus(v, LinAlg.scale(q, tidy(neg(dot(q, w)) / qq))) as Expr.Mat
             }
             if (v.rows.all { LinAlg.isNull(it[0]) }) continue
             done += v
         }
-        return done.map { v -> LinAlg.scale(v, tidy(pow(LinAlg.norm(v), Expr.MINUS_ONE))).let { u -> Expr.Mat(u.rows.map { r -> r.map { tidy(Algebra.rationalize(it)) } }) } }
+        return done.map { v -> LinAlg.scale(v, tidy(pow(tidy(sqrt(dot(v, v))), Expr.MINUS_ONE))).let { u -> Expr.Mat(u.rows.map { r -> r.map { tidy(Algebra.rationalize(it)) } }) } }
     }
+
+    /** The dot product of two columns of one length, one entry long too. */
+    private fun dot(a: Expr.Mat, b: Expr.Mat): Expr = tidy(add(a.rows.indices.map { mul(a.rows[it][0], b.rows[it][0]) }))
 
     private fun columns(vs: List<Expr.Mat>, rows: Int): Expr.Mat = Expr.Mat(List(rows) { i -> vs.map { it.rows[i][0] } })
 

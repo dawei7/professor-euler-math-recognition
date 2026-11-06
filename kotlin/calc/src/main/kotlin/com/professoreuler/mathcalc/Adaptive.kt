@@ -31,8 +31,9 @@ object Adaptive {
         -2187.0 / 6784 + 92097.0 / 339200, 11.0 / 84 - 187.0 / 2100, -1.0 / 40,
     )
 
-    /** The tolerance of each step, relative and absolute. */
+    /** The tolerance of each step: relative, and absolute where y is near 0. */
     const val TOLERANCE = 1e-10
+    const val ABSOLUTE = 1e-12
 
     /** At most this many steps, taken or not. */
     private const val MOST = 5000
@@ -47,7 +48,7 @@ object Adaptive {
         if (!f(x0, y0).isFinite() || x1 == x0) throw CalcException(Failure.UNDEFINED)
         val direction = sign(x1 - x0)
         val span = abs(x1 - x0)
-        fun scale(v: Double) = TOLERANCE + TOLERANCE * abs(v)
+        fun scale(v: Double) = ABSOLUTE + TOLERANCE * abs(v)
         // The starting step (Hairer, Nørsett, Wanner, II.4).
         var k1 = f(x0, y0)
         val d0 = abs(y0) / scale(y0)
@@ -90,7 +91,7 @@ object Adaptive {
                 if (h < 1e-12 * max(1.0, abs(xv))) throw CalcException(Failure.UNDEFINED)
                 continue
             }
-            val err = abs(errEstimate) / (TOLERANCE + TOLERANCE * max(abs(yv), abs(next)))
+            val err = abs(errEstimate) / (ABSOLUTE + TOLERANCE * max(abs(yv), abs(next)))
             if (err <= 1.0) {
                 xv = if (last) x1 else xv + hs
                 yv = next
