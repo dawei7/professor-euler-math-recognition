@@ -73,7 +73,7 @@ internal sealed class StepForm {
  * gives the formula after it; the last one is the answer the card shows. Where Calculate has no steps for a formula, null.
  */
 object Steps {
-    private val TOKEN = Regex("""\\[a-zA-Z]+|\\.|\S""")
+    private val TOKEN = MathCalc.TOKEN
 
     /**
      * The steps for [latex] in [choice] (null: the likeliest, as [MathCalc.calculate] picks it), read with [assumptions], or null

@@ -59,12 +59,13 @@ object Discrete {
 
     /**
      * [name] at [args], or null where it is no number function or an argument is no number (then the letters are a product:
-     * mu(x+1) is m·u·(x + 1)).
+     * mu(x+1) is m·u·(x + 1)); numbers, but not as many as it takes, fail ([Failure.ARGUMENTS]): gcd(12) is no g·c·d·12.
      */
     fun call(name: String, args: List<Expr>): Expr? {
         val key = name.lowercase()
         val arity = NAMES[key] ?: return null
-        if (args.size !in arity || args.any { it.symbols().isNotEmpty() || it is Expr.Mat }) return null
+        if (args.any { it.symbols().isNotEmpty() || it is Expr.Mat }) return null
+        if (args.size !in arity) throw CalcException(Failure.ARGUMENTS)
         Budget.check()
         return when (key) {
             "gcd" -> big(args.map { whole(it).abs() }.reduce { a, b -> a.gcd(b) })

@@ -280,8 +280,9 @@ object TextInput {
     private fun wordAt(word: String, s: String, start: Int, emit: (String) -> Unit): Int {
         var i = start
         val lower = word.lowercase(Locale.ROOT)
-        val nextNonSpace = s.substring(i).trimStart().firstOrNull()
-        val bracketFollows = nextNonSpace == '('
+        // A bracket as typed, or as the editor writes it (\left().
+        val after = s.substring(i).trimStart()
+        val bracketFollows = after.startsWith("(") || after.startsWith("\\left(")
         when {
             lower == "log" && i < s.length && s[i].isDigit() -> {
                 // log10(x), log2(x)
@@ -312,6 +313,10 @@ object TextInput {
             lower == "gamma" && bracketFollows -> emit("\\Gamma")
             word == "Gamma" -> emit("\\Gamma ")
             lower in FUNCTION_WORDS -> emit("\\${FUNCTION_WORDS.getValue(lower)}")
+            // A command inside a formula (2 det(A)), and a name the calculator does not know (round(2.5)): each fails
+            // with its reason, never read as the product of its letters.
+            bracketFollows && lower in CommandFunctions.NAMES -> emit("\\operatorname{$lower}")
+            bracketFollows && unknownName(lower) -> emit("\\operatorname{$word}")
             lower == "pi" -> emit("\\pi ")
             lower == "inf" || lower == "infinity" || lower == "oo" -> emit("\\infty ")
             word in GREEK_WORDS -> emit("\\$word ")
@@ -439,6 +444,27 @@ object TextInput {
     private val TRAILING_D = Regex("\\s*\\bd([A-Za-z])\\s*$")
     private val LETTER = Regex("^[A-Za-z](_?\\{?[0-9]+\\}?)?$")
     private val COMMAND_END = Regex("\\\\[a-zA-Z]+$")
+
+    /**
+     * A word before a bracket that names no function: three letters or more (round, max, arcsinh), or one of the two-letter
+     * names other calculators have (re, im), unless it ends in a function after a letter or two (x sin(x) written xsin(x)).
+     */
+    private fun unknownName(lower: String): Boolean {
+        if (lower.length < 3 && lower !in setOf("re", "im")) return false
+        // asinh(1) is no a·sinh(1): the inverse hyperbolic functions under each of their names; beta(2, 3) is Euler's B,
+        // which the calculator does not have, not β times a vector.
+        if (lower in INVERSE_HYPERBOLIC || lower == "beta") return true
+        if (lower in Discrete.NAMES || lower in KNOWN_WORDS) return false
+        return KNOWN_WORDS.none { lower.endsWith(it) && lower.length - it.length in 1..2 }
+    }
+
+    private val INVERSE_HYPERBOLIC = setOf("asinh", "acosh", "atanh", "acoth", "arsinh", "arcosh", "artanh", "arcoth", "arcsinh",
+        "arccosh", "arctanh", "arccoth")
+
+    /** Every word a typed formula knows before a bracket. */
+    private val KNOWN_WORDS: Set<String> by lazy {
+        FUNCTION_WORDS.keys + WRAPPERS + Discrete.NAMES.keys + CommandFunctions.NAMES + setOf("gamma", "log", "lim") + GREEK_WORDS
+    }
 
     /** Words wrapped around their argument. */
     private val WRAPPERS = setOf("sqrt", "cbrt", "abs", "floor", "ceil")

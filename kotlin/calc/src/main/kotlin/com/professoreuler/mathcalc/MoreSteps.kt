@@ -8,7 +8,7 @@ import java.math.BigInteger
  * what was done and shows the formula after it; the last is the answer the card shows.
  */
 internal object MoreSteps {
-    private val TOKEN = Regex("""\\[a-zA-Z]+|\\.|\S""")
+    private val TOKEN = MathCalc.TOKEN
 
     fun of(c: Calculation, latex: String, assumptions: Assumptions): List<Step>? = try {
         Builder(c, latex, assumptions).build()?.takeIf { it.size >= 2 }

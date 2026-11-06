@@ -107,7 +107,9 @@ internal class Flags(val assumptions: Assumptions = Assumptions()) {
  */
 internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), private val pmSign: Int = 1,
     private val bound: Set<String> = emptySet()) {
-    private val t: List<String> = clean(tokens)
+    /** Where a comma had a space after it: a separator, never a decimal comma. */
+    private val spaced = HashSet<Int>()
+    private val t: List<String> = clean(tokens, spaced)
     private var i = 0
     private var absDepth = 0
 
@@ -418,7 +420,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             }
             if (depth == 1 && s == ",") {
                 commas++
-                if (!isDigit(t.getOrNull(k - 1)) || !isDigit(t.getOrNull(k + 1))) notBetweenDigits = true
+                if (!isDigit(t.getOrNull(k - 1)) || !isDigit(t.getOrNull(k + 1)) || k in spaced) notBetweenDigits = true
             }
             k++
         }
@@ -539,7 +541,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         val whole = StringBuilder()
         while (isDigit(peek())) whole.append(t[i++])
         val separator = peek()
-        if ((separator == "." || (separator == "," && listDepth == 0)) && isDigit(peek(1))) {
+        if ((separator == "." || (separator == "," && listDepth == 0 && i !in spaced)) && isDigit(peek(1))) {
             i++
             val fraction = StringBuilder()
             while (isDigit(peek())) fraction.append(t[i++])
@@ -1007,7 +1009,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             "\\bigl", "\\bigr", "\\Bigl", "\\Bigr", "\\quad", "\\qquad")
 
         /** The tokens without spacing and sizing; `\right.` (an invisible closing bracket) goes whole. */
-        private fun clean(tokens: List<String>): List<String> {
+        private fun clean(tokens: List<String>, spaced: MutableSet<Int>): List<String> {
             val out = ArrayList<String>(tokens.size)
             var k = 0
             while (k < tokens.size) {
@@ -1023,14 +1025,22 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
                             val name = inside.joinToString("")
                             when {
                                 name in FUNCTIONS || name in COMMAND_NAMES -> out += "\\$name"
-                                // A command's call that could not be read is no product of its letters.
-                                s == "\\operatorname" && name in CommandFunctions.NAMES -> throw CalcException(Failure.ARGUMENTS)
+                                // A command's call that could not be read is no product of its letters, and neither is a
+                                // command inside a formula or a name the calculator does not know.
+                                s == "\\operatorname" && name in CommandFunctions.NAMES ->
+                                    throw CalcException(if (out.isEmpty()) Failure.ARGUMENTS else Failure.COMMAND_INSIDE)
+                                s == "\\operatorname" && name.length >= 2 && name.lowercase() !in Discrete.NAMES ->
+                                    throw CalcException(Failure.UNKNOWN_FUNCTION)
                                 else -> out.addAll(inside)
                             }
                             k = close
                         }
                     }
                     s == "\\right" -> if (tokens.getOrNull(k + 1) == ".") k++
+                    s.length > 1 && s[0] == ',' -> {
+                        spaced += out.size
+                        out += ","
+                    }
                     s !in IGNORED -> out += s
                 }
                 k++

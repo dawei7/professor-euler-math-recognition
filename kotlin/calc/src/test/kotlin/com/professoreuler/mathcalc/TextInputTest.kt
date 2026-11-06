@@ -100,6 +100,30 @@ class TextInputTest {
         "integral(x^2, x, 0, 2,5)" to "FAILED ARGUMENTS",
     ))
 
+    /**
+     * A name the calculator does not know fails with its reason, never read as the product of its letters; a function after
+     * a letter or two stays a product (x sin x), and so do two letters before a bracket (ab(a + b)). A spaced comma is never
+     * a decimal one.
+     */
+    @Test
+    fun unknownNamesAreRefused() = check(listOf(
+        "round(2.5)" to "FAILED UNKNOWN_FUNCTION",
+        "round\\left(2.5\\right)" to "FAILED UNKNOWN_FUNCTION",
+        "max(1, 5, 3)" to "FAILED UNKNOWN_FUNCTION",
+        "re(3 + 4i)" to "FAILED UNKNOWN_FUNCTION",
+        "asinh(1)" to "FAILED UNKNOWN_FUNCTION",
+        "arcsinh(1)" to "FAILED UNKNOWN_FUNCTION",
+        "beta(2, 3)" to "FAILED UNKNOWN_FUNCTION",
+        "2det([[1, 2], [3, 4]])" to "FAILED COMMAND_INSIDE",
+        "gcd(12)" to "FAILED ARGUMENTS",
+        "binom(5)" to "FAILED ARGUMENTS",
+        "xsin(x)" to "x·sin(x)",
+        "ab(a + b)" to "a^2b + ab^2",
+        "gcd(12, 18)" to "6",
+        "|(3, 4)|" to "5",
+        "(1,5)" to "1,5",
+    ))
+
     /** A call with arguments its function does not take fails, and says so: no argument is left out or guessed. */
     @Test
     fun aCallWithOtherArgumentsIsRefused() = check(listOf(

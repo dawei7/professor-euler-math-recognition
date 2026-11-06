@@ -51,7 +51,7 @@ object Lines {
 
     private const val LIMIT_MS = 4000L
 
-    private val TOKEN = Regex("""\\[a-zA-Z]+|\\.|\S""")
+    private val TOKEN = MathCalc.TOKEN
 
     private fun parse(reading: String): Line {
         val flags = Flags()

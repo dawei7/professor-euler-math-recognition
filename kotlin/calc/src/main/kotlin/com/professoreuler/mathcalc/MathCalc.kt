@@ -44,6 +44,10 @@ enum class Failure {
      * could be read two ways (`stats(1,5, 2,5)`).
      */
     ARGUMENTS,
+    /** A name before a bracket that is no function of the calculator: round(2.5), max(1, 2). Never read as its letters. */
+    UNKNOWN_FUNCTION,
+    /** A command's function (solve, det …) inside a formula, as 2·det(A): it takes a line of its own. */
+    COMMAND_INSIDE,
 }
 
 class CalcException(val failure: Failure) : Exception(failure.name)
@@ -451,7 +455,7 @@ object MathCalc {
         var shown: Choice? = null
         val outcome = try {
             // Logic and sets are read on their own; everything else is mathematics for the parser.
-            val logic = Logic.read(tokens)
+            val logic = Logic.read(tokens.map { if (it.length > 1 && it[0] == ',') "," else it })
             val statements = if (logic != null) emptyList() else Parser(tokens, flags).statements()
             if (fractions) flags.fractions = true
             val others = if (flags.plusMinus) Parser(tokens, Flags(assumptions).also { it.decimals = flags.decimals }, pmSign = -1).statements() else null
@@ -497,7 +501,11 @@ object MathCalc {
     /** How long one calculation may take. */
     const val LIMIT_MS = 3000L
 
-    internal val TOKEN = Regex("""\\[a-zA-Z]+|\\.|\S""")
+    /**
+     * The tokens of LaTeX: a command, an escaped sign, or one sign; a comma with a space after it is a token of its own
+     * (`", "`), a separator and never a decimal comma: log(8, 2) is no log of 8.2, (3, 4) no 3.4.
+     */
+    internal val TOKEN = Regex("""\\[a-zA-Z]+|\\.|,\s+|\S""")
 
     private val TWO = BigInteger.valueOf(2)
 
