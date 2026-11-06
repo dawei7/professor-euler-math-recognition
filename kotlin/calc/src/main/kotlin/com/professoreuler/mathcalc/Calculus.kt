@@ -119,11 +119,26 @@ object Calculus {
 
     /** An antiderivative of [e] (without + C), checked by differentiating it back; null where none was found. */
     fun antiderivative(e: Expr, x: Expr.Sym): Expr? {
-        val f = integrate(e, x, 0) ?: return null
-        val back = diff(f, x)
-        if (!Verify.same(back, e)) return null
-        return tidy(f)
+        val f = integrate(e, x, 0)?.takeIf { Verify.same(diff(it, x), e) }
+            // The methods for what the rules above miss: substitutions (t = tan(x/2), Euler's, t = ⁿ√(ax + b)) and Risch–Norman.
+            ?: MoreIntegrals.of(e, x)?.takeIf { Verify.same(diff(it, x), e) }
+            ?: return null
+        return neat(f)
     }
+
+    /**
+     * An antiderivative as a learner writes it: simplified as a whole, or term by term where that is shorter (the rational
+     * part of ∫ 1/(x² + 1)² stays x/(2(x² + 1)) beside arctan(x)/2, not one fraction over both).
+     */
+    private fun neat(f: Expr): Expr {
+        val whole = tidy(f)
+        if (f !is Expr.Add) return whole
+        val parts = try { add(f.terms.map(::tidy)) } catch (c: CalcException) { if (c.failure == Failure.TOO_LONG) throw c; return whole }
+        return if (Algebra.complexity(parts) < Algebra.complexity(whole)) parts else whole
+    }
+
+    /** The rules of [antiderivative] on an integrand a substitution made ([MoreIntegrals]), not yet checked. */
+    internal fun integrateByRules(e: Expr, x: Expr.Sym): Expr? = integrate(e, x, 1)
 
     private fun integrate(e: Expr, x: Expr.Sym, depth: Int): Expr? {
         if (depth > 8) return null
@@ -141,6 +156,8 @@ object Calculus {
     /** The methods for a whole integrand: fractions, substitution, parts, trigonometric powers, multiplying out. */
     private fun integrateWhole(e: Expr, x: Expr.Sym, depth: Int): Expr? {
         rationalFunction(e, x)?.let { return it }
+        // Every other fraction of polynomials: Hermite, Rothstein–Trager and Rioboo (1/(x⁴ + 1), 1/(x² + 1)³).
+        RationalIntegral.of(e, x)?.let { return it }
         evenPowerTimesRoot(e, x, depth)?.let { return it }
         rationalInExp(e, x, depth)?.let { return it }
         substitution(e, x, depth)?.let { return it }
@@ -384,7 +401,7 @@ object Calculus {
         }
         val inU = tidy(mul(replace(e), pow(mul(num(a), u), Expr.MINUS_ONE)))
         if (inU.has(x)) return null
-        val f = rationalFunction(inU, u) ?: return null
+        val f = rationalFunction(inU, u) ?: RationalIntegral.of(inU, u) ?: return null
         return f.substitute(u, exp(mul(num(a), x)))
     }
 

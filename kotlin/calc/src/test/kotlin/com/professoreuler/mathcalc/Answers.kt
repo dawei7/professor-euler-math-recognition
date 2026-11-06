@@ -94,6 +94,8 @@ internal fun answerOf(c: Calculation): String = when (val o = c.outcome) {
     }
     is Outcome.LineThrough -> o.line.let { l -> (l.equation?.let { "${it.first} = " + c.text(it.second) } ?: ("direction " + c.text(l.direction))) + " distance " + c.text(l.distance) }
     is Outcome.PlaneThrough -> c.text(o.plane.equation) + " = 0"
+    is Outcome.RootSum -> (if (isZero(o.rest)) "" else c.text(o.rest) + " + ") +
+        o.sums.joinToString(" + ") { (q, s) -> "Σ_{${o.root}: ${c.text(q)} = 0} ${o.root}·ln(${c.text(s)})" } + " + C"
 }
 
 internal fun lines(vararg readings: String): String = answerOf(MathCalc.lines(readings.toList()))

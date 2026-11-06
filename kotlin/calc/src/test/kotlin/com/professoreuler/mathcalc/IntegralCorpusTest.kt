@@ -111,7 +111,7 @@ class IntegralCorpusTest {
         e("\\frac{e^{\\arctan(x)}}{1+x^{2}}"), e("\\arctan(\\sqrt{x})"), e("\\operatorname{arccot}(x)"), e("x\\arccos(x)"),
         e("\\arcsin(x)^{2}"), e("\\frac{\\arctan(x)^{2}}{1+x^{2}}"), e("x^{3}\\arctan(x)"), e("\\arctan(2x)"), e("\\arcsin(2x)"),
         e("\\frac{\\arcsin(x)}{x^{2}}"), e("\\frac{x\\arcsin(x)}{\\sqrt{1-x^{2}}}"), e("\\arctan(\\frac{1}{x})"),
-        e("\\frac{1}{(1+x^{2})\\arctan(x)}"), e("x\\arctan(x)^{2}"), e("\\arcsin(\\sqrt{x})"), e("\\frac{x}{1+x^{2}}\\arctan(x)"),
+        e("\\frac{1}{(1+x^{2})\\arctan(x)}"), e("x\\arctan(x)^{2}"), e("\\arcsin(\\sqrt{x})"), none("\\frac{x}{1+x^{2}}\\arctan(x)"),
     )
 
     private val hyperbolic = listOf(
@@ -165,6 +165,63 @@ class IntegralCorpusTest {
         return if (ok >= 3) true else null
     }
 
+    /** A polynomial expression in its letters, in complex doubles (for a root sum's S(α, x) at a complex α). */
+    private fun complexValue(e: Expr, env: Map<String, Cx>): Cx = when (e) {
+        is Expr.Num -> Cx(e.value.toDouble())
+        is Expr.Sym -> env.getValue(e.name)
+        is Expr.Add -> e.terms.fold(Cx(0.0)) { acc, t -> acc + complexValue(t, env) }
+        is Expr.Mul -> e.factors.fold(Cx(1.0)) { acc, t -> acc * complexValue(t, env) }
+        is Expr.Pow -> {
+            val n = integer(e.exp)!!.toInt()
+            var out = Cx(1.0)
+            repeat(kotlin.math.abs(n)) { out *= complexValue(e.base, env) }
+            if (n < 0) Cx(1.0) / out else out
+        }
+        else -> error("not a polynomial: $e")
+    }
+
+    /** The roots of q (a polynomial in [letter]) by Durand–Kerner, written here again so the check does not use the engine's. */
+    private fun rootsOf(q: Expr, letter: String): List<Cx> {
+        val c = Solve.coefficientsIn(Algebra.expand(q), Expr.Sym(letter))!!.map { Numeric.value(it)!! }
+        val n = c.size - 1
+        val a = c.map { it / c.last() }
+        var z = List(n) { k -> Cx(kotlin.math.cos(2.0 * k + 0.4), kotlin.math.sin(2.0 * k + 0.4)) }
+        repeat(2000) {
+            z = z.mapIndexed { i, zi ->
+                var value = Cx(1.0)
+                for (k in n - 1 downTo 0) value = value * zi + Cx(a[k])
+                var den = Cx(1.0)
+                for ((j, zj) in z.withIndex()) if (j != i) den *= (zi - zj)
+                zi - value / den
+            }
+        }
+        return z
+    }
+
+    /** F = rest + Σ α ln S(α, x) differentiated numerically (complex logarithms) against f, as [differentiatesBack]. */
+    private fun rootSumDifferentiatesBack(o: Outcome.RootSum, f: Expr): Boolean? {
+        val roots = o.sums.map { (q, _) -> rootsOf(q, o.root) }
+        fun big(t: Double): Cx {
+            var out = Cx(Numeric.eval(o.rest, mapOf(o.variable to t)))
+            for ((k, pair) in o.sums.withIndex()) for (alpha in roots[k]) out += alpha * complexValue(pair.second, mapOf(o.root to alpha, o.variable to Cx(t))).ln()
+            return out
+        }
+        var ok = 0
+        for (p in listOf(0.37, 0.71, 1.23, 1.9, -0.43, -1.37, 2.6, 0.13)) {
+            val fv = Numeric.eval(f, mapOf("x" to p))
+            if (!fv.isFinite()) continue
+            var agrees = false
+            for (scale in listOf(1e-4, 1e-5)) {
+                val h = scale * max(1.0, abs(p))
+                val d = (big(p + h) - big(p - h)) / Cx(2 * h)
+                if (abs(d.re - fv) <= 1e-5 * max(1.0, abs(fv)) && abs(d.im) <= 1e-5 * max(1.0, abs(fv))) agrees = true
+            }
+            if (!agrees) return false
+            ok++
+        }
+        return if (ok >= 3) true else null
+    }
+
     @Test
     fun corpus() {
         val wrong = ArrayList<String>()
@@ -174,6 +231,7 @@ class IntegralCorpusTest {
         var solvedAll = 0
         var elementaryAll = 0
         val solvedBySection = LinkedHashMap<String, Int>()
+        var rootSums = 0
         for ((name, entries) in sections) {
             var solved = 0
             var elementary = 0
@@ -185,6 +243,14 @@ class IntegralCorpusTest {
                 val started = System.nanoTime()
                 val o = MathCalc.calculate(entry.latex, Choice(Mode.INTEGRAL, "x")).outcome
                 val ms = (System.nanoTime() - started) / 1_000_000
+                if (o is Outcome.RootSum) {
+                    when (rootSumDifferentiatesBack(o, f)) {
+                        true -> { solved++; rootSums++ }
+                        false -> wrong += "${entry.latex}: ${o}"
+                        null -> unchecked += "${entry.latex}: ${o}"
+                    }
+                    continue
+                }
                 val anti = (o as? Outcome.Expression)?.result
                 if (anti == null) {
                     declined += entry.latex + (if (entry.nonElementary) " (no elementary antiderivative)" else "") +
@@ -203,7 +269,7 @@ class IntegralCorpusTest {
             report.append("$name: solved $solved of ${entries.size} (of them elementary ${elementary})\n")
             declined.forEach { report.append("  declined: $it\n") }
         }
-        report.append("all: solved $solvedAll of $total (elementary $elementaryAll)\n")
+        report.append("all: solved $solvedAll of $total (elementary $elementaryAll), $rootSums of them as sums over the roots of a polynomial\n")
         println(report)
         unchecked.forEach { println("unchecked: $it") }
         assertEquals("", wrong.joinToString("\n"))

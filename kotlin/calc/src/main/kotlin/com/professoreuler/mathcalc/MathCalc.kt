@@ -374,6 +374,14 @@ sealed class Outcome {
     data class LinesChecked(val lines: List<LineCheck>) : Outcome()
 
     data class Failed(val failure: Failure) : Outcome()
+
+    /**
+     * An antiderivative of a fraction of polynomials whose logarithms need the roots of a polynomial that square roots do not
+     * write (∫ 1/(x³ − 2) dx): [rest] (what can be written, often 0) plus, for each (q, S) of [sums], the sum over the roots
+     * [root] of q(root) = 0 of root·ln(S), S a polynomial in [root] and [variable]; + C. Shown as
+     * rest + Σ_{α: q(α) = 0} α·ln(S(α, x)) + C, one Σ per pair. Checked by its derivative at the roots of q found numerically.
+     */
+    data class RootSum(val rest: Expr, val root: String, val sums: List<Pair<Expr, Expr>>, val variable: String) : Outcome()
 }
 
 /**
@@ -526,8 +534,17 @@ object MathCalc {
         val open = s.sides.last() == null
         val relations = s.relations.take(written.size - 1)
         val equation = !open && written.size >= 2
-        // Calculus written in the formula is worked out first.
-        val sides = written.map { Calculus.evaluate(it) }
+        // Calculus written in the formula is worked out first; an indefinite integral alone whose logarithms need the roots of
+        // a polynomial is their sum.
+        val sides = try {
+            written.map { Calculus.evaluate(it) }
+        } catch (z: CalcException) {
+            val op = written.singleOrNull() as? Expr.Op
+            if (z.failure == Failure.NO_ANTIDERIVATIVE && op != null && op.kind == OpKind.INTEGRAL && op.a == null && !op.body.hasOp()) {
+                RationalIntegral.rootSum(op.body, op.variable)?.let { sum -> return Plan(listOf(Choice(Mode.CALCULATE)), Choice(Mode.CALCULATE)) { sum } }
+            }
+            throw z
+        }
         val wroteCalculus = written.any { it.hasOp() }
         val letters = sides.flatMap { it.symbols() }.toSortedSet().toList()
 
@@ -670,8 +687,7 @@ object MathCalc {
                     Mode.EXPAND -> Outcome.Expression(expanded, steps)
                     Mode.FACTOR -> factored(last)
                     Mode.DERIVATIVE -> Outcome.Expression(Calculus.derivative(last, Expr.Sym(c.letter!!)))
-                    Mode.INTEGRAL -> Outcome.Expression(Calculus.antiderivative(last, Expr.Sym(c.letter!!))
-                        ?: throw CalcException(Failure.NO_ANTIDERIVATIVE), plusC = true)
+                    Mode.INTEGRAL -> integralOutcome(last, Expr.Sym(c.letter!!))
                     Mode.GRAPH -> Outcome.Graph(variable, listOf(last), parameters = letters - variable)
                     Mode.PARTIAL_FRACTIONS -> Outcome.Expression(partial ?: throw CalcException(Failure.UNREADABLE), steps)
                     Mode.SERIES -> series(last, Expr.Sym(c.letter ?: variable), c.point ?: seriesAt ?: "0", c.order)
@@ -1405,12 +1421,16 @@ object MathCalc {
             when (c.mode) {
                 Mode.GRAPH -> Outcome.Graph(def.variable, listOf(body))
                 Mode.DERIVATIVE -> Outcome.Expression(Calculus.derivative(body, x))
-                Mode.INTEGRAL -> Outcome.Expression(Calculus.antiderivative(body, x) ?: throw CalcException(Failure.NO_ANTIDERIVATIVE), plusC = true)
+                Mode.INTEGRAL -> integralOutcome(body, x)
                 Mode.SOLVE -> Outcome.Solved(Solve.equation(body, Expr.ZERO, x))
                 else -> Outcome.Expression(Algebra.simplify(body))
             }
         }
     }
+
+    /** An antiderivative with + C, or the root sum of one whose logarithms need the roots of a polynomial. */
+    private fun integralOutcome(f: Expr, x: Expr.Sym): Outcome = Calculus.antiderivative(f, x)?.let { Outcome.Expression(it, plusC = true) }
+        ?: RationalIntegral.rootSum(f, x) ?: throw CalcException(Failure.NO_ANTIDERIVATIVE)
 
     /** LaTeX without what does not change what it says: spaces, braces, `\cdot` between factors, `\left`, `\right`. */
     private fun plain(latex: String) = latex.replace("\\cdot", "").replace("\\left", "").replace("\\right", "")
