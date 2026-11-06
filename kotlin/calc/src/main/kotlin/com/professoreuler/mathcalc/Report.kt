@@ -71,7 +71,9 @@ object Reports {
         val panels = ArrayList<Panel>()
         panels += Panel(PanelKind.RESULT, result.choice)
         // A value converted between units has its digits in its own answer.
-        if (constant != null && result.choice?.mode != Mode.UNITS) panels += Panel(PanelKind.DIGITS)
+        if (constant != null && result.choice?.mode != Mode.UNITS && result.choice?.mode != Mode.VENN && result.choice?.mode != Mode.COMPLEX_PLOT) {
+            panels += Panel(PanelKind.DIGITS)
+        }
         // An applied function's formula is no number of its answer (volumex(2, 0, 1) is 4π, not 2).
         if (result.choice?.mode in Applied.MODES) panels.removeAll { it.kind == PanelKind.DIGITS }
         val others = result.choices.filter { it != result.choice }

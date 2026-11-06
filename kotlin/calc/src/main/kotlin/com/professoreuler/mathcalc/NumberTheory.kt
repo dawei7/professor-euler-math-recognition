@@ -3,8 +3,10 @@ package com.professoreuler.mathcalc
 import java.math.BigInteger
 
 /**
- * Whole numbers: primality (Miller–Rabin with the bases that make it certain below 3.3·10²⁴, a strong probable-prime test
- * beyond), factors by trial division and Pollard–Brent, divisors, φ, σ and μ, other bases; the extended Euclidean algorithm,
+ * Whole numbers: primality (Miller–Rabin with the bases that make it certain below 3.3·10²⁴, a probable-prime test and a
+ * certificate, [BigFactor.certify], below 10⁴⁰, a strong probable-prime test beyond), factors by trial division and
+ * [BigFactor.split] (SQUFOF, Pollard–Brent, ECM) for numbers up to 40 digits, divisors, φ, σ and μ, other bases; the extended
+ * Euclidean algorithm,
  * linear congruences, the Chinese remainder theorem, linear Diophantine equations and Pell's equation. Every answer is checked
  * by multiplying back or putting it in.
  */
@@ -14,11 +16,17 @@ object NumberTheory {
     private val BASES = listOf(2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41).map { BigInteger.valueOf(it.toLong()) }
     private val CERTAIN_BELOW = BigInteger("3317044064679887385961981")
 
-    /** Prime: certain below 3.3·10²⁴ (Miller–Rabin with the first 13 primes as bases), almost certain beyond. */
+    /**
+     * Prime: certain below 3.3·10²⁴ by Miller–Rabin with the first 13 primes as bases, and below 10⁴⁰ (every number the
+     * Calculator takes apart, and its factors) by a probable-prime test and a certificate ([BigFactor.certify]); beyond, as
+     * before, Java's strong probable-prime test (Miller–Rabin with random bases and a Lucas test, error below 2⁻¹⁰⁰), whose
+     * certificate would take longer than a calculation may.
+     */
     fun isPrime(n: BigInteger): Boolean {
         if (n < TWO) return false
         for (p in BASES) { if (n == p) return true; if (n.mod(p).signum() == 0) return false }
-        if (n >= CERTAIN_BELOW) return n.isProbablePrime(100)
+        if (n >= MOST_FACTORED) return n.isProbablePrime(100)
+        if (n >= CERTAIN_BELOW) return n.isProbablePrime(100) && BigFactor.certify(n)
         var d = n - BigInteger.ONE
         var r = 0
         while (!d.testBit(0)) { d = d.shiftRight(1); r++ }
@@ -34,10 +42,16 @@ object NumberTheory {
         return true
     }
 
-    /** The prime factors with their powers, smallest first; null where a factor would not come out in time (beyond about 10³⁰). */
+    /** The numbers taken apart into primes: below 10⁴⁰, up to 40 digits. */
+    val MOST_FACTORED: BigInteger = BigInteger.TEN.pow(40)
+
+    /**
+     * The prime factors with their powers, smallest first, each certified prime and multiplied back; null from 10⁴⁰ on. A factor
+     * that does not come out in time stops the calculation ([Failure.TOO_LONG]).
+     */
     fun factor(n0: BigInteger): List<Pair<BigInteger, Int>>? {
         if (n0 < TWO) return null
-        if (n0.bitLength() > 110) return null
+        if (n0 >= MOST_FACTORED) return null
         val found = HashMap<BigInteger, Int>()
         var n = n0
         var p = TWO
@@ -52,51 +66,13 @@ object NumberTheory {
             val m = stack.removeLast()
             if (m == BigInteger.ONE) continue
             if (isPrime(m)) { found[m] = (found[m] ?: 0) + 1; continue }
-            val d = brent(m) ?: return null
+            val d = BigFactor.split(m)
             stack += d
             stack += m / d
         }
         val result = found.entries.sortedBy { it.key }.map { it.key to it.value }
         // Multiplied back.
         return if (result.fold(BigInteger.ONE) { acc, (q, k) -> acc * q.pow(k) } == n0) result else null
-    }
-
-    /** A factor of a composite m by Pollard's rho in Brent's form. */
-    private fun brent(m: BigInteger): BigInteger? {
-        if (!m.testBit(0)) return TWO
-        for (c0 in 1L..40L) {
-            val c = BigInteger.valueOf(c0)
-            var y = BigInteger.valueOf(2 + c0)
-            var r = 1
-            var q = BigInteger.ONE
-            var g = BigInteger.ONE
-            var x = y
-            var ys = y
-            val step = 128
-            fun f(v: BigInteger) = (v * v + c).mod(m)
-            while (g == BigInteger.ONE) {
-                x = y
-                repeat(r) { y = f(y) }
-                var k = 0
-                while (k < r && g == BigInteger.ONE) {
-                    Budget.check()
-                    ys = y
-                    repeat(minOf(step, r - k)) {
-                        y = f(y)
-                        q = (q * (x - y).abs()).mod(m)
-                    }
-                    g = q.gcd(m)
-                    k += step
-                }
-                r *= 2
-                if (r > 1 shl 22) break
-            }
-            if (g == m) {
-                do { ys = f(ys); g = (x - ys).abs().gcd(m) } while (g == BigInteger.ONE)
-            }
-            if (g != m && g != BigInteger.ONE) return g
-        }
-        return null
     }
 
     /** All divisors in order, where there are at most [most]. */

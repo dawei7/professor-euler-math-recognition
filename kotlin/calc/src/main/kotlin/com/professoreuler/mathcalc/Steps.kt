@@ -57,6 +57,16 @@ enum class StepKey {
     // Triangles, statistics, the regression line, units, conics.
     TRI_COSINES, TRI_SINES, TRI_ANGLE_SUM, TRI_AMBIGUOUS, TRI_AREA, STAT_MEAN, STAT_SORTED, STAT_MEDIAN, STAT_VARIANCE, STAT_SD,
     REG_SUMS, REG_SLOPE, REG_INTERCEPT, UNIT_FACTOR, UNIT_OFFSET, CONIC_COMPLETE, CONIC_STANDARD,
+    // Physical constants: the published values put in, and the bound of the result's uncertainty.
+    CONSTANT_VALUES, UNCERTAINTY_BOUND,
+    // The singular value decomposition, the Jordan form.
+    SVD_GRAM, SVD_VALUES, SVD_V, SVD_U, SVD_CHECK, JORDAN_RANKS, JORDAN_CHAIN, JORDAN_FORM,
+    // Systems of linear differential equations, boundary value problems, power series solutions.
+    SYS_MATRIX, SYS_GENERAL, SYS_CONSTANTS, BVP_GENERAL, BVP_SYSTEM, BVP_UNIQUE, BVP_NONE, BVP_FAMILY, SERIES_ANSATZ,
+    SERIES_RECURRENCE, SERIES_COEFFICIENTS,
+    // Interpolation and splines; orders, primitive roots and discrete logarithms.
+    INTERP_DIFFERENCES, INTERP_NEWTON, INTERP_CHECK, SPLINE_WIDTHS, SPLINE_SYSTEM, SPLINE_MOMENTS, SPLINE_PIECE,
+    ORDER_PHI, ORDER_TEST, PRIMROOT_REJECT, PRIMROOT_ACCEPT, DLOG_ORDER, DLOG_PART,
     // Rank, trace, null space, column space, characteristic polynomial, adjugate ([AppliedSteps]).
     RANK_ECHELON, RANK_MINOR, RANK_CASE, TRACE_SUM, NULL_FREE, COLUMN_PIVOTS, CHARPOLY_DET, ADJ_COFACTORS, ADJ_TRANSPOSE, ADJ_CHECK,
     // Tangent and normal, arc length, area, volumes, mean value.
@@ -91,6 +101,7 @@ object Steps {
         if (c.outcome is Outcome.Failed || c.outcome is Outcome.Graph) return null
         // The later areas, from what their outcomes hold.
         MoreSteps.of(c, latex, assumptions)?.let { return it }
+        LinOdeSteps.of(c, latex, assumptions)?.let { return it }
         AppliedSteps.of(c, latex, assumptions)?.let { return it }
         return try {
             Budget.within(3000) {
