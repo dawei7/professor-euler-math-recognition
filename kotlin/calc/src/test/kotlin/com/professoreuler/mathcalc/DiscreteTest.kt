@@ -201,4 +201,53 @@ class DiscreteTest {
         }
         assertEquals("", wrong.joinToString("\n"))
     }
+
+    /** The milestone-7 review's phrasings: a predicate after the number, logic words, conversions after a word, points as (1|2). */
+    @Test fun reviewedPhrasings() {
+        val cases = listOf(
+            ("60の約数" to "ja") to "2^2 · 3 · 5 d=12 σ=168 φ=16 μ=0 next 61 bin 111100",
+            ("60 分解质因数" to "zh-Hans") to "2^2 · 3 · 5 d=12 σ=168 φ=16 μ=0 next 61 bin 111100",
+            ("60を素因数分解" to "ja") to "2^2 · 3 · 5 d=12 σ=168 φ=16 μ=0 next 61 bin 111100",
+            ("löse in ganzen Zahlen 3x+5y=7" to "de") to "x = 4 + 5t, y = -1 + -3t",
+            ("résous dans les entiers 3x+5y=7" to "fr") to "x = 4 + 5t, y = -1 + -3t",
+            ("решить в целых числах 3x+5y=7" to "ru") to "x = 4 + 5t, y = -1 + -3t",
+            ("mode of 1, 2, 2, 3" to "en") to "n=4 mean 2 median 2 sd √6/3 q1 3/2 q3 5/2",
+            ("is 97 a prime number" to "en") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("is 97 a prime" to "en") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("ist 97 eine Primzahl" to "de") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("97 ist eine Primzahl?" to "de") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("¿es 97 primo?" to "es") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("97 es primo" to "es") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("97 est-il premier ?" to "fr") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("97 è primo?" to "it") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("97 é primo?" to "pt") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("97 простое?" to "ru") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("97 là số nguyên tố" to "vi") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("هل 97 أولي؟" to "ar") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("97 是质数吗" to "zh-Hans") to "prime d=2 σ=98 φ=96 μ=-1 next 101 bin 1100001",
+            ("Gleichung der Geraden durch (1|2) und (3|4)" to "de") to "y = x + 1 distance 2√2",
+            ("Gerade durch (1|2) und (3|6)" to "de") to "y = 2x distance 2√5",
+            ("focus of y^2=8x" to "en") to "parabola foci (2, 0) e 1 vertex (0, 0) directrix x = -2",
+            ("plot the parabola y=x^2" to "en") to "graph of x^2",
+            ("Wahrheitstafel von p und q" to "de") to "0001 dnf p ∧ q cnf p ∧ q",
+            ("table de vérité de p et non q" to "fr") to "0010 dnf p ∧ ¬q cnf p ∧ ¬q",
+            ("таблица истинности p и q" to "ru") to "0001 dnf p ∧ q cnf p ∧ q",
+            ("真值表 p 且 q" to "zh-Hans") to "0001 dnf p ∧ q cnf p ∧ q",
+            ("convert 5 km to mi" to "en") to "78125/25146 mi",
+            ("đổi 5 km sang mi" to "vi") to "78125/25146 mi",
+            ("rechne 5 km in mi um" to "de") to "78125/25146 mi",
+            ("5 km dalam mi" to "id") to "78125/25146 mi",
+            ("solve x^2=4" to "en") to "x = -2; 2",
+            ("factor x^2-1" to "en") to "(x - 1)(x + 1)",
+            ("factors of 360" to "en") to "2^3 · 3^2 · 5 d=24 σ=1170 φ=96 μ=0 next 367 bin 101101000",
+            ("truth table of p and q implies r" to "en") to "11111101 dnf ¬p ∨ ¬q ∨ r cnf ¬p ∨ ¬q ∨ r",
+            ("5 km in mi" to "en") to "78125/25146 mi",
+            ("derivative of x^2" to "en") to "2x",
+        )
+        val wrong = cases.mapNotNull { (input, expected) ->
+            val got = answerOf(Reports.of(TextInput.read(input.first, input.second)).result)
+            if (got != expected) "${input.first}: $got, not $expected" else null
+        }
+        assertEquals("", wrong.joinToString("\n"))
+    }
 }
