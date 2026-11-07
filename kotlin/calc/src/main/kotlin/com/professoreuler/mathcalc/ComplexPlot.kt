@@ -94,19 +94,32 @@ object ComplexPlot {
         poles += exactPoles.filter { region.contains(it.re, it.im) }
         // The others found numerically; one where an exact point stands is that point.
         val exact = zeros + poles
-        val found = search(compiled, ComplexFunction.compileOrNull(Calculus.tidy(Calculus.derivative(f, z)), z.name), region)
-            .filter { c -> exact.none { hypot(it.re - c.re, it.im - c.im) <= 1e-6 * max(1.0, hypot(c.re, c.im)) } }
-        for (c in found) {
-            Budget.check()
-            if (zeros.size + poles.size >= MOST_POINTS) break
-            val nearest = (found.filter { it !== c }.map { hypot(it.re - c.re, it.im - c.im) } +
-                exact.map { hypot(it.re - c.re, it.im - c.im) }).minOrNull() ?: Double.POSITIVE_INFINITY
-            val (w, radius) = checkedWinding(compiled, c.re, c.im, nearest, region.half) ?: continue
-            if (c.zero && w <= 0 || !c.zero && w >= 0) continue
-            val point = decimalPoint(c.re, c.im, radius, abs(w))
-            if (!region.contains(point.re, point.im)) continue
-            if (c.zero) zeros += point else poles += point
+        val derivative = ComplexFunction.compileOrNull(Calculus.tidy(Calculus.derivative(f, z)), z.name)
+        fun searchFrom(grid: Int) {
+            val known = zeros + poles
+            val found = search(compiled, derivative, region, grid)
+                .filter { c -> known.none { hypot(it.re - c.re, it.im - c.im) <= 1e-6 * max(1.0, hypot(c.re, c.im)) } }
+            for (c in found) {
+                Budget.check()
+                if (zeros.size + poles.size >= MOST_POINTS) break
+                val nearest = (found.filter { it !== c }.map { hypot(it.re - c.re, it.im - c.im) } +
+                    exact.map { hypot(it.re - c.re, it.im - c.im) }).minOrNull() ?: Double.POSITIVE_INFINITY
+                val (w, radius) = checkedWinding(compiled, c.re, c.im, nearest, region.half) ?: continue
+                if (c.zero && w <= 0 || !c.zero && w >= 0) continue
+                val point = decimalPoint(c.re, c.im, radius, abs(w))
+                if (!region.contains(point.re, point.im)) continue
+                if ((zeros + poles).any { hypot(it.re - point.re, it.im - point.im) <= 1e-6 * max(1.0, hypot(point.re, point.im)) }) continue
+                if (c.zero) zeros += point else poles += point
+            }
         }
+        searchFrom(11)
+        // Checked by the argument principle where f is a quotient of polynomials: the numerator's and the denominator's argument
+        // turn around the square's edge as often as they have zeros inside, by multiplicity. A search that missed one (a double
+        // zero at i, a pole at −1/2 + 3i/2 among others) searches again more finely, and is declined if it misses one still.
+        val counts = boundaryCounts(f, z, region)
+        fun complete() = counts == null || counts.first == zeros.sumOf { it.order } && counts.second == poles.sumOf { it.order }
+        if (!complete() && zeros.size + poles.size < MOST_POINTS) searchFrom(41)
+        if (!complete() && zeros.size + poles.size < MOST_POINTS) throw CalcException(Failure.UNSOLVED)
         val order = compareBy<Point>({ it.re }, { it.im })
         return Plot(z.name, f, region, compiled, zeros.take(MOST_POINTS).sortedWith(order), poles.take(MOST_POINTS).sortedWith(order))
     }
@@ -173,7 +186,9 @@ object ComplexPlot {
         val (re, im) = complexValue(a) ?: return null
         Domain.complex {
             if (Precise.nearZero(Calculus.tidy(f.substitute(z, a))) != true) return@complex null
-            var d = f
+            // The order from the numerator (its common factors with the denominator cancelled): the derivatives of a quotient of
+            // polynomials grow with each one, and twelve of a sixth over a fourth degree took over six seconds.
+            var d = fraction(f).first
             var order: Int? = null
             for (m in 1..12) {
                 d = Calculus.tidy(Calculus.derivative(d, z))
@@ -219,11 +234,10 @@ object ComplexPlot {
     // Found numerically.
 
     /** Newton's method from a grid of starting points in the square: z − f/f′ for zeros, z + f/f′ (Newton's on 1/f) for poles. */
-    private fun search(f: ComplexFunction, df: ComplexFunction?, region: Region): List<Candidate> {
+    private fun search(f: ComplexFunction, df: ComplexFunction?, region: Region, n: Int = 11): List<Candidate> {
         val out = ArrayList<Candidate>()
         val ef = f.evaluator()
         val ed = df?.evaluator()
-        val n = 11
         for (zero in listOf(true, false)) {
             for (a in 0 until n) for (b in 0 until n) {
                 Budget.check()
@@ -231,46 +245,157 @@ object ComplexPlot {
                 var y = region.centerIm + region.half * (2.0 * b / (n - 1) - 1)
                 var converged = false
                 var last = Double.POSITIVE_INFINITY
-                for (step in 0 until 80) {
-                    if (!ef.at(x, y)) break
-                    val fr = ef.re
-                    val fi = ef.im
-                    // f′ from the compiled derivative, else by a central difference.
-                    val dr: Double
-                    val di: Double
-                    if (ed != null && ed.at(x, y)) {
-                        dr = ed.re
-                        di = ed.im
-                    } else {
-                        val h = 1e-6 * max(1.0, hypot(x, y))
-                        if (!ef.at(x + h, y)) break
-                        val pr = ef.re
-                        val pi = ef.im
-                        if (!ef.at(x - h, y)) break
-                        dr = (pr - ef.re) / (2 * h)
-                        di = (pi - ef.im) / (2 * h)
+                // The smallest step and where it was taken: at a multiple zero or pole Newton's method converges only linearly and
+                // ends in the rounding noise around it, so its last step can be larger than an earlier one; the winding number
+                // checks the candidate either way.
+                var best = Double.POSITIVE_INFINITY
+                var bestX = x
+                var bestY = y
+                if (zero) {
+                    for (step in 0 until 80) {
+                        if (!ef.at(x, y)) break
+                        val fr = ef.re
+                        val fi = ef.im
+                        // f′ from the compiled derivative, else by a central difference.
+                        val dr: Double
+                        val di: Double
+                        if (ed != null && ed.at(x, y)) {
+                            dr = ed.re
+                            di = ed.im
+                        } else {
+                            val h = 1e-6 * max(1.0, hypot(x, y))
+                            if (!ef.at(x + h, y)) break
+                            val pr = ef.re
+                            val pi = ef.im
+                            if (!ef.at(x - h, y)) break
+                            dr = (pr - ef.re) / (2 * h)
+                            di = (pi - ef.im) / (2 * h)
+                        }
+                        val d2 = dr * dr + di * di
+                        if (d2 == 0.0 || !d2.isFinite()) break
+                        // f / f′
+                        val qr = (fr * dr + fi * di) / d2
+                        val qi = (fi * dr - fr * di) / d2
+                        val sx = if (zero) -qr else qr
+                        val sy = if (zero) -qi else qi
+                        x += sx
+                        y += sy
+                        if (!x.isFinite() || !y.isFinite() || hypot(x - region.centerRe, y - region.centerIm) > region.half * 4) break
+                        last = hypot(sx, sy)
+                        if (last < best) { best = last; bestX = x; bestY = y }
+                        if (last <= 1e-14 * max(1.0, hypot(x, y))) { converged = true; break }
                     }
-                    val d2 = dr * dr + di * di
-                    if (d2 == 0.0 || !d2.isFinite()) break
-                    // f / f′
-                    val qr = (fr * dr + fi * di) / d2
-                    val qi = (fi * dr - fr * di) / d2
-                    val sx = if (zero) -qr else qr
-                    val sy = if (zero) -qi else qi
-                    x += sx
-                    y += sy
-                    if (!x.isFinite() || !y.isFinite() || hypot(x - region.centerRe, y - region.centerIm) > region.half * 4) break
-                    last = hypot(sx, sy)
-                    if (last <= 1e-14 * max(1.0, hypot(x, y))) { converged = true; break }
+                } else {
+                    // Newton's method on g = 1/f with g′ by a central difference of g: f′'s formula, a quotient of expanded
+                    // polynomials, loses its digits next to a pole, and the steps jumped away from it ((z − 1/2)/((z − (1 + i))(z + 2
+                    // + 2i)) had no poles); a step that lands on the pole itself is there.
+                    for (step in 0 until 80) {
+                        Budget.check()
+                        val g = reciprocal(ef, x, y) ?: break
+                        if (g.first == 0.0 && g.second == 0.0) { converged = true; break }
+                        val h = 1e-7 * max(1.0, hypot(x, y))
+                        val gp = reciprocal(ef, x + h, y) ?: break
+                        val gm = reciprocal(ef, x - h, y) ?: break
+                        val dr = (gp.first - gm.first) / (2 * h)
+                        val di = (gp.second - gm.second) / (2 * h)
+                        val d2 = dr * dr + di * di
+                        if (d2 == 0.0 || !d2.isFinite()) break
+                        val qr = (g.first * dr + g.second * di) / d2
+                        val qi = (g.second * dr - g.first * di) / d2
+                        x -= qr
+                        y -= qi
+                        if (!x.isFinite() || !y.isFinite() || hypot(x - region.centerRe, y - region.centerIm) > region.half * 4) break
+                        last = hypot(qr, qi)
+                        if (last < best) { best = last; bestX = x; bestY = y }
+                        if (last <= 1e-14 * max(1.0, hypot(x, y))) { converged = true; break }
+                    }
                 }
                 // Near a pole f is known to fewer digits: an iteration that stands still within 10⁻⁸ is a candidate as well.
                 if (!converged && last <= 1e-8 * max(1.0, hypot(x, y))) converged = true
+                if (!converged && best <= 1e-7 * max(1.0, hypot(bestX, bestY))) { converged = true; x = bestX; y = bestY }
                 if (!converged || !region.contains(x, y)) continue
                 if (out.none { it.zero == zero && hypot(it.re - x, it.im - y) <= 1e-7 * max(1.0, hypot(x, y)) }) out += Candidate(x, y, null, zero)
-                if (out.size > MOST_POINTS * 2) return out
+                if (out.size > MOST_POINTS * 4) return out
             }
         }
         return out
+    }
+
+    /** 1/f at x + iy: (0, 0) at a pole, null where f is 0 or has no value. */
+    private fun reciprocal(ef: ComplexFunction.Evaluator, x: Double, y: Double): Pair<Double, Double>? {
+        if (!ef.at(x, y)) return if (ef.infinite) 0.0 to 0.0 else null
+        val m = hypot(ef.re, ef.im)
+        if (m == 0.0 || !m.isFinite()) return null
+        return ef.re / m / m to -ef.im / m / m
+    }
+
+    /**
+     * The zeros and the poles of f inside the square, each by its order, by the argument principle on the square's edge: how
+     * often the numerator's and the denominator's values turn around 0 along it. Null where f is no quotient of polynomials in
+     * [z] or one of them is 0 on the edge (or too close to it to count).
+     */
+    private fun boundaryCounts(f: Expr, z: Expr.Sym, region: Region): Pair<Int, Int>? {
+        val (top, bottom) = fraction(f)
+        if (!polynomialIn(top, z) || !polynomialIn(bottom, z)) return null
+        val numerator = ComplexFunction.compileOrNull(Calculus.tidy(top), z.name) ?: return null
+        val denominator = ComplexFunction.compileOrNull(Calculus.tidy(bottom), z.name) ?: return null
+        val a = edgeWindings(numerator, region) ?: return null
+        val b = edgeWindings(denominator, region) ?: return null
+        return a to b
+    }
+
+    private fun polynomialIn(e: Expr, z: Expr.Sym): Boolean = when (e) {
+        is Expr.Num, is Expr.Sym -> true
+        is Expr.Const -> e.kind == Constant.I || e.kind == Constant.PI || e.kind == Constant.E
+        is Expr.Add -> e.terms.all { polynomialIn(it, z) }
+        is Expr.Mul -> e.factors.all { polynomialIn(it, z) }
+        is Expr.Pow -> if (e.base.has(z)) integer(e.exp)?.signum()?.let { it >= 0 } == true && polynomialIn(e.base, z) else !e.exp.has(z) && e.symbols().isEmpty()
+        else -> false
+    }
+
+    /** How often [g] turns around 0 along the square's edge, counterclockwise; null where it is 0 near the edge or not finite. */
+    private fun edgeWindings(g: ComplexFunction, region: Region): Int? {
+        val ev = g.evaluator()
+        val corners = listOf(-1.0 to -1.0, 1.0 to -1.0, 1.0 to 1.0, -1.0 to 1.0, -1.0 to -1.0)
+        var n = 256
+        while (n <= 65536) {
+            Budget.check()
+            var total = 0.0
+            var fine = true
+            var pr = 0.0
+            var pi = 0.0
+            var first = true
+            loop@ for (side in 0 until 4) {
+                val (ax, ay) = corners[side]
+                val (bx, by) = corners[side + 1]
+                for (k in 0..n) {
+                    Budget.check()
+                    if (!first && k == 0) continue
+                    val t = k.toDouble() / n
+                    val x = region.centerRe + region.half * (ax + (bx - ax) * t)
+                    val y = region.centerIm + region.half * (ay + (by - ay) * t)
+                    if (!ev.at(x, y)) return null
+                    val cr = ev.re
+                    val ci = ev.im
+                    if (cr == 0.0 && ci == 0.0) return null
+                    if (!first) {
+                        val d = atan2(ci * pr - cr * pi, cr * pr + ci * pi)
+                        if (abs(d) > 0.3) { fine = false; break@loop }
+                        total += d
+                    }
+                    first = false
+                    pr = cr
+                    pi = ci
+                }
+            }
+            if (fine) {
+                val w = total / (2 * PI)
+                val r = w.roundToInt()
+                return if (abs(w - r) < 0.05) r else null
+            }
+            n *= 4
+        }
+        return null
     }
 
     /**
@@ -307,6 +432,8 @@ object ComplexPlot {
             var pi = ev.im
             if (pr == 0.0 && pi == 0.0) return null
             for (k in 1..n) {
+                // Within the calculation's time: thousands of points on each of many circles (one took 7.6 s of 3).
+                Budget.check()
                 val t = 2 * PI * k / n
                 if (!ev.at(x + rho * cos(t), y + rho * sin(t))) return null
                 val cr = ev.re

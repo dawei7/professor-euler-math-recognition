@@ -243,6 +243,29 @@ object ComplexAnalysis {
         return Polar(r, phi)
     }
 
+    /**
+     * Whether [zeros] are all the zeros of [b]: for a polynomial in [z] (its derivatives end in a constant), their multiplicities
+     * (the derivatives that vanish there, in ball arithmetic) add up to its degree; for anything else, at least one was found.
+     */
+    private fun allZeros(b: Expr, z: Expr.Sym, zeros: List<Expr>): Boolean {
+        if (zeros.isEmpty()) return false
+        val derivatives = ArrayList<Expr>()
+        var d = tidy(b)
+        while (d.has(z)) {
+            if (derivatives.size > 24) return true
+            derivatives += d
+            d = tidy(Calculus.derivative(d, z))
+        }
+        val degree = derivatives.size
+        var found = 0
+        for (a in zeros) {
+            var m = 0
+            while (m < degree && Precise.certainlyNonzero(tidy(derivatives[m].substitute(z, a))) == false) m++
+            found += m
+        }
+        return found == degree
+    }
+
     /** A pole: where, its order, its residue. */
     class Pole(val at: Expr, val order: Int, val residue: Expr)
 
@@ -256,6 +279,9 @@ object ComplexAnalysis {
         for (b in bases) {
             val roots = Domain.complex { Solve.equation(b, Expr.ZERO, z) }
             if (roots.numeric) return null
+            // Every zero of the base found, or no answer: z − (1 + i) had none found and the poles were said to be none, and
+            // z² − 2i one of its two. A polynomial's zeros with their multiplicities make up its degree.
+            if (!allZeros(b, z, (roots.values + roots.complex).distinct())) return null
             for (a in (roots.values + roots.complex).distinct()) {
                 if (poles.any { LinAlg.isNull(tidy(it.at - a)) }) continue
                 val terms = Domain.complex { Series.taylorTerms(f, z, a, 0) } ?: return null

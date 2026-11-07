@@ -61,6 +61,33 @@ class LaterCorpusFixesTest {
         }
     }
 
+    private fun points(l: List<ComplexPlot.Point>) = l.map { Triple(Math.round(it.re * 1e6) / 1e6, Math.round(it.im * 1e6) / 1e6, it.order) }.toSet()
+
+    /**
+     * A complex plot finds the poles off the real axis (it gave "poles none" for (z − 1/2)/((z − (1 + i))(z + 2 + 2i)) and for
+     * z²/(z − (3 + 2i))²: Newton's method on 1/f jumped away from them, f′'s formula losing its digits there), lists every zero
+     * and pole the argument principle counts inside the square, or declines; and residues are not "none" where the poles'
+     * places are not found (z − (1 + i)), nor one of two (z² − 2i).
+     */
+    @Test
+    fun complexPolesAreFound() {
+        fun plot(text: String) = (calc(text).outcome as Outcome.DomainColoring).plot
+        val a = plot("complexplot((z - 1/2)/((z - (1 + i))(z + 2 + 2i)), z, 0, 4)")
+        assertEquals(setOf(Triple(0.5, 0.0, 1)), points(a.zeros))
+        assertEquals(setOf(Triple(1.0, 1.0, 1), Triple(-2.0, -2.0, 1)), points(a.poles))
+        assertEquals(setOf(Triple(3.0, 2.0, 2)), points(plot("complexplot(z^2/((z - (3 + 2i))^2), z, 0, 4)").poles))
+        assertEquals(setOf(Triple(1.0, 1.0, 1)), points(plot("complexplot(1/(z - (1 + i)), z, 0, 4)").poles))
+        // Double zeros and double poles together, within the time (its zeros' orders took over six seconds).
+        val start = System.nanoTime()
+        val b = plot("complexplot((z + 1)^2 z^2 (z + 3)^2/((z - 2i)^2 (z + 0.5 - 1.5i)^2), z, 0, 4)")
+        assertTrue(System.nanoTime() - start < 2_500_000_000L)
+        assertEquals(setOf(Triple(-3.0, 0.0, 2), Triple(-1.0, 0.0, 2), Triple(0.0, 0.0, 2)), points(b.zeros))
+        assertEquals(setOf(Triple(0.0, 2.0, 2), Triple(-0.5, 1.5, 2)), points(b.poles))
+        assertEquals("UNSOLVED", answerOf(calc("residues(1/(z - (1 + i)))")))
+        assertEquals("UNSOLVED", answerOf(calc("residues(1/(z^2 - 2i))")))
+        assertEquals("at -i order 1 residue i/2; at i order 1 residue -i/2", answerOf(calc("residues(1/(z^2 + 1))")))
+    }
+
     /**
      * The decimal of a line integral is its exact form's certified one: ∫ (y² − 4)|r′| dt along (t² − 2t + 2, −t − 1) from −1 to 0
      * is −11.7726470944204 (mpmath at 30 digits; the same as integral((t^2 + 2t - 3) sqrt(4t^2 - 8t + 5), t, -1, 0)), and was
