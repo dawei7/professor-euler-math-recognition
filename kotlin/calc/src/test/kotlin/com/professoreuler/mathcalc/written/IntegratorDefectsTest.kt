@@ -180,4 +180,24 @@ class IntegratorDefectsTest {
         val three = answer("fitexp((0, 3), (1, 6), (2, 12))")
         assertTrue(three, three.endsWith("y = 3e^(0.6931471806x)"))
     }
+
+    private fun digits(text: String): Boolean = Reports.of(TextInput.read(text)).panels.any { it.kind == PanelKind.DIGITS }
+
+    /**
+     * The digits of the input's value stand only beside an answer that is that value: frombase(11111111, 2) is 255, and its
+     * report showed the digits of 11111111; derivative(5, x), integral(5, x), laplace(1) and trapezoid's approximation had the
+     * input's digits under another answer. tobase and frombase also show their answer alone (the integrator, 7 November 2026).
+     */
+    @Test
+    fun theDigitsStandOnlyBesideTheInputsOwnValue() {
+        for (text in listOf("frombase(11111111, 2)", "tobase(-255, 16)", "derivative(5, x)", "integral(5, x)", "laplace(1)",
+                "trapezoid(x^2, x, 0, 1)", "simpson(x^2, x, 0, 1)", "volumex(2, 0, 1)")) {
+            assertTrue(text, !digits(text))
+        }
+        for (text in listOf("sqrt(2)", "2^(1/3) + 1", "integral(x^2, x, 0, 1)", "factor(360)", "polar(1 + i)", "simplify(sqrt(8))", "ln(-2)")) {
+            assertTrue(text, digits(text))
+        }
+        assertEquals(emptySet<Mode>(), others("tobase(-255, 16)"))
+        assertEquals(emptySet<Mode>(), others("frombase(FF, 16)"))
+    }
 }

@@ -71,12 +71,11 @@ object Reports {
         val constant = if (result.outcome is Outcome.Failed) null else inDomain(complex) { constantOf(latex, assumptions) }
         val panels = ArrayList<Panel>()
         panels += Panel(PanelKind.RESULT, result.choice)
-        // A value converted between units has its digits in its own answer.
-        if (constant != null && result.choice?.mode != Mode.UNITS && result.choice?.mode != Mode.VENN && result.choice?.mode != Mode.COMPLEX_PLOT) {
-            panels += Panel(PanelKind.DIGITS)
-        }
-        // An applied function's formula is no number of its answer (volumex(2, 0, 1) is 4π, not 2).
-        if (result.choice?.mode in Applied.MODES) panels.removeAll { it.kind == PanelKind.DIGITS }
+        // The digits of the input's value, only where the answer is that value written another way: never beside an answer that
+        // is another number (frombase(11111111, 2) is 255, derivative(5, x) is 0, volumex(2, 0, 1) is 4π) or a method's own
+        // approximation (trapezoid, simpson); a value converted between units has its digits in its own answer.
+        val mode = result.choice?.mode
+        if (constant != null && (mode == null || mode in SAME_VALUE)) panels += Panel(PanelKind.DIGITS)
         val others = result.choices.filter { it != result.choice && kindred(wanted, it) }
         // A graph is worth seeing early, as Wolfram Alpha shows its plots (a surface first); a function's curve sketch beside it.
         others.filter { it.mode == Mode.SURFACE }.forEach { panels += Panel(PanelKind.CHOICE, it) }
@@ -92,6 +91,9 @@ object Reports {
         return Report(latex, complex, result, panels, constant, fractions, assumptions)
     }
 
+    /** What answers with the input's own value written another way: the digits of that value belong beside it. */
+    private val SAME_VALUE = setOf(Mode.CALCULATE, Mode.SIMPLIFY, Mode.EXPAND, Mode.FACTOR, Mode.NUMBER_FACTS, Mode.POLAR, Mode.CONSTANT)
+
     /** A vector field's derivatives: curl(…), divergence(…) and jacobian(…) are written as the field's column. */
     private val FIELDS = setOf(Mode.CURL, Mode.DIVERGENCE, Mode.JACOBIAN)
 
@@ -102,15 +104,15 @@ object Reports {
     /**
      * Whether [other], another reading of the input, belongs in the report beside what a command or a choice asked for
      * ([wanted]; every other reading where nothing was asked). A command written as the list of its arguments (irr,
-     * amortization, stats, sequence, convert) has no other: the list's own readings (its column, its transpose, its
-     * statistics, a rule for it) are no part of its answer. Points (interpolate, spline, regression) keep the other curves
+     * amortization, stats, sequence, convert) or as a number in a base (tobase, frombase) has no other: the list's own readings
+     * (its column, its transpose, its statistics, a rule for it) and the number's (its factors) are no part of its answer. Points (interpolate, spline, regression) keep the other curves
      * through them, not the matrix they make; a vector field keeps its other derivatives, not its column; a matrix keeps what
      * else works on it, not its rows read as points.
      */
     private fun kindred(wanted: Choice?, other: Choice): Boolean {
         val mode = wanted?.mode ?: return true
         return when (CommandFunctions.shapeOf(mode)) {
-            CommandFunctions.Shape.LIST, CommandFunctions.Shape.CONVERT, CommandFunctions.Shape.ARGS -> false
+            CommandFunctions.Shape.LIST, CommandFunctions.Shape.CONVERT, CommandFunctions.Shape.ARGS, CommandFunctions.Shape.BASE -> false
             CommandFunctions.Shape.POINTS -> CommandFunctions.shapeOf(other.mode) == CommandFunctions.Shape.POINTS
             else -> when (mode) {
                 in FIELDS -> other.mode in FIELDS
