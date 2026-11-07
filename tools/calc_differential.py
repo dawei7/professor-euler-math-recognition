@@ -7,7 +7,12 @@ Where the two disagree, the task itself decides at 40 digits: the original formu
 derivative for derivatives and antiderivatives, mpmath's limit, the formula at each root for solve. Each disagreement is
 reported with the side that is wrong (the engine, SymPy, or both), and what one side declined while the other answered.
 
-Usage: python -I tools/calc_differential.py --out <dir> [--count 120] [--seed 1] [--threads 8] [--build-root <dir>]
+The later areas (7 November 2026) are compared the same way: integrals in several variables ("multiple", over boxes and in polar
+coordinates, against mpmath's own quadrature), Fourier transforms ("fourier", F(ω) = ∫ f(t)e^(−iωt) dt, SymPy's transform at
+ω/(2π), mpmath's quadrature at points of ω), distributions ("distribution", P(a ≤ X ≤ b) by sympy.stats, mpmath's incomplete gamma
+and beta functions), and matrix functions ("matrix": det, inverse, rank, charpoly, adjugate, exactly in Python's fractions).
+
+Usage: python -I tools/calc_differential.py --out <dir> [--count 120] [--seed 1] [--threads 8] [--build-root <dir>] [--areas a,b]
 Needs sympy and mpmath (`pip install sympy mpmath`), in a virtual environment of its own.
 """
 import argparse
@@ -24,7 +29,13 @@ import mpmath
 import sympy as sp
 
 X = sp.Symbol("x")
-AREAS = ("simplify", "expand", "factor", "derivative", "integral", "limit", "solve")
+AREAS = ("simplify", "expand", "factor", "derivative", "integral", "limit", "solve", "multiple", "fourier", "distribution", "matrix")
+LATER = ("multiple", "fourier", "distribution", "matrix")
+Y = sp.Symbol("y")
+T = sp.Symbol("t")
+RR = sp.Symbol("r")
+TH = sp.Symbol("theta")
+KK = sp.Symbol("k")
 SYMPY_SECONDS = 20
 
 
@@ -212,6 +223,53 @@ def tasks(area, count, r):
             else:
                 f = sp.log(X + small(r, 1, 5)) - small(r, -2, 2)
             out.append((f"solve({typed(f)} = 0, x)", f, None))
+        elif area == "multiple":
+            terms = [small(r, -3, 3, True) * X ** r.randint(0, 2) * Y ** r.randint(0, 2) for _ in range(r.randint(1, 3))]
+            g = sp.Add(*terms)
+            k = r.randrange(3)
+            if k == 1:
+                g = g * sp.exp(small(r, -1, 1, True) * X)
+            elif k == 2:
+                g = g + sp.sin(X * Y)
+            if r.random() < 0.3:
+                radius = small(r, 1, 2)
+                out.append((f"polarintegral({typed(g)}, r, 0, {radius}, theta, 0, 2pi)", g, ["polar", radius]))
+            else:
+                a, c = small(r, -1, 1), small(r, -1, 1)
+                b, d = a + small(r, 1, 2), c + small(r, 1, 2)
+                out.append((f"integral({typed(g)}, x, {a}, {b}, y, {c}, {d})", g, ["box", a, b, c, d]))
+        elif area == "fourier":
+            a = small(r, 1, 4)
+            b = small(r, 1, 3)
+            g = [sp.exp(-a * sp.Abs(X)), sp.exp(-a * X ** 2), 1 / (a ** 2 + X ** 2), X * sp.exp(-a * X ** 2), sp.exp(-a * X ** 2) * sp.cos(b * X)][r.randrange(5)]
+            out.append((f"fouriertransform({typed(g).replace('x', 't')})", g.subs(X, T), None))
+        elif area == "distribution":
+            k = r.randrange(5)
+            lo = r.choice([0, 0.5, 1])
+            hi = lo + r.choice([0.5, 1, 2, 3.5])
+            if k == 0:
+                nu = r.choice([1, 2, 3, 5, 8, 12])
+                lo = r.choice([-2, -1, 0])
+                out.append((f"tcdf({lo}, {hi}, {nu})", None, ["t", lo, hi, nu]))
+            elif k == 1:
+                dof = r.choice([1, 2, 3, 4, 6, 9])
+                out.append((f"chisqcdf({lo}, {hi}, {dof})", None, ["chi", lo, hi, dof]))
+            elif k == 2:
+                d1, d2 = r.choice([1, 2, 4, 6]), r.choice([2, 3, 5, 10])
+                out.append((f"fcdf({lo}, {hi}, {d1}, {d2})", None, ["f", lo, hi, d1, d2]))
+            elif k == 3:
+                shape, scale = r.choice([1, 2, 3, 0.5, 1.5]), r.choice([1, 2, 0.5])
+                out.append((f"gammacdf({lo}, {hi}, {shape}, {scale})", None, ["gamma", lo, hi, shape, scale]))
+            else:
+                al, be = r.choice([1, 2, 3, 0.5]), r.choice([1, 2, 4, 1.5])
+                lo, hi = r.choice([0, 0.1, 0.25]), r.choice([0.5, 0.75, 0.9])
+                out.append((f"betacdf({lo}, {hi}, {al}, {be})", None, ["beta", lo, hi, al, be]))
+        elif area == "matrix":
+            n = r.randint(2, 3)
+            m = [[r.randint(-4, 4) for _ in range(n)] for _ in range(n)]
+            fn = r.choice(["det", "inverse", "rank", "charpoly", "adjugate"])
+            text = "[" + ", ".join("[" + ", ".join(map(str, row)) + "]" for row in m) + "]"
+            out.append((f"{fn}({text})", None, [fn, m]))
     return out
 
 
@@ -233,6 +291,44 @@ def sympy_answer(area, f, extra):
             return None if g.has(sp.Integral) else [str(g)]
         if area == "limit":
             return [str(sp.limit(f, X, extra))]
+        if area == "multiple":
+            if extra[0] == "polar":
+                g = f.subs({X: RR * sp.cos(TH), Y: RR * sp.sin(TH)}) * RR
+                v = sp.integrate(g, (RR, 0, extra[1]), (TH, 0, 2 * sp.pi))
+            else:
+                _, a, b, c, d = extra
+                v = sp.integrate(f, (X, a, b), (Y, c, d))
+            return None if v.has(sp.Integral) else [str(v)]
+        if area == "fourier":
+            v = sp.fourier_transform(f, T, KK)
+            return None if v.has(sp.FourierTransform) or v.has(sp.Integral) else [str(v)]
+        if area == "distribution":
+            import sympy.stats as st
+            kind = extra[0]
+            if kind == "t":
+                xd = st.StudentT("X", extra[3])
+            elif kind == "chi":
+                xd = st.ChiSquared("X", extra[3])
+            elif kind == "f":
+                xd = st.FDistribution("X", extra[3], extra[4])
+            elif kind == "gamma":
+                xd = st.Gamma("X", sp.nsimplify(extra[3]), sp.nsimplify(extra[4]))
+            else:
+                xd = st.Beta("X", sp.nsimplify(extra[3]), sp.nsimplify(extra[4]))
+            c = st.cdf(xd)
+            return [str(sp.N(c(sp.nsimplify(extra[2])) - c(sp.nsimplify(extra[1])), 30))]
+        if area == "matrix":
+            fn, m = extra
+            mat = sp.Matrix(m)
+            if fn == "det":
+                return [str(mat.det())]
+            if fn == "rank":
+                return [str(mat.rank())]
+            if fn == "charpoly":
+                return [str(mat.charpoly(sp.Symbol("λ")).as_expr())]
+            if fn == "adjugate":
+                return [str(mat.adjugate())]
+            return None if mat.det() == 0 else [str(mat.inv())]
         if area == "solve":
             s = sp.solveset(f, X, sp.S.Reals)
             if isinstance(s, sp.FiniteSet):
@@ -245,6 +341,8 @@ def sympy_answer(area, f, extra):
 
 def _sympy_job(args):
     area, f, extra = args
+    if area in LATER:
+        return sympy_answer(area, sp.sympify(f) if f is not None else None, extra)
     return sympy_answer(area, sp.sympify(f), sp.sympify(extra) if extra is not None else None)
 
 
@@ -397,9 +495,190 @@ def same_set(a, b):
 # ----------------------------------------------------------------------------------------------------------------------
 # The verdicts.
 
+# ----------------------------------------------------------------------------------------------------------------------
+# The later areas' truths, computed without either side: fractions, mpmath's incomplete gamma and beta functions, its quadrature.
+
+def fraction_det(m):
+    from fractions import Fraction
+    a = [[Fraction(v) for v in row] for row in m]
+    n = len(a)
+    d = Fraction(1)
+    for c in range(n):
+        p = next((i for i in range(c, n) if a[i][c] != 0), None)
+        if p is None:
+            return Fraction(0)
+        if p != c:
+            a[c], a[p] = a[p], a[c]
+            d = -d
+        d *= a[c][c]
+        for i in range(c + 1, n):
+            f = a[i][c] / a[c][c]
+            a[i] = [a[i][j] - f * a[c][j] for j in range(n)]
+    return d
+
+
+def fraction_rank(m):
+    from fractions import Fraction
+    a = [[Fraction(v) for v in row] for row in m]
+    rank = 0
+    for c in range(len(a[0])):
+        p = next((i for i in range(rank, len(a)) if a[i][c] != 0), None)
+        if p is None:
+            continue
+        a[rank], a[p] = a[p], a[rank]
+        for i in range(len(a)):
+            if i != rank and a[i][c] != 0:
+                f = a[i][c] / a[rank][c]
+                a[i] = [a[i][j] - f * a[rank][j] for j in range(len(a[0]))]
+        rank += 1
+    return rank
+
+
+def matrix_truth(fn, m):
+    """The matrix function in fractions: a number, a matrix (rows), or det(λI − A) at λ = 0 … n + 1; None for no inverse."""
+    from fractions import Fraction
+    n = len(m)
+    if fn == "det":
+        return fraction_det(m)
+    if fn == "rank":
+        return Fraction(fraction_rank(m))
+    if fn == "charpoly":
+        return [fraction_det([[(lam if i == j else 0) - m[i][j] for j in range(n)] for i in range(n)]) for lam in range(n + 2)]
+    # adj(A)ᵢⱼ = (−1)^(i+j)·det of A without row j and column i.
+    adj = [[(-1) ** (i + j) * fraction_det([[m[r][c] for c in range(n) if c != i] for r in range(n) if r != j]) for j in range(n)] for i in range(n)]
+    if fn == "adjugate":
+        return adj
+    d = fraction_det(m)
+    return None if d == 0 else [[v / d for v in row] for row in adj]
+
+
+def matrix_value(fn, e, n):
+    """A side's answer in fractions, as [matrix_truth] gives it; None where it cannot be read."""
+    from fractions import Fraction
+    if e is None:
+        return None
+    try:
+        if fn == "charpoly":
+            letters = list(e.free_symbols)
+            lam = letters[0] if letters else sp.Symbol("λ")
+            return [Fraction(str(sp.nsimplify(e.subs(lam, v)))) for v in range(n + 2)]
+        if isinstance(e, sp.MatrixBase):
+            return [[Fraction(str(v)) for v in e.row(i)] for i in range(e.rows)]
+        return Fraction(str(sp.nsimplify(e)))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def distribution_truth(extra):
+    kind = extra[0]
+    lo, hi = mpmath.mpf(extra[1]), mpmath.mpf(extra[2])
+    if kind == "t":
+        nu = mpmath.mpf(extra[3])
+
+        def cdf(x):
+            tail = mpmath.betainc(nu / 2, mpmath.mpf(1) / 2, 0, nu / (nu + x * x), regularized=True) / 2
+            return 1 - tail if x > 0 else tail
+    elif kind == "chi":
+        k = mpmath.mpf(extra[3])
+        cdf = lambda x: 0 if x <= 0 else mpmath.gammainc(k / 2, 0, x / 2, regularized=True)  # noqa: E731
+    elif kind == "f":
+        a, b = mpmath.mpf(extra[3]), mpmath.mpf(extra[4])
+        cdf = lambda x: 0 if x <= 0 else mpmath.betainc(a / 2, b / 2, 0, a * x / (a * x + b), regularized=True)  # noqa: E731
+    elif kind == "gamma":
+        k, th = mpmath.mpf(extra[3]), mpmath.mpf(extra[4])
+        cdf = lambda x: 0 if x <= 0 else mpmath.gammainc(k, 0, x / th, regularized=True)  # noqa: E731
+    else:
+        a, b = mpmath.mpf(extra[3]), mpmath.mpf(extra[4])
+        cdf = lambda x: mpmath.betainc(a, b, 0, min(max(x, 0), 1), regularized=True)  # noqa: E731
+    return cdf(hi) - cdf(lo)
+
+
+def multiple_truth(f, extra):
+    g = sp.lambdify((X, Y), f, modules="mpmath")
+    if extra[0] == "polar":
+        return mpmath.quad(lambda rr, t: g(rr * mpmath.cos(t), rr * mpmath.sin(t)) * rr, [0, extra[1]], [0, 2 * mpmath.pi])
+    _, a, b, c, d = extra
+    return mpmath.quad(g, [a, b], [c, d])
+
+
+OMEGAS = [mpmath.mpf(w) for w in ("-2.3", "-0.7", "0.4", "1.1", "3.6")]
+
+
+def fourier_truth(f, w):
+    """∫ f(t)e^(−iωt) dt as ∫₀^∞ (f(t) + f(−t))cos ωt dt − i∫₀^∞ (f(t) − f(−t))sin ωt dt, each by mpmath's quadrature for
+    oscillating integrands (1/(1 + t²) falls off too slowly for a plain quadrature of e^(−iωt))."""
+    g = sp.lambdify(T, f, modules="mpmath")
+    a = abs(w)
+    even = mpmath.quadosc(lambda t: (g(t) + g(-t)) * mpmath.cos(a * t), [0, mpmath.inf], omega=a)
+    odd = mpmath.quadosc(lambda t: (g(t) - g(-t)) * mpmath.sin(a * t), [0, mpmath.inf], omega=a)
+    return mpmath.mpc(even, -odd if w > 0 else odd)
+
+
+def complex_value(e, symbol, w):
+    try:
+        v = complex(sp.N(e.subs(symbol, sp.Float(str(w), 30)), 30))
+        return mpmath.mpc(v.real, v.imag)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def judge_later(area, f, extra, engine, sym):
+    kind = engine["kind"]
+    declined = kind in ("Failed", "Crash")
+    exprs = [parse(x) for x in engine.get("exprs") or []]
+    sym_ok = sym is not None and sym[0] != "error"
+    if area == "matrix":
+        fn, m = extra
+        truth = matrix_truth(fn, m)
+        e_val = None if declined or not exprs else matrix_value(fn, exprs[0], len(m))
+        s_val = matrix_value(fn, parse(sym[0]), len(m)) if sym_ok else None
+        e_ok = (True if truth is None and declined else None) if e_val is None else e_val == truth
+        s_ok = None if s_val is None else s_val == truth
+    elif area in ("distribution", "multiple"):
+        truth = distribution_truth(extra) if area == "distribution" else multiple_truth(f, extra)
+        e_val = None if declined or not exprs else number(exprs[0])
+        s_val = number(parse(sym[0])) if sym_ok else None
+        tol = mpmath.mpf("1e-9" if area == "distribution" else "1e-8") * max(1, abs(truth))
+        e_ok = None if e_val is None else abs(e_val - truth) <= tol
+        s_ok = None if s_val is None else abs(s_val - truth) <= tol
+    elif area == "fourier":
+        e_expr = None if declined or not exprs else exprs[0]
+        s_expr = parse(sym[0]) if sym_ok else None
+
+        def holds(expr, symbol, scale):
+            for w in OMEGAS:
+                t = fourier_truth(f, w)
+                v = complex_value(expr, symbol, w * scale)
+                if v is None or abs(v - t) > mpmath.mpf("1e-8") * max(1, abs(t)):
+                    return False
+            return True
+        # The engine's transform is in ω (its only letter); SymPy's ∫ f(t)e^(−2πikt) dt is F(ω) at k = ω/(2π).
+        e_ok = None if e_expr is None else holds(e_expr, (list(e_expr.free_symbols) or [sp.Symbol("w")])[0], 1)
+        s_ok = None if s_expr is None else holds(s_expr, KK, 1 / (2 * mpmath.pi))
+    else:
+        raise ValueError(area)
+    if e_ok is None and declined:
+        return ("both-declined" if not sym_ok else "engine-declined"), engine["answer"]
+    if e_ok is False and s_ok is False:
+        return "both-wrong", ""
+    if e_ok is False:
+        return "engine-wrong", ""
+    if s_ok is False:
+        return "sympy-wrong", ""
+    if e_ok and not sym_ok:
+        return "sympy-declined", (sym[1] if sym else "no answer")
+    if e_ok and s_ok:
+        return "agree", ""
+    if e_ok and s_ok is None:
+        return "agree", "SymPy's answer not comparable"
+    return "unclear", f"engine {e_ok}, SymPy {s_ok}"
+
+
 def judge(area, f, extra, engine, sym):
     """(verdict, note): agree, engine-declined, sympy-declined, both-declined, engine-wrong, sympy-wrong, both-wrong, reading,
     or unclear."""
+    if area in LATER:
+        return judge_later(area, f, extra, engine, sym)
     kind = engine["kind"]
     declined = kind in ("Failed", "Crash")
     reading = engine.get("reading")
@@ -468,14 +747,19 @@ def main():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--build-root", default=None, help="the engine's Gradle build directory (outside the repository)")
+    parser.add_argument("--areas", default=None, help="a comma-separated choice of the areas")
     args = parser.parse_args()
+    areas = tuple(a for a in AREAS if args.areas is None or a in args.areas.split(","))
     args.out.mkdir(parents=True, exist_ok=True)
     root = pathlib.Path(__file__).resolve().parent.parent
     r = random.Random(args.seed)
     all_tasks = []
-    for area in AREAS:
+    for area in areas:
         for k, (text, f, extra) in enumerate(tasks(area, args.count, r)):
-            all_tasks.append({"id": f"{area}-{k}", "area": area, "text": text, "f": str(f), "extra": None if extra is None else str(extra)})
+            if area in LATER:
+                all_tasks.append({"id": f"{area}-{k}", "area": area, "text": text, "f": None if f is None else str(f), "extra": extra})
+            else:
+                all_tasks.append({"id": f"{area}-{k}", "area": area, "text": text, "f": str(f), "extra": None if extra is None else str(extra)})
     (args.out / "tasks.txt").write_text("".join(f"{t['id']}\t{t['text']}\n" for t in all_tasks), encoding="utf-8")
 
     # The engine, all at once.
@@ -504,7 +788,7 @@ def main():
     rows = []
     for t in all_tasks:
         f = parse(t["f"])
-        extra = parse(t["extra"])
+        extra = t["extra"] if t["area"] in LATER else parse(t["extra"])
         try:
             verdict, note = judge(t["area"], f, extra, engine[t["id"]], sym[t["id"]])
         except Exception as e:  # noqa: BLE001 — a comparison that cannot be made is reported, not hidden
@@ -514,7 +798,7 @@ def main():
     (args.out / "verdicts.jsonl").write_text("".join(json.dumps(x, ensure_ascii=False, default=str) + "\n" for x in rows), encoding="utf-8")
     verdicts = ("agree", "engine-declined", "sympy-declined", "both-declined", "engine-wrong", "sympy-wrong", "both-wrong", "reading", "unclear")
     lines = [f"{'area':<11}" + "".join(f"{v:>16}" for v in verdicts)]
-    for area in AREAS:
+    for area in areas:
         mine = [x for x in rows if x["area"] == area]
         lines.append(f"{area:<11}" + "".join(f"{sum(1 for x in mine if x['verdict'] == v):>16}" for v in verdicts))
     lines.append("")

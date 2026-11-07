@@ -32,7 +32,7 @@ class WrittenCorpusTest {
      */
     @Test
     fun laterAreas() {
-        val only = System.getenv("CALC_CORPUS_AREAS")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+        val only = System.getenv("CALC_CORPUS_AREAS")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()?.takeIf { it.isNotEmpty() }
         val tasks = WrittenCorpus.later().filter { only == null || it.area in only }
         val (wrong, ran) = WrittenCorpusRun.run(tasks, "Written corpus, later areas", emptyList(), System.getenv("CALC_CORPUS_LATER_REPORT"), ::runDigits)
         assertEquals("", wrong)

@@ -83,9 +83,28 @@ class LaterCorpusFixesTest {
         assertTrue(System.nanoTime() - start < 2_500_000_000L)
         assertEquals(setOf(Triple(-3.0, 0.0, 2), Triple(-1.0, 0.0, 2), Triple(0.0, 0.0, 2)), points(b.zeros))
         assertEquals(setOf(Triple(0.0, 2.0, 2), Triple(-0.5, 1.5, 2)), points(b.poles))
-        assertEquals("UNSOLVED", answerOf(calc("residues(1/(z - (1 + i)))")))
-        assertEquals("UNSOLVED", answerOf(calc("residues(1/(z^2 - 2i))")))
+        // z − (1 + i)'s zero is found now (solve with i); a base whose zeros are not all found is declined (allZeros).
+        assertEquals("at 1 + i order 1 residue 1", answerOf(calc("residues(1/(z - (1 + i)))")))
         assertEquals("at -i order 1 residue i/2; at i order 1 residue -i/2", answerOf(calc("residues(1/(z^2 + 1))")))
+    }
+
+    /**
+     * Quadratics with i in their coefficients, solved by hand: z² = 2i has the roots ±(1 + i) (both complex: the real formula
+     * listed −√2·√i as a real solution and lost the other), z² + 2iz = z(z + 2i) has the real root 0 (said to have none), and
+     * z² − (1 + i)z + i = (z − 1)(z − i) the real root 1 (rejected: its residual has no real value).
+     */
+    @Test
+    fun quadraticsWithI() {
+        assertEquals("z: none (complex -1 - i; 1 + i)", answerOf(calc("solve(z^2 - 2i = 0, z)")))
+        assertEquals("z = 0", answerOf(calc("solve(z^2 + 2i z = 0, z)")))
+        assertEquals("z = 1", answerOf(calc("solve(z^2 - (1 + i)z + i = 0, z)")))
+        assertEquals("x = 2", answerOf(calc("solve(i x = 2i, x)")))
+        // In the complex numbers the poles of 1/(z² − 2i) are both roots.
+        assertEquals("at -1 - i order 1 residue -1/4 + i/4; at 1 + i order 1 residue 1/4 - i/4", answerOf(calc("residues(1/(z^2 - 2i))")))
+        for ((re, im) in listOf(-1.0 to -1.0, 1.0 to 1.0)) {
+            val z = Cx(re, im)
+            assertTrue(((z * z) - Cx(0.0, 2.0)).abs < 1e-15)
+        }
     }
 
     /**
