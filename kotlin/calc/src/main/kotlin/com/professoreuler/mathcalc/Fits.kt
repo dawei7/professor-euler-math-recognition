@@ -208,12 +208,22 @@ internal object Fits {
             if (abs(r - again) > 1e-8 * maxOf(scale, 1e-300)) throw CalcException(Failure.UNVERIFIED)
         }
         val model = when (mode) {
-            Mode.FIT_EXPONENTIAL -> mul(values[0], exp(mul(values[1], X)))
-            Mode.FIT_POWER -> mul(values[0], pow(X, values[1]))
-            else -> add(values[0], mul(values[1], ln(X)))
+            Mode.FIT_EXPONENTIAL -> times(values[0], exp(times(values[1], X)))
+            Mode.FIT_POWER -> times(values[0], pow(X, values[1]))
+            else -> add(values[0], times(values[1], ln(X)))
         }
         return StatResult(mode, rows, model = model, xs = pts.map { num(it.first) }, ys = pts.map { num(it.second) },
             fitted = fitted, residuals = residuals)
+    }
+
+    /**
+     * c·f as the model writes it: a coefficient whose certified digits are 1 (or −1) is left out, as an exact one would be, so
+     * fitexp of (0, 1), (1, 2), (2, 4) is y = e^(0.6931471806x), never 1e^(…), which reads as a number in scientific notation.
+     */
+    private fun times(c: Expr, f: Expr): Expr = when {
+        c is Expr.Real && c.value == 1.0 -> f
+        c is Expr.Real && c.value == -1.0 -> neg(f)
+        else -> mul(c, f)
     }
 
     // ---------------------------------------------------------------------------------------------------------------------
@@ -253,7 +263,7 @@ internal object Fits {
         for (j in 0..2) rows += StatRow(Quantity.COEFFICIENT, values[j], symbol = names[j])
         if (ssTot.signum != 0) rows += StatRow(Quantity.R_SQUARED, boxValue(Ball.ONE.sub(ss.div(Ball.of(ssTot, w), w), w), 1.0))
         rows += StatRow(Quantity.RESIDUAL_SUM, boxValue(ss, scale * scale))
-        val model = mul(values[0], pow(add(Expr.ONE, mul(values[1], exp(mul(neg(values[2]), X)))), Expr.MINUS_ONE))
+        val model = times(values[0], pow(add(Expr.ONE, times(values[1], exp(times(neg(values[2]), X)))), Expr.MINUS_ONE))
         return StatResult(Mode.FIT_LOGISTIC, rows, model = model, xs = pts.map { num(it.first) }, ys = pts.map { num(it.second) },
             fitted = fitted, residuals = residuals)
     }

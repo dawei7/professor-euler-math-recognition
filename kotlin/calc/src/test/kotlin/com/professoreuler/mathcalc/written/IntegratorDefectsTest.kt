@@ -168,4 +168,16 @@ class IntegratorDefectsTest {
         assertTrue("$d", Mode.GRAPH in d && Mode.INTEGRAL in d)
         assertTrue(Mode.EIGEN in others("det([[1, 2], [3, 4]])"))
     }
+
+    /** A fitted coefficient whose certified digits are 1 is left out: y = e^(…), never 1e^(…), which reads as 1·10^(…). */
+    @Test
+    fun aFittedCoefficientOfOneIsLeftOut() {
+        val exp = answer("fitexp((0, 1), (1, 2), (2, 4), (3, 8))")
+        assertTrue(exp, exp.endsWith("y = e^(0.6931471806x)"))
+        val pow = answer("fitpow((1, 1), (2, 4), (3, 9))")
+        assertTrue(pow, pow.endsWith("y = x^(2)"))
+        // Other coefficients stay as they are.
+        val three = answer("fitexp((0, 3), (1, 6), (2, 12))")
+        assertTrue(three, three.endsWith("y = 3e^(0.6931471806x)"))
+    }
 }
