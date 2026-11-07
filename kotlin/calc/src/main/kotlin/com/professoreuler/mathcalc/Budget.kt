@@ -26,6 +26,9 @@ internal object Budget {
      */
     fun <T> bounded(millis: Long, block: () -> T): T = if (deadline.get() != null) block() else within(millis, block)
 
+    /** Whether the calculation's time (the innermost limit there is) has run out. */
+    fun expired(): Boolean = deadline.get()?.let { System.nanoTime() > it } ?: false
+
     fun check() {
         val d = deadline.get() ?: return
         val c = counter.get() ?: IntArray(1).also { counter.set(it) }

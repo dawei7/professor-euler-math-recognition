@@ -184,6 +184,19 @@ object Iterative {
             v = next
         }
         val h = Calculus.tidy(g - x)
+        // A few more steps (not shown) to a double's precision before the value is certified: a step below 10⁻¹² can leave the
+        // value further than that from the fixed point, and its bracket then crossed a rounding of the ten digits shown
+        // (fixedpoint(e^(-x)/2, 2) had no result, from 1 it had).
+        converged = converged?.let { c ->
+            var refined = c
+            for (k in 0 until 30) {
+                val next = value(g, x.name, refined)
+                if (!next.isFinite() || abs(next - refined) > abs(c - v) + TOLERANCE) break
+                if (next == refined) break
+                refined = next
+            }
+            refined
+        }
         val bracket = converged?.let { certify(h, x.name, it) }
         val result = if (bracket == null) null else if (bracket.lo == bracket.hi) bracket.lo + 0.0 else converged
         val slope = Calculus.tidy(Calculus.derivative(g, x))
@@ -593,13 +606,18 @@ object Iterative {
 
     /** max |λ| over T's eigenvalues where they are known exactly. */
     private fun exactRadius(m: Expr.Mat): Expr? {
-        val eigen = try { LinAlg.eigen(m) } catch (e: CalcException) {
-            if (e.failure == Failure.TOO_LONG) throw e
+        // Within a time of its own: the exact eigenvalues of a 4 × 4 Gauss–Seidel matrix took three seconds and stopped the whole
+        // calculation, whose certified radius needs none of them.
+        val eigen = try { Budget.within(EXACT_RADIUS_MS) { LinAlg.eigen(m) } } catch (e: CalcException) {
+            if (e.failure == Failure.TOO_LONG && Budget.expired()) throw e
             null
         } ?: return null
         val moduli = eigen.map { e -> modulus(e.value) ?: return null }
         return moduli.maxByOrNull { Numeric.value(it) ?: return null }?.takeIf { MathCalc.niceExact(it) || it is Expr.Num }
     }
+
+    /** The time the exact eigenvalues of an iteration matrix may take. */
+    private const val EXACT_RADIUS_MS = 400L
 
     /** |z| of an exact number: √(a² + b²) where it is complex. */
     internal fun modulus(z: Expr): Expr? {
