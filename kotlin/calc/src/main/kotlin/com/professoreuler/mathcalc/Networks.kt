@@ -124,8 +124,9 @@ object Networks {
     /**
      * Shortest paths from [source]: the [distances] to every vertex in the order of [vertices] (null where it cannot be reached),
      * each vertex's [previous] one on a shortest path to it, and to the [target] where one was asked for its [path] (null where it
-     * cannot be reached) and [length]. [table] are the distances as the method went: Dijkstra's after each vertex it visited (in
-     * [visited]), Bellman–Ford's after each round. Where Bellman–Ford finds a [negativeCycle] reachable from the source (its
+     * cannot be reached) and [length]. [table] are the distances as the method went: first at the start (the source at 0, the
+     * rest unknown), then Dijkstra's after each vertex it visited (in [visited], one fewer than the rows: row k follows the k-th
+     * visit), Bellman–Ford's after each round (row k after round k). Where Bellman–Ford finds a [negativeCycle] reachable from the source (its
      * vertices in order, the first not repeated, of total [cycleWeight] < 0) there are no shortest paths: the distances are empty.
      */
     data class Paths(
