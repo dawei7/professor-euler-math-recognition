@@ -77,7 +77,7 @@ object Reports {
         }
         // An applied function's formula is no number of its answer (volumex(2, 0, 1) is 4π, not 2).
         if (result.choice?.mode in Applied.MODES) panels.removeAll { it.kind == PanelKind.DIGITS }
-        val others = result.choices.filter { it != result.choice }
+        val others = result.choices.filter { it != result.choice && kindred(wanted, it) }
         // A graph is worth seeing early, as Wolfram Alpha shows its plots (a surface first); a function's curve sketch beside it.
         others.filter { it.mode == Mode.SURFACE }.forEach { panels += Panel(PanelKind.CHOICE, it) }
         others.filter { it.mode == Mode.GRAPH }.forEach { panels += Panel(PanelKind.CHOICE, it) }
@@ -90,6 +90,34 @@ object Reports {
         others.filter { it.mode == Mode.EXTREMA }.forEach { panels += Panel(PanelKind.CHOICE, it) }
         others.filter { it.mode != Mode.GRAPH && it.mode != Mode.SURFACE && it.mode != Mode.EXTREMA }.forEach { panels += Panel(PanelKind.CHOICE, it) }
         return Report(latex, complex, result, panels, constant, fractions, assumptions)
+    }
+
+    /** A vector field's derivatives: curl(…), divergence(…) and jacobian(…) are written as the field's column. */
+    private val FIELDS = setOf(Mode.CURL, Mode.DIVERGENCE, Mode.JACOBIAN)
+
+    /** What works on a matrix as a whole. */
+    private val MATRIX = setOf(Mode.DETERMINANT, Mode.INVERSE, Mode.EIGEN, Mode.ROW_REDUCE, Mode.DECOMPOSE, Mode.SVD, Mode.JORDAN,
+        Mode.MATRIX_EXP, Mode.TRANSPOSE)
+
+    /**
+     * Whether [other], another reading of the input, belongs in the report beside what a command or a choice asked for
+     * ([wanted]; every other reading where nothing was asked). A command written as the list of its arguments (irr,
+     * amortization, stats, sequence, convert) has no other: the list's own readings (its column, its transpose, its
+     * statistics, a rule for it) are no part of its answer. Points (interpolate, spline, regression) keep the other curves
+     * through them, not the matrix they make; a vector field keeps its other derivatives, not its column; a matrix keeps what
+     * else works on it, not its rows read as points.
+     */
+    private fun kindred(wanted: Choice?, other: Choice): Boolean {
+        val mode = wanted?.mode ?: return true
+        return when (CommandFunctions.shapeOf(mode)) {
+            CommandFunctions.Shape.LIST, CommandFunctions.Shape.CONVERT, CommandFunctions.Shape.ARGS -> false
+            CommandFunctions.Shape.POINTS -> CommandFunctions.shapeOf(other.mode) == CommandFunctions.Shape.POINTS
+            else -> when (mode) {
+                in FIELDS -> other.mode in FIELDS
+                in MATRIX -> other.mode in MATRIX
+                else -> true
+            }
+        }
     }
 
     /** The report on a typed line ([TextInput.read]). */

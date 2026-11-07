@@ -139,4 +139,33 @@ class IntegratorDefectsTest {
     /** And leastsquares of a consistent system is its solution (as at 6c813ab). */
     @Test
     fun leastSquaresOfAConsistentSystem() = assertEquals("x = 1, y = 1", answer("leastsquares(x + y = 2, x - y = 0, 2x + y = 3)"))
+
+    private fun others(text: String): Set<Mode> =
+        Reports.of(TextInput.read(text)).panels.filter { it.kind == PanelKind.CHOICE }.mapNotNull { it.choice?.mode }.toSet()
+
+    /**
+     * A command written as the list of its arguments has no other panels (irr's report showed the cash flows' column, their
+     * transpose, their statistics and "no rule found" under its answer); points keep the other curves through them, a field its
+     * other derivatives, a matrix what else works on it; a formula keeps every other reading (the integrator, 7 November 2026).
+     */
+    @Test
+    fun aCommandsReportHoldsOnlyWhatBelongsToIt() {
+        for (text in listOf("irr(-1000, 300, 400, 500)", "amortization(10000, 5%, 4)", "equalprincipal(10000, 5%, 4)",
+                "straightline(10000, 1000, 5)", "decliningbalance(10000, 20%, 5)", "stats(1, 2, 3)", "sequence(1, 4, 9, 16)",
+                "convert(5 km, mi)")) {
+            assertEquals(text, emptySet<Mode>(), others(text))
+        }
+        for (text in listOf("interpolate((0, 1), (1, 3), (2, 7))", "regression((1, 2), (2, 4), (3, 5))", "spline((0, 0), (1, 1), (2, 0))")) {
+            val o = others(text)
+            assertTrue("$text $o", o.all { CommandFunctions.shapeOf(it) == CommandFunctions.Shape.POINTS })
+            assertTrue("$text $o", o.isNotEmpty())
+        }
+        assertEquals(setOf(Mode.DIVERGENCE, Mode.JACOBIAN), others("curl((y z, x z, x y))"))
+        val svd = others("svd([[1, 2], [3, 4]])")
+        assertTrue("$svd", Mode.DETERMINANT in svd && Mode.REGRESSION !in svd)
+        // A formula's own readings stay: the derivative of x² sin x beside its graph and integral.
+        val d = others("derivative(x^2 sin(x), x)")
+        assertTrue("$d", Mode.GRAPH in d && Mode.INTEGRAL in d)
+        assertTrue(Mode.EIGEN in others("det([[1, 2], [3, 4]])"))
+    }
 }

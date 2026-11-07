@@ -199,6 +199,9 @@ object CommandFunctions {
     private val BY_NAME = ALL.associateBy { it.name }
     private val BY_MODE = ALL.filter { it.mode != null }.groupBy { it.mode }.mapValues { it.value.first() }
 
+    /** How the function of [mode] takes its arguments; null where no function names the mode. */
+    fun shapeOf(mode: Mode): Shape? = BY_MODE[mode]?.shape
+
     // ------------------------------------------------------------------------------------------------------------------
     // Reading a call.
 
