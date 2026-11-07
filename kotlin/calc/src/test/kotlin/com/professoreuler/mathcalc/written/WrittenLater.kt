@@ -10,7 +10,7 @@ import java.math.RoundingMode
  * engine (exact fractions, the test's own numerics, brute force, textbook values, mpmath's values at 30 digits in [WrittenTables]).
  */
 internal object WrittenLater {
-    fun all(): List<Task> = WrittenFinance.all() + WrittenPde.all() + WrittenApplied.all() + WrittenLearning.all() + WrittenGraphs.all() + WrittenInference.all()
+    fun all(): List<Task> = WrittenFinance.all() + WrittenPde.all() + WrittenApplied.all() + WrittenLearning.all() + WrittenGraphs.all() + WrittenInference.all() + WrittenMultivar.all()
 }
 
 /** A fraction as a decimal the keys type (it must terminate): 3/4 is 0.75. */
@@ -122,4 +122,73 @@ internal object QP {
         return if (sb.isEmpty()) "0" else sb.toString()
     }
     fun ofLongs(c: List<Long>): List<Q> = c.map { q(it) }
+}
+
+/** Gauss–Legendre quadrature of the test's own: 20 nodes (found by Newton's method on P₂₀), on [panels] equal pieces. */
+internal object Gauss {
+    private val nodes: DoubleArray
+    private val weights: DoubleArray
+
+    init {
+        val n = 20
+        nodes = DoubleArray(n)
+        weights = DoubleArray(n)
+        for (i in 0 until n) {
+            var x = kotlin.math.cos(Math.PI * (i + 0.75) / (n + 0.5))
+            var dp = 0.0
+            repeat(100) {
+                var p0 = 1.0
+                var p1 = x
+                for (k in 2..n) { val p2 = ((2 * k - 1) * x * p1 - (k - 1) * p0) / k; p0 = p1; p1 = p2 }
+                dp = n * (x * p1 - p0) / (x * x - 1)
+                x -= p1 / dp
+            }
+            nodes[i] = x
+            weights[i] = 2 / ((1 - x * x) * dp * dp)
+        }
+    }
+
+    fun integrate(a: Double, b: Double, panels: Int = 12, f: (Double) -> Double): Double {
+        var total = 0.0
+        val h = (b - a) / panels
+        for (p in 0 until panels) {
+            val mid = a + h * (p + 0.5)
+            for (i in nodes.indices) total += weights[i] * f(mid + h / 2 * nodes[i])
+        }
+        return total * h / 2
+    }
+}
+
+private val SHOWN_DECIMAL = Regex("""(-?)(\d+)(?:\.(\d+))?(?: · 10\^(-?\d+))?""")
+
+/**
+ * A number equal to [ref], which the test knows to about [rel] of the larger of itself and a millionth of [scale] (the size of
+ * what was summed: an integral's ∫|f|, so a value 0 by symmetry, which quadrature gives as 10⁻¹⁷, is 0). An exact form must be
+ * the value; a decimal shown must be right to its last digit (a certified decimal may have fewer digits, never wrong ones).
+ */
+internal fun isValue(ref: Double, scale: Double = kotlin.math.abs(ref), rel: Double = 1e-9): (Calculation) -> Boolean = { c ->
+    val v = numberOf(c)
+    val shown = shownOf(c)
+    val tol = rel * maxOf(kotlin.math.abs(ref), 1e-6 * scale) + 1e-300
+    if (v == null || !v.isReal || shown == null) false else {
+        val at = shown.indexOf('≈')
+        val exactPart = when (val o = c.outcome) {
+            is Outcome.Value -> o.exact ?: (o.value as? Num.Exact)?.let { num(it.r) }
+            is Outcome.DefiniteIntegral -> o.exact
+            is Outcome.Expression -> o.result
+            else -> null
+        }?.takeIf { exact(it) }
+        val exactOk = exactPart == null || kotlin.math.abs(read(exactPart).re - ref) <= tol
+        val decimal = (if (at >= 0) shown.substring(at + 1) else if (exactPart == null) shown else null)?.trim()
+        val digitsOk = decimal == null || SHOWN_DECIMAL.matchEntire(decimal)?.let { m ->
+            val (sign, whole, fraction, power) = m.destructured
+            val mantissa = (whole + fraction).trimStart('0')
+            val d = "$sign$whole.${fraction.ifEmpty { "0" }}".toDouble() * Math.pow(10.0, power.toDoubleOrNull() ?: 0.0)
+            if (mantissa.isEmpty()) kotlin.math.abs(ref) <= 1e-3 * tol / rel else {
+                val unit = Math.pow(10.0, kotlin.math.floor(kotlin.math.log10(kotlin.math.abs(d))) - (mantissa.length - 1))
+                kotlin.math.abs(d - ref) <= unit * 1.01 + tol
+            }
+        } ?: false
+        exactOk && digitsOk
+    }
 }

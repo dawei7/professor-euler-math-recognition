@@ -26,7 +26,20 @@ class LaterCorpusFixesTest {
             val got = Numeric.value(o.exact!!)!!
             assertTrue("$got, not $want", abs(got - want) <= 1e-12 * want)
         }
-        // A whole number of 1,000 digits to the power 1/1000 is 10 (Numeric's value of it was ∞).
+        // A whole number of 1,001 digits to the power 1/1000 is 10 (Numeric's value of it was ∞).
         assertEquals(10.0, Numeric.eval(Expr.Pow(Expr.Num(Rational.of(java.math.BigInteger.TEN.pow(1000))), Expr.Num(Rational.of(1) / Rational.of(1000))), emptyMap()), 1e-12)
+    }
+
+    /**
+     * The decimal of a line integral is its exact form's certified one: ∫ (y² − 4)|r′| dt along (t² − 2t + 2, −t − 1) from −1 to 0
+     * is −11.7726470944204 (mpmath at 30 digits; the same as integral((t^2 + 2t - 3) sqrt(4t^2 - 8t + 5), t, -1, 0)), and was
+     * shown as −11.77264711, its antiderivative's double, whose terms cancel.
+     */
+    @Test
+    fun aLineIntegralsDigitsAreCertified() {
+        assertEquals("≈ -11.77264709", answerOf(calc("lineintegral(y^2 - 4, (t^2 - 2t + 2, -t - 1), t, -1, 0)")))
+        assertEquals("≈ -11.77264709", answerOf(calc("integral((t^2 + 2t - 3) sqrt(4t^2 - 8t + 5), t, -1, 0)")))
+        // ∫ x·y² ds along (−2t² + t − 2, −2t) from −1 to 1: −33.9437182397133.
+        assertEquals("≈ -33.94371824", answerOf(calc("lineintegral(x y^2, (-2t^2 + t - 2, -2t), t, -1, 1)")))
     }
 }

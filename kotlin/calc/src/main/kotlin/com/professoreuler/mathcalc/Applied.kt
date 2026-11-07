@@ -215,7 +215,7 @@ object Applied {
         if (v.symbols().isNotEmpty()) return Outcome.Expression(v)
         if (v.hasInfinity()) return Outcome.Expression(v)
         if (v is Expr.Num) return Outcome.Value(Num.Exact(v.value))
-        val d = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
+        val d = Precise.double(v) ?: throw CalcException(Failure.UNDEFINED)
         val shown = Algebra.rationalize(v)
         return Outcome.Value(Num.Approx(d), exact = shown.takeIf { MathCalc.niceExact(it) })
     }

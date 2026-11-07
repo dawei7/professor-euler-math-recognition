@@ -91,6 +91,13 @@ object Precise {
      * evaluation gets wrong where its terms cancel (√(10¹⁶ + 1) − 10⁸ is 5·10⁻⁹, no 0; e^(10⁻¹⁰) − 1 is 1.00000000005·10⁻¹⁰).
      * Within a fifth of a second; null where the balls cannot take [e] (a decimal in it, a function they lack) or need longer.
      */
+    /**
+     * The double of the real constant [e] from its certified decimal (17 digits), its double's evaluation where the balls cannot
+     * take it: what a result's decimal is kept as. A double's evaluation of an exact form loses digits where its terms cancel
+     * (a line integral's antiderivative, (−39347/96 + 17597√5/96 + …)/(√5 − 2)⁴, was −11.77264711 for −11.7726470944).
+     */
+    internal fun double(e: Expr): Double? = decimal(e, 17)?.toDouble() ?: Numeric.value(e)
+
     internal fun decimal(e: Expr, n: Int = Format.DIGITS): java.math.BigDecimal? = try {
         if (e.symbols().isNotEmpty() || e.hasOp() || hasReal(e)) null else Budget.within(200) {
             val v = digits(e, n, complex = true)
