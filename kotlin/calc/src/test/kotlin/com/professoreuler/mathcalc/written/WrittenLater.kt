@@ -10,7 +10,7 @@ import java.math.RoundingMode
  * engine (exact fractions, the test's own numerics, brute force, textbook values, mpmath's values at 30 digits in [WrittenTables]).
  */
 internal object WrittenLater {
-    fun all(): List<Task> = WrittenFinance.all() + WrittenPde.all() + WrittenApplied.all() + WrittenLearning.all() + WrittenGraphs.all() + WrittenInference.all() + WrittenMultivar.all() + WrittenFunctions.all() + WrittenIterations.all() + WrittenAlgorithms.all() + WrittenPlots.all()
+    fun all(): List<Task> = WrittenFinance.all() + WrittenPde.all() + WrittenApplied.all() + WrittenLearning.all() + WrittenGraphs.all() + WrittenInference.all() + WrittenMultivar.all() + WrittenFunctions.all() + WrittenIterations.all() + WrittenAlgorithms.all() + WrittenPlots.all() + WrittenForms.all() + WrittenResidues.all()
 }
 
 /** A fraction as a decimal the keys type (it must terminate): 3/4 is 0.75. */
