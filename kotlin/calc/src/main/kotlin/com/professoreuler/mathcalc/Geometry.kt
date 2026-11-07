@@ -392,7 +392,8 @@ object Geometry {
             val dx = d.rows[0][0]
             if (isZero(dx)) "x" to p.rows[0][0] else {
                 val m = tidy(d.rows[1][0] / dx)
-                "y" to tidy(add(mul(m, X), tidy(p.rows[1][0] - mul(m, p.rows[0][0]))))
+                // Collected: (2 − √2)x + √2, not −x√2 + 2x + √2.
+                "y" to add(mul(m, X), tidy(p.rows[1][0] - mul(m, p.rows[0][0])))
             }
         } else null
         // Both points on it.

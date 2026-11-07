@@ -15,6 +15,11 @@ import kotlin.math.sign
  * point.
  */
 object Calculus {
+    /**
+     * The highest order of a derivative, one limit for every way of asking: derivative(f, x, n) and d^n/dx^n typed or from the
+     * editor (derivative(f, x, 25) was refused at 24 while d^25/dx^25 was worked out). Beyond it [Failure.TOO_LARGE].
+     */
+    const val MOST_DERIVATIVE_ORDER = 100
 
     // ---------------------------------------------------------------------------------------------------------------------
     // Derivatives.

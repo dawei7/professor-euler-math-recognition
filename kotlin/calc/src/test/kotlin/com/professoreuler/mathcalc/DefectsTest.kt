@@ -287,7 +287,8 @@ class DefectsTest {
         assertEquals("1/s", typed("laplace(1)"))
         assertEquals("5/s", typed("laplace(5)"))
         // L{e^(at)} = 1/(s − a).
-        assertEquals("-1/(a - s)", typed("laplace(e^(a t))"))
+        // Written with s first (the app integrator, 7 November 2026): 1/(s − a), not −1/(a − s).
+        assertEquals("1/(s - a)", typed("laplace(e^(a t))"))
         assertEquals("UNSOLVED", typed("invlaplace(2)"))
         assertEquals("UNSOLVED", typed("residues(e^(1/z))"))
     }

@@ -92,6 +92,8 @@ object TextInput {
         val letter = m.groupValues[2]
         val body = text.substring(m.range.last + 1).trim()
         if (body.isEmpty()) return null
+        // "d/dx x^2 = 2x" is a relation between a derivative and 2x: read as the editor writes it (d/dx anywhere in the line).
+        if (RELATION.containsMatchIn(body)) return null
         if (order != "1") return Typed("\\frac{d^{$order}}{d$letter^{$order}}\\left(${latex(body)}\\right)")
         return Typed(latex(body), Choice(Mode.DERIVATIVE, letter))
     }
@@ -141,7 +143,8 @@ object TextInput {
 
     /** convert(5 km, mi): a number with its unit ("5 km", "5km", "20 °C") and the unit wanted. */
     internal fun conversion(value: String, wanted: String): Typed? {
-        val m = Regex("""^\s*(-?\d+(?:[.,]\d+)?(?:/\d+)?)\s*(\S.*?)\s*$""").matchEntire(value) ?: return null
+        // The number as every calculator writes it, scientific notation too: convert(1.5e3 m, km) is 1.5 km.
+        val m = Regex("""^\s*(-?\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?(?:/\d+)?)\s*(\S.*?)\s*$""").matchEntire(value) ?: return null
         val from = unitText(m.groupValues[2]).takeIf { Units.known(it) } ?: return null
         val to = unitText(wanted).takeIf { Units.known(it) } ?: return null
         return Typed(latex(m.groupValues[1]), Choice(Mode.UNITS, from, to))
@@ -278,7 +281,18 @@ object TextInput {
 
     private fun latexPlain(math: String): String {
         // The editor's \left( and \right) are brackets as typed, so floor\left(2.5\right) is floor(2.5), not its letters.
-        val s = symbols(math).replace("\\left(", "(").replace("\\right)", ")")
+        // d/dx typed anywhere is the derivative as the editor writes it, \frac{d}{dx}, which takes what follows it on its side:
+        // "2 + d/dx x^2" is 2 + 2x (it was read as 2 + x³ with d ≠ 0), "(d/dx x^2) + 1" is 2x + 1.
+        val s = DD_ANYWHERE.replace(symbols(math).replace("\\left(", "(").replace("\\right)", ")")) { m ->
+            val top = m.groupValues[1].ifEmpty { "1" }
+            val bottom = m.groupValues[3].ifEmpty { "1" }
+            val x = m.groupValues[2]
+            when {
+                top != bottom -> m.value
+                top == "1" -> "\\frac{d}{d$x} "
+                else -> "\\frac{d^{$top}}{d$x^{$top}} "
+            }
+        }
         val out = StringBuilder()
         var i = 0
         fun emit(str: String) {
@@ -374,6 +388,13 @@ object TextInput {
                 while (j < s.length && s[j].isDigit()) j++
                 emit("\\log_{${s.substring(i, j)}}")
                 return j
+            }
+            lower == "log" && i + 1 < s.length && s[i] == '_' && LOG_BASE.matchAt(s, i) != null -> {
+                // The base is everything after _ up to the bracket, as the editor writes it: log_10(1000) is to base 10 (not to
+                // base 1 of 0·1000), log_1.04(2) to base 1.04, log_ab(8) to base ab, log_2x(8) to base 2x (not 8·log_2(x)).
+                val m = LOG_BASE.matchAt(s, i)!!
+                emit("\\log_{${latex(m.groupValues[1].removeSurrounding("{", "}"))}}")
+                return m.range.last + 1
             }
             lower == "log" && i + 1 < s.length && s[i] == '_' && s[i + 1].isDigit() -> {
                 // log_10(1000) is to base 10, not to base 1 of 0·1000.
@@ -536,6 +557,15 @@ object TextInput {
 
     /** u with the letters of a partial derivative of order two or more: u_xx, u_xy, u_tt. */
     private val PARTIAL_TYPED = Regex("""(?<![A-Za-z])u_([xyt]{2,4})(?![A-Za-z0-9])""")
+
+    /** d/dx, d^2/dx^2 typed anywhere in a line (not inside a word: "add/dx" is no derivative). */
+    private val DD_ANYWHERE = Regex("""(?<![A-Za-z0-9_\\])d(?:\^([0-9]+))?\s*/\s*d([A-Za-z])(?:\^([0-9]+))?(?![A-Za-z0-9])\s*""")
+
+    /** A relation in a line: =, <, >, ≤, ≥, ≠ (not the arrow -> nor <>). */
+    private val RELATION = Regex("""(?<![<>!-])(=|<|>|≤|≥|≠)(?![>])""")
+
+    /** A logarithm's typed base after _, up to its bracket: digits, a decimal, letters, or a braced group (the bracket not taken). */
+    private val LOG_BASE = Regex("""_(\{[^{}]+\}|[A-Za-z0-9.]+)(?=\s*(?:\(|\\left\())""")
 
     private val DD = Regex("^d(?:\\^([0-9]+))?\\s*/\\s*d([A-Za-z])(?:\\^([0-9]+))?(?![A-Za-z0-9])\\s*")
     private val ARROW = Regex("->|→|\\\\to")

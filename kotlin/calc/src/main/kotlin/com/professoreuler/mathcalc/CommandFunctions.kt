@@ -249,7 +249,8 @@ object CommandFunctions {
             // calculator works out itself.
             Shape.ORDER -> {
                 if (params.size > 2 || (params.isNotEmpty() && letter(0) == null)) return refused(f, inner)
-                val n = params.getOrNull(1)?.let { it.toIntOrNull()?.takeIf { k -> k in 1..MAX_ORDER } ?: return refused(f, inner) } ?: 1
+                // Any positive whole order is read; the derivative's own limit ([Calculus.MOST_DERIVATIVE_ORDER]) is the parser's.
+                val n = params.getOrNull(1)?.let { it.trim().toIntOrNull()?.takeIf { k -> k >= 1 } ?: return refused(f, inner) } ?: 1
                 if (n == 1) return Typed(l.latex(formula), Choice(f.mode!!, letter(0)))
                 val body = l.latex(formula)
                 val x = letter(0) ?: l.mainLetterOf(body)
