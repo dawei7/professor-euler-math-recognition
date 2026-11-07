@@ -12,6 +12,31 @@ object Transforms {
     private fun tidy(e: Expr) = Calculus.tidy(e)
 
     /** L{f}(s) of f(t); null where f is not a sum of the forms above or the check fails. */
+    /**
+     * [e] with each factor linear in [s] written with s first, s − a rather than −(a − s): L{e^(at)} is 1/(s − a), not
+     * −1/(a − s); L{t²e^(at)} is 2/(s − a)³. The same expression: each such factor's sign is moved out as (−1)^power.
+     */
+    fun sFirst(e: Expr, s: Expr.Sym): Expr {
+        val factors = if (e is Expr.Mul) e.factors else listOf(e)
+        var sign = 1
+        var changed = false
+        val out = factors.map { f ->
+            val (base, k) = if (f is Expr.Pow) f.base to integer(f.exp)?.takeIf { it.bitLength() < 31 }?.toInt() else f to 1
+            if (k == null || base !is Expr.Add || !base.has(s)) return@map f
+            val slope = tidy(Calculus.derivative(base, s))
+            val v = if (slope.symbols().isEmpty()) Numeric.value(slope) else null
+            if (v == null || v >= 0 || tidy(Calculus.derivative(slope, s)).let { !isZero(it) }) return@map f
+            changed = true
+            if (k % 2 != 0) sign = -sign
+            // −base term by term (neg of a sum is a product −1·(a − s), which a power turns back).
+            val flipped = add(base.terms.map { neg(it) })
+            if (k == 1) flipped else pow(flipped, num(k.toLong()))
+        }
+        if (!changed) return e
+        val product = mul(out)
+        return if (sign < 0) neg(product) else product
+    }
+
     fun laplace(f: Expr, t: Expr.Sym, s: Expr.Sym): Expr? {
         val expanded = tidy(Algebra.expand(asExponentials(f)))
         val terms = if (expanded is Expr.Add) expanded.terms else listOf(expanded)
@@ -38,7 +63,7 @@ object Transforms {
             if (numeric == null || !exact.isFinite()) return null
             if (abs(numeric - exact) > 1e-6 * max(1.0, abs(exact))) return null
         }
-        return result
+        return sFirst(result, s)
     }
 
     /** sinh u and cosh u as (e^u ∓ e^(−u))/2. */
@@ -243,6 +268,29 @@ object ComplexAnalysis {
         return Polar(r, phi)
     }
 
+    /**
+     * Whether [zeros] are all the zeros of [b]: for a polynomial in [z] (its derivatives end in a constant), their multiplicities
+     * (the derivatives that vanish there, in ball arithmetic) add up to its degree; for anything else, at least one was found.
+     */
+    private fun allZeros(b: Expr, z: Expr.Sym, zeros: List<Expr>): Boolean {
+        if (zeros.isEmpty()) return false
+        val derivatives = ArrayList<Expr>()
+        var d = tidy(b)
+        while (d.has(z)) {
+            if (derivatives.size > 24) return true
+            derivatives += d
+            d = tidy(Calculus.derivative(d, z))
+        }
+        val degree = derivatives.size
+        var found = 0
+        for (a in zeros) {
+            var m = 0
+            while (m < degree && Precise.certainlyNonzero(tidy(derivatives[m].substitute(z, a))) == false) m++
+            found += m
+        }
+        return found == degree
+    }
+
     /** A pole: where, its order, its residue. */
     class Pole(val at: Expr, val order: Int, val residue: Expr)
 
@@ -256,6 +304,9 @@ object ComplexAnalysis {
         for (b in bases) {
             val roots = Domain.complex { Solve.equation(b, Expr.ZERO, z) }
             if (roots.numeric) return null
+            // Every zero of the base found, or no answer: z − (1 + i) had none found and the poles were said to be none, and
+            // z² − 2i one of its two. A polynomial's zeros with their multiplicities make up its degree.
+            if (!allZeros(b, z, (roots.values + roots.complex).distinct())) return null
             for (a in (roots.values + roots.complex).distinct()) {
                 if (poles.any { LinAlg.isNull(tidy(it.at - a)) }) continue
                 val terms = Domain.complex { Series.taylorTerms(f, z, a, 0) } ?: return null

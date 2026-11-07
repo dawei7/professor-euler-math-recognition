@@ -210,8 +210,8 @@ internal object MultiCalls {
     fun valueOf(v: Expr): Outcome {
         if (v.symbols().isNotEmpty() || v.hasI() || v.hasInfinity()) return Outcome.Expression(v)
         if (v is Expr.Num) return Outcome.Value(Num.Exact(v.value))
-        val d = Numeric.value(v) ?: throw CalcException(Failure.UNDEFINED)
-        if (v is Expr.Real) return Outcome.Value(Num.Approx(d))
+        if (v is Expr.Real) return Outcome.Value(Num.Approx(v.value))
+        val d = Precise.double(v) ?: throw CalcException(Failure.UNDEFINED)
         val shown = Algebra.rationalize(v)
         return Outcome.Value(Num.Approx(d), exact = shown.takeIf { MathCalc.niceExact(it) })
     }

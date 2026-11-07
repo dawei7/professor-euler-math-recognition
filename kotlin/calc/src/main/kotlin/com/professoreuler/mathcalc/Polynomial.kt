@@ -90,9 +90,14 @@ class Polynomial internal constructor(terms: Map<Monomial, Rational>) {
         Budget.check()
         if (terms.size.toLong() * o.terms.size > MOST_PRODUCTS) throw CalcException(Failure.TOO_LARGE)
         val out = HashMap<Monomial, Rational>()
-        for ((a, x) in terms) for ((b, y) in o.terms) {
-            val m = a * b
-            out[m] = (out[m] ?: Rational.ZERO) + x * y
+        for ((a, x) in terms) {
+            // The time looked at once a term: one product of two long polynomials is much work, and the clock is read only
+            // every 256 checks (a line integral ran 0.9 s past its 3 s in products and exact divisions).
+            Budget.check()
+            for ((b, y) in o.terms) {
+                val m = a * b
+                out[m] = (out[m] ?: Rational.ZERO) + x * y
+            }
         }
         return Polynomial(out).also { if (it.terms.size > MOST_TERMS) throw CalcException(Failure.TOO_LARGE) }
     }
@@ -119,6 +124,7 @@ class Polynomial internal constructor(terms: Map<Monomial, Rational>) {
         var steps = 0
         // The leading term of what is left must be a multiple of the divisor's, or the divisor does not divide it.
         while (!rest.isZero) {
+            Budget.check()
             if (++steps > MOST_TERMS) return null
             val (m, c) = rest.leading
             val q = m.div(lm) ?: return null

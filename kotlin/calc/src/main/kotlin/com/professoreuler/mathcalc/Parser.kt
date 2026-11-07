@@ -608,6 +608,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
         val order = if (top.size == 1) 1 else orderOf(top.drop(1)) ?: return null
         val rest = bottom.drop(2)
         val ok = rest.isEmpty() || orderOf(rest) == order
+        if (ok && order > Calculus.MOST_DERIVATIVE_ORDER) throw CalcException(Failure.TOO_LARGE)
         return if (ok && order >= 1) bottom[1] to order else null
     }
 
@@ -619,7 +620,7 @@ internal class Parser(tokens: List<String>, private val flags: Flags = Flags(), 
             tokens.size >= 4 && tokens[1] == "{" && tokens.last() == "}" -> tokens.subList(2, tokens.size - 1)
             else -> return null
         }
-        if (digits.isEmpty() || digits.size > 3 || !digits.all { isDigit(it) }) return null
+        if (digits.isEmpty() || digits.size > 9 || !digits.all { isDigit(it) }) return null
         return digits.joinToString("").toInt()
     }
 

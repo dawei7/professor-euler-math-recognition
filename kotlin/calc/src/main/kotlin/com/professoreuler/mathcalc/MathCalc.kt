@@ -1095,7 +1095,9 @@ object MathCalc {
                 if (c.mode in asFunction && (v is Expr.Mat || v.hasI() || v.hasInfinity())) throw CalcException(Failure.ARGUMENTS)
                 if (c.mode == Mode.TO_BASE || c.mode == Mode.FROM_BASE) Bases.outcome(c, v)
                 else if (c.mode == Mode.DERIVATIVE) Outcome.Expression(Expr.ZERO)
-                else if (c.mode == Mode.INTEGRAL) Outcome.Expression(Calculus.tidy(mul(v, Expr.Sym(c.letter ?: "x"))), plusC = true)
+                // ∫ 0 dx is the constant C alone, not "0 + C".
+                else if (c.mode == Mode.INTEGRAL) (if (isZero(v)) Outcome.Expression(Expr.Sym("C"))
+                    else Outcome.Expression(Calculus.tidy(mul(v, Expr.Sym(c.letter ?: "x"))), plusC = true))
                 else if (c.mode == Mode.LAPLACE) Outcome.Expression(Transforms.laplace(v, Expr.Sym("t"), Expr.Sym("s")) ?: throw CalcException(Failure.UNSOLVED))
                 else if (c.mode == Mode.INVERSE_LAPLACE) throw CalcException(Failure.UNSOLVED)
                 else if (c.mode == Mode.UNITS) {
@@ -1504,7 +1506,11 @@ object MathCalc {
             Mode.DIVERGENCE, Mode.CURL, Mode.JACOBIAN)
         val accepts = (if (numeric) setOf(Mode.STATISTICS, Mode.SEQUENCE, Mode.LINE, Mode.PLANE, Mode.REGRESSION) else emptySet()) +
             setOf(Mode.SVD, Mode.JORDAN, Mode.INTERPOLATION, Mode.SPLINE) + ownOperations + Finance.MODES
-        val fieldLetters = if (field) coordinates else variablesOf(m.symbols())
+        // A field of 2 or 3 entries whose variables are coordinates is in all of them, the others its constants: (a·x, b·y, 0)
+        // is in x, y, z (it was taken in x, y only and refused for its size, while (a·x, b·y, c·z) and (y, −x, 0) worked).
+        val inCoordinates = vector && m.size in 2..3 && m.symbols().isNotEmpty() && variablesOf(m.symbols()).all { it in coordinates } &&
+            variablesOf(m.symbols()).any { it in COORDINATE_ORDER }
+        val fieldLetters = if (field || inCoordinates) coordinates else variablesOf(m.symbols())
         val likeliest = when {
             // A function's value (softmax(…)) is its result, not data.
             calculated -> Choice(Mode.CALCULATE)
@@ -2143,7 +2149,10 @@ object MathCalc {
     }
 
     /** An antiderivative with + C, or the root sum of one whose logarithms need the roots of a polynomial. */
-    private fun integralOutcome(f: Expr, x: Expr.Sym): Outcome = Calculus.antiderivative(f, x)?.let { Outcome.Expression(it, plusC = true) }
+    private fun integralOutcome(f: Expr, x: Expr.Sym): Outcome = Calculus.antiderivative(f, x)?.let {
+        // ∫ 0 dx is the constant C alone, not "0 + C".
+        if (isZero(it)) Outcome.Expression(Expr.Sym("C")) else Outcome.Expression(it, plusC = true)
+    }
         ?: RationalIntegral.rootSum(f, x) ?: throw CalcException(Failure.NO_ANTIDERIVATIVE)
 
     /** LaTeX without what does not change what it says: spaces, braces, `\cdot` between factors, `\left`, `\right`. */

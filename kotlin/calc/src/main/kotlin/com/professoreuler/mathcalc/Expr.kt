@@ -1089,8 +1089,31 @@ object Numeric {
         is Expr.Op, is Expr.Mat -> Double.NaN
         is Expr.Add -> e.terms.sumOf { eval(it, env) }
         is Expr.Mul -> e.factors.fold(1.0) { acc, f -> acc * eval(f, env) }
-        is Expr.Pow -> power(eval(e.base, env), e.exp, env)
+        is Expr.Pow -> largePower(e) ?: power(eval(e.base, env), e.exp, env)
         is Expr.Fn -> function(e.f, e.args.map { eval(it, env) })
+    }
+
+    /**
+     * A root of a whole number or fraction beyond a double's range, by its logarithm: (8227/6256)^(1/144) is kept as the 144th
+     * root of a number of 1,400 digits over 782, whose double is ∞ (interestrate(6256, 8227, 36, 4) had no value). Null where
+     * the base is a double's or is no number.
+     */
+    private fun largePower(e: Expr.Pow): Double? {
+        val base = (e.base as? Expr.Num)?.value ?: return null
+        val r = rational(e.exp) ?: return null
+        val direct = base.toDouble()
+        if (direct.isFinite() && (direct != 0.0 || base.signum == 0)) return null
+        fun ln(n: BigInteger): Double {
+            val shift = maxOf(0, n.bitLength() - 900)
+            return kotlin.math.ln(n.shiftRight(shift).toDouble()) + shift * kotlin.math.ln(2.0)
+        }
+        val magnitude = kotlin.math.exp(r.toDouble() * (ln(base.num.abs()) - ln(base.den)))
+        if (base.signum > 0) return magnitude
+        return when {
+            r.isInteger -> if (r.num.testBit(0)) -magnitude else magnitude
+            r.den.testBit(0) -> if (r.num.testBit(0)) -magnitude else magnitude
+            else -> Double.NaN
+        }
     }
 
     private fun power(b: Double, exp: Expr, env: Map<String, Double>): Double {

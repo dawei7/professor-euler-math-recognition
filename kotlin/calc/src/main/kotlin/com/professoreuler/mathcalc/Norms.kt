@@ -237,7 +237,7 @@ object Norms {
     private fun outcome(exact: Expr?, ball: Ball?): Outcome {
         if (exact != null && (ball == null || Iterative.within(exact, ball.lower, ball.upper))) {
             if (exact is Expr.Num) return Outcome.Value(Num.Exact(exact.value))
-            val d = Numeric.value(exact) ?: throw CalcException(Failure.UNSOLVED)
+            val d = Precise.double(exact) ?: throw CalcException(Failure.UNSOLVED)
             val shown = Algebra.rationalize(exact)
             return Outcome.Value(Num.Approx(d), exact = if (MathCalc.niceExact(shown)) shown else Expr.Real(d))
         }

@@ -45,7 +45,10 @@ object Stats {
      * y = a·x + b through the points by least squares, with Pearson's r; exact for exact points. [r] is null where the y are
      * all the same: the line is level (a = 0) and r, a quotient by their spread, is not defined.
      */
-    class Line(val slope: Expr, val intercept: Expr, val r: Expr?)
+    class Line(val slope: Expr, val intercept: Expr, val r: Expr?) {
+        /** y = slope·x + intercept as one expression in x, collected: x(3/2 − √2/2) + 4√2/3 − 4/3 (the slope a factor, no "+ −"). */
+        val equation: Expr get() = add(mul(slope, Expr.Sym("x")), intercept)
+    }
 
     fun regression(xs: List<Expr>, ys: List<Expr>): Line? {
         val n = xs.size

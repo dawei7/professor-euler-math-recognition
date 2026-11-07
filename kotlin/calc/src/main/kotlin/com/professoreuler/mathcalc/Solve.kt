@@ -419,6 +419,38 @@ object Solve {
         }
     }
 
+    /**
+     * a x² + b x + k = 0 with coefficients that hold i: its roots (−b ± √d)/(2a) as p + qi, √d of d = u + vi taken as
+     * √((|d| + u)/2) + i·sgn(v)·√((|d| − u)/2), each a real root where its imaginary part is 0 and a complex one otherwise. The
+     * real formula took the roots of z² − 2i, ±√2·√i, for real ones (and kept one), and the 0 of z² + 2iz for a complex one.
+     * False where a coefficient is not written as p + qi.
+     */
+    private fun complexQuadratic(b: Expr, a: Expr, d: Expr, out: Found): Boolean {
+        val (u, v) = Complex.normal(Calculus.tidy(d)) ?: return false
+        val uu = Calculus.tidy(u)
+        val vv = Calculus.tidy(v)
+        val root = if (isZero(vv)) {
+            val uv = Numeric.value(uu) ?: return false
+            if (uv >= 0) sqrt(uu) else mul(Expr.I, sqrt(neg(uu)))
+        } else {
+            val sv = Numeric.value(vv) ?: return false
+            val m = sqrt(add(pow(uu, Expr.TWO), pow(vv, Expr.TWO)))
+            add(sqrt(Calculus.tidy((m + uu) / Expr.TWO)), mul(num(if (sv > 0) 1L else -1L), Expr.I, sqrt(Calculus.tidy((m - uu) / Expr.TWO))))
+        }
+        val roots = if (isZero(Calculus.tidy(d))) listOf(neg(b) / (num(2) * a)) else
+            listOf((neg(b) - root) / (num(2) * a), (neg(b) + root) / (num(2) * a))
+        val sorted = ArrayList<Pair<Expr, Boolean>>()
+        for (r in roots) {
+            val (p, q) = Complex.normal(Calculus.tidy(r)) ?: return false
+            val im = Calculus.tidy(q)
+            val real = isZero(im) || Precise.certainlyNonzero(im) == false
+            if (!real && Precise.certainlyNonzero(im) != true) return false
+            sorted += (if (real) Calculus.tidy(p) else Algebra.expand(add(p, mul(im, Expr.I)))) to real
+        }
+        for ((r, real) in sorted) if (real) out.exact += r else out.complex += r
+        return true
+    }
+
     /** a x + b = 0 and a x² + b x + c = 0 by their formulas; non-real roots of a quadratic go to [Found.complex]. */
     private fun formula(c: List<Expr>, out: Found) {
         if (c.size == 2) {
@@ -427,6 +459,7 @@ object Solve {
         }
         val (k, b, a) = c
         val d = Algebra.expand(b * b - num(4) * a * k)
+        if (c.any { it.hasI() } && complexQuadratic(b, a, d, out)) return
         val dv = Numeric.value(d)
         val twoA = num(2) * a
         when {
@@ -874,6 +907,12 @@ object Solve {
         return try {
             val a = lhs.substitute(x, v)
             val b = rhs.substitute(x, v)
+            // An equation with i in it (z² − (1 + i)z + i = 0 at 1): its sides have no real value, the residual is decided in
+            // complex ball arithmetic (its real root was rejected, and the equation said to have none).
+            if ((a.hasI() || b.hasI()) && !lhs.hasOp() && !rhs.hasOp()) {
+                val residual = Calculus.tidy(add(a, neg(b)))
+                return isZero(residual) || Precise.nearZero(residual, complex = true) == true
+            }
             val va = Numeric.value(a)
             val vb = Numeric.value(b)
             if (va == null || vb == null) return false

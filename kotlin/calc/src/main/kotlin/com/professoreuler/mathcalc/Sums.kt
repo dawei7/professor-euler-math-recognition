@@ -133,10 +133,69 @@ internal object Sums {
         return true
     }
 
-    private fun term(t: Expr, k: Expr.Sym, j: Long): Double? = Numeric.value(t.substitute(k, num(j)))
+    /**
+     * The term at k = [j]: in doubles where they hold it (each exact substitution simplified √j by trial division, and 200,000 of
+     * them for Σ(−1)ᵏ/√k took longer than the calculation's time), exactly where a double has no value (k! past 170).
+     */
+    private fun term(t: Expr, k: Expr.Sym, j: Long): Double? {
+        val fast = Numeric.eval(t, mapOf(k.name to j.toDouble()))
+        if (fast.isFinite()) return fast
+        return Numeric.value(t.substitute(k, num(j)))
+    }
 
-    /** Σ of an alternating series to within 1e-12 by its partial sums (the error at most the next term), averaged at the end. */
+    /**
+     * Σ of an alternating series whose terms fall to 0: by the acceleration of Cohen, Rodriguez Villegas and Zagier (Experimental
+     * Mathematics 9, 2000: Σ(−1)ᵏaₖ ≈ (1/d)Σ cₖaₖ with weights from the Chebyshev polynomials, d = ((3 + √8)ⁿ + (3 + √8)⁻ⁿ)/2),
+     * taken with 24 and with 40 terms; their agreement is its error, and the value is between two partial sums far out (the
+     * Leibniz bound), or there is none. Rounded to the digits the agreement leaves certain. Where the two do not agree (terms that
+     * are no moments of a measure), the partial sums as before, rounded to the digits their averaging leaves.
+     * Σ(−1)ᵏ/√k from 1 is −0.6048986434216 (−(1 − √2)ζ(1/2)): the averaged partial sums had −0.604898642, wrong in its ninth
+     * digit, after 200,000 terms that took longer than the calculation's time.
+     */
     private fun alternatingSum(t: Expr, k: Expr.Sym, start: Long): Double? {
+        val a = DoubleArray(40) { j -> term(t, k, start + j) ?: return null }
+        fun cvz(n: Int): Double {
+            var d = Math.pow(3 + Math.sqrt(8.0), n.toDouble())
+            d = (d + 1 / d) / 2
+            var b = -1.0
+            var c = -d
+            var s = 0.0
+            for (j in 0 until n) {
+                c = b - c
+                // a[j] carries its own sign (−1)ʲ·(±1): the weights act on |aⱼ| with the alternation the method assumes.
+                s += c * abs(a[j])
+                b = (j + n).toDouble() * (j - n) * b / ((j + 0.5) * (j + 1))
+            }
+            return s / d
+        }
+        val sign = if (a[0] < 0) -1.0 else 1.0
+        if (a.indices.any { j -> a[j] != 0.0 && (a[j] < 0) != ((j % 2 == 0) == (sign < 0)) }) return partialSums(t, k, start)
+        val short = sign * cvz(24)
+        val long = sign * cvz(40)
+        val agreement = abs(short - long) + 1e-15 * abs(long)
+        if (agreement > 1e-11 * max(1.0, abs(long))) return partialSums(t, k, start)
+        // The Leibniz bound: the sum lies between two consecutive partial sums.
+        var p = 0.0
+        var q = 0.0
+        for (j in 0 until 2000) {
+            Budget.check()
+            q = p
+            p += term(t, k, start + j) ?: return null
+        }
+        if (long < minOf(p, q) - 1e-14 || long > maxOf(p, q) + 1e-14) return null
+        return rounded(long, agreement)
+    }
+
+    /** [v] with only the digits an error of [error] leaves certain (at most 15); null where fewer than 6 are. */
+    private fun rounded(v: Double, error: Double): Double? {
+        if (v == 0.0) return if (error < 1e-12) v else null
+        val digits = kotlin.math.floor(-kotlin.math.log10(error / abs(v))).toInt()
+        if (digits < 6) return null
+        return java.math.BigDecimal(v).round(java.math.MathContext(digits.coerceAtMost(15))).toDouble()
+    }
+
+    /** Σ of an alternating series by its partial sums, averaged at the end; the error of the average at most half a step of them. */
+    private fun partialSums(t: Expr, k: Expr.Sym, start: Long): Double? {
         var s = 0.0
         var j = start
         var prev = 0.0
@@ -147,8 +206,9 @@ internal object Sums {
             prev = s
             s += v
             j++
-            // Slowly falling terms (1/k): the mean of two partial sums, Euler's way, after many.
-            if (j - start > 200_000) return (s + prev) / 2
+            // Slowly falling terms (1/k): the mean of two partial sums, Euler's way, after many; its error at most half the last
+            // step between them, and only the digits that leaves.
+            if (j - start > 200_000) return rounded((s + prev) / 2, abs(v) / 2 + 1e-15 * abs(s))
         }
         return (s + prev) / 2
     }
