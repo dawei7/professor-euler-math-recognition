@@ -361,27 +361,70 @@ object Solve {
         else -> 0
     }
 
-    /** f as a polynomial in x with coefficients free of x, lowest degree first; null where it is not one. */
+    /**
+     * f as a polynomial in x with coefficients free of x, lowest degree first; null where it is not one.
+     *
+     * Written without `if (e is Expr.Add) e.terms else listOf(e)` on purpose: HotSpot's C2 compiler in JDK 21.0.11 (the
+     * Windows app's runtime) crashed the whole JVM (EXCEPTION_ACCESS_VIOLATION in jvm.dll) compiling the earlier form, whose
+     * list is a merge of a field and a fresh allocation; replaying the crash showed C2's ReduceAllocationMerges at fault. The
+     * apps' JVMs also run with -XX:-ReduceAllocationMerges, which covers the same form elsewhere.
+     */
     internal fun coefficientsIn(e: Expr, x: Expr.Sym): List<Expr>? {
-        val terms = if (e is Expr.Add) e.terms else listOf(e)
-        val byDegree = HashMap<Int, MutableList<Expr>>()
-        for (t in terms) {
-            val factors = if (t is Expr.Mul) t.factors else listOf(t)
-            var degree = 0
-            val rest = ArrayList<Expr>()
-            for (g in factors) {
-                when {
-                    g == x -> degree += 1
-                    g is Expr.Pow && g.base == x && integer(g.exp)?.let { it.signum() > 0 && it.bitLength() < 16 } == true -> degree += integer(g.exp)!!.toInt()
-                    g.has(x) -> return null
-                    else -> rest += g
-                }
-            }
-            byDegree.getOrPut(degree) { mutableListOf() } += mul(rest)
+        val byDegree = HashMap<Int, ArrayList<Expr>>()
+        if (e is Expr.Add) {
+            for (t in e.terms) if (!collectTerm(t, x, byDegree)) return null
+        } else if (!collectTerm(e, x, byDegree)) {
+            return null
         }
-        val n = byDegree.keys.maxOrNull() ?: return listOf(Expr.ZERO)
+        return coefficientList(byDegree)
+    }
+
+    /** The term t, a product c·xᵏ with c free of x, added to the list of degree k; false where t is no such product. */
+    private fun collectTerm(t: Expr, x: Expr.Sym, byDegree: HashMap<Int, ArrayList<Expr>>): Boolean {
+        var degree = 0
+        val rest = ArrayList<Expr>()
+        if (t is Expr.Mul) {
+            for (g in t.factors) {
+                val k = powerOf(g, x)
+                if (k < 0) return false
+                if (k == 0) rest.add(g) else degree += k
+            }
+        } else {
+            val k = powerOf(t, x)
+            if (k < 0) return false
+            if (k == 0) rest.add(t) else degree = k
+        }
+        var list = byDegree[degree]
+        if (list == null) {
+            list = ArrayList()
+            byDegree[degree] = list
+        }
+        list.add(mul(rest))
+        return true
+    }
+
+    /** k where g is x or xᵏ with a whole k from 1 below 2¹⁵, 0 where g is free of x, −1 otherwise. */
+    private fun powerOf(g: Expr, x: Expr.Sym): Int {
+        if (g == x) return 1
+        if (g is Expr.Pow && g.base == x) {
+            val k = integer(g.exp)
+            if (k != null && k.signum() > 0 && k.bitLength() < 16) return k.toInt()
+        }
+        return if (g.has(x)) -1 else 0
+    }
+
+    /** The coefficients c₀ … cₙ of the lists by degree, each list's sum; null above degree 200. */
+    private fun coefficientList(byDegree: HashMap<Int, ArrayList<Expr>>): List<Expr>? {
+        var n = -1
+        for (k in byDegree.keys) if (k > n) n = k
+        if (n < 0) return listOf(Expr.ZERO)
         if (n > 200) return null
-        return List(n + 1) { k -> byDegree[k]?.let { add(it) } ?: Expr.ZERO }
+        val out = ArrayList<Expr>(n + 1)
+        for (k in 0..n) {
+            val list = byDegree[k]
+            out.add(if (list == null) Expr.ZERO else add(list))
+        }
+        return out
     }
 
     /** The roots of Σ cₖ xᵏ: factors over the rationals where the coefficients are numbers, formulas up to degree two. */
